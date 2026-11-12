@@ -126,7 +126,7 @@ pub struct ShapeInstance {
 }
 
 impl ShapeInstance {
-    pub fn new(cached_shape: CachedShapeHandle, options: ShapeDrawCommandOptions) -> Self {
+    pub fn new(cached_shape: CachedShapeHandle, options: ShapeDrawOptions) -> Self {
         Self {
             cached_shape,
             transform: options.transform,
@@ -224,7 +224,7 @@ enum ShapeGeometry {
 ///
 /// Use [`Self::rect`] or [`Self::rounded_rect`] for rectangles, [`Self::path`] for an existing
 /// Lyon path, or [`Self::builder`] to build a custom path. Set the paint when queueing the shape
-/// with [`ShapeDrawCommandOptions`].
+/// with [`ShapeDrawOptions`].
 #[derive(Debug, Clone)]
 pub struct Shape {
     geometry: ShapeGeometry,
@@ -244,7 +244,7 @@ impl Shape {
 
     /// Stores the stroke geometry.
     ///
-    /// Set the stroke paint with [`ShapeDrawCommandOptions::stroke_fill`].
+    /// Set the stroke paint with [`ShapeDrawOptions::stroke_fill`].
     pub fn with_stroke(mut self, stroke: StrokeGeometryOptions) -> Self {
         self.stroke = Some(stroke);
         self
@@ -387,7 +387,7 @@ impl AsRef<Shape> for Shape {
     }
 }
 
-/// A rectangle's coordinates. Set its fill with [`ShapeDrawCommandOptions`].
+/// A rectangle's coordinates. Set its fill with [`ShapeDrawOptions`].
 ///
 /// Use [`Shape::rect`] to construct a shape directly from rectangle coordinates.
 #[derive(Debug, Clone)]
@@ -403,7 +403,7 @@ impl RectShape {
     }
 }
 
-/// A custom path. Set its fill with [`ShapeDrawCommandOptions`].
+/// A custom path. Set its fill with [`ShapeDrawOptions`].
 ///
 /// Use [`Shape::path`] to construct a shape directly from a Lyon path with the default fill rule.
 #[derive(Clone, Debug)]
@@ -614,7 +614,7 @@ impl StrokeGeometryOptions {
 }
 
 #[derive(Clone, Debug)]
-pub struct ShapeDrawCommandOptions {
+pub struct ShapeDrawOptions {
     pub transform: Option<InstanceTransform>,
     pub clips_children: bool,
     pub background_texture: ShapeTextureOptions,
@@ -626,7 +626,7 @@ pub struct ShapeDrawCommandOptions {
     pub stroke_fill: Option<Fill>,
 }
 
-impl Default for ShapeDrawCommandOptions {
+impl Default for ShapeDrawOptions {
     fn default() -> Self {
         Self {
             transform: None,
@@ -639,7 +639,7 @@ impl Default for ShapeDrawCommandOptions {
     }
 }
 
-impl ShapeDrawCommandOptions {
+impl ShapeDrawOptions {
     pub fn new() -> Self {
         Self::default()
     }
@@ -715,14 +715,14 @@ impl ShapeDrawCommandOptions {
 
 /// Builds a shape's path through method chaining.
 ///
-/// Assign a fill through [`ShapeDrawCommandOptions`] when queueing the shape.
+/// Assign a fill through [`ShapeDrawOptions`] when queueing the shape.
 /// An unset fill inherits the group fill or draws transparent. [`Shape::builder`] also creates this
 /// builder.
 ///
 /// # Examples
 ///
 /// ```rust
-/// use grafo::{Color, Scene, ShapeBuilder, ShapeDrawCommandOptions};
+/// use grafo::{Color, Scene, ShapeBuilder, ShapeDrawOptions};
 ///
 /// # fn example(scene: &mut Scene) {
 /// let custom_shape = ShapeBuilder::new()
@@ -735,7 +735,7 @@ impl ShapeDrawCommandOptions {
 ///     custom_shape,
 ///     None,
 ///     None,
-///     ShapeDrawCommandOptions::new().color(Color::rgb(0, 128, 255)),
+///     ShapeDrawOptions::new().color(Color::rgb(0, 128, 255)),
 /// ).unwrap();
 /// # }
 /// ```

@@ -2,7 +2,7 @@
 
 use futures::executor::block_on;
 use grafo::{BorderRadii, Scene, Shape};
-use grafo::{Color, ShapeDrawCommandOptions};
+use grafo::{Color, ShapeDrawOptions};
 use grafo::{SceneContext, Surface};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
@@ -107,7 +107,7 @@ impl ApplicationHandler for App {
                         background,
                         None,
                         None,
-                        ShapeDrawCommandOptions::new().color(Color::BLACK),
+                        ShapeDrawOptions::new().color(Color::BLACK),
                     )
                     .unwrap();
 
@@ -123,7 +123,7 @@ impl ApplicationHandler for App {
                         triangle,
                         Some(0),
                         None,
-                        ShapeDrawCommandOptions::new().color(Color::rgb(0, 128, 255)),
+                        ShapeDrawOptions::new().color(Color::rgb(0, 128, 255)),
                     )
                     .unwrap();
 
@@ -135,7 +135,7 @@ impl ApplicationHandler for App {
                         rounded_rect,
                         Some(0),
                         None,
-                        ShapeDrawCommandOptions::new().color(Color::rgb(255, 100, 50)),
+                        ShapeDrawOptions::new().color(Color::rgb(255, 100, 50)),
                     )
                     .unwrap();
 
@@ -147,7 +147,7 @@ impl ApplicationHandler for App {
                         circle,
                         Some(0),
                         None,
-                        ShapeDrawCommandOptions::new().color(Color::rgb(50, 200, 100)),
+                        ShapeDrawOptions::new().color(Color::rgb(50, 200, 100)),
                     )
                     .unwrap();
 
@@ -157,7 +157,7 @@ impl ApplicationHandler for App {
                         small_rect,
                         None,
                         None,
-                        ShapeDrawCommandOptions::new().color(Color::rgb(200, 200, 255)),
+                        ShapeDrawOptions::new().color(Color::rgb(200, 200, 255)),
                     )
                     .unwrap();
 

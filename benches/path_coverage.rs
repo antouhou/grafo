@@ -1,8 +1,7 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use futures::executor::block_on;
 use grafo::{
-    BorderRadii, Color, PixelFormat, Pixmap, Scene, Shape, ShapeDrawCommandOptions,
-    TransformInstance,
+    BorderRadii, Color, PixelFormat, Pixmap, Scene, Shape, ShapeDrawOptions, TransformInstance,
 };
 
 #[derive(Clone, Copy)]
@@ -46,7 +45,7 @@ fn populate(
             background(scene.size()),
             None,
             None,
-            ShapeDrawCommandOptions::new()
+            ShapeDrawOptions::new()
                 .color(Color::BLACK)
                 .clips_children(false),
         )
@@ -68,7 +67,7 @@ fn populate(
                     1
                 },
                 None,
-                ShapeDrawCommandOptions::new()
+                ShapeDrawOptions::new()
                     .color(Color::rgb(210, 160, 80))
                     .transform(TransformInstance::translation(x, y)),
             )
@@ -152,7 +151,7 @@ fn benchmark_paths(criterion: &mut Criterion) {
                             root,
                             background(workload.size),
                             None,
-                            ShapeDrawCommandOptions::new()
+                            ShapeDrawOptions::new()
                                 .color(Color::BLACK)
                                 .clips_children(false),
                         )

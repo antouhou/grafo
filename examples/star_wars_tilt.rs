@@ -1,6 +1,6 @@
 use euclid::{Point2D, UnknownUnit};
 use futures::executor::block_on;
-use grafo::{Color, Scene, Shape, ShapeDrawCommandOptions};
+use grafo::{Color, Scene, Shape, ShapeDrawOptions};
 use grafo::{SceneContext, Surface};
 use std::sync::Arc;
 use tracing::warn;
@@ -155,7 +155,7 @@ impl ApplicationHandler for App {
                             Shape::rect([(0.0, 0.0), (width, height)]),
                             None,
                             None,
-                            ShapeDrawCommandOptions::new().color(Color::rgb(30, 30, 30)),
+                            ShapeDrawOptions::new().color(Color::rgb(30, 30, 30)),
                         )
                         .unwrap();
 
@@ -164,7 +164,7 @@ impl ApplicationHandler for App {
                             Shape::rect([(0.0, 0.0), (100.0, 100.0)]),
                             None,
                             None,
-                            ShapeDrawCommandOptions::new()
+                            ShapeDrawOptions::new()
                                 .color(if self.parent_hovered {
                                     Color::rgba(255, 235, 100, 200)
                                 } else {
@@ -182,7 +182,7 @@ impl ApplicationHandler for App {
                             inner_rect_shape.clone(),
                             None,
                             None,
-                            ShapeDrawCommandOptions::new()
+                            ShapeDrawOptions::new()
                                 .color(if self.child1_hovered {
                                     Color::rgb(200, 50, 50)
                                 } else {
@@ -198,7 +198,7 @@ impl ApplicationHandler for App {
                             inner_rect_shape,
                             None,
                             None,
-                            ShapeDrawCommandOptions::new()
+                            ShapeDrawOptions::new()
                                 .color(if self.child2_hovered {
                                     Color::rgb(50, 200, 50)
                                 } else {

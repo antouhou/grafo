@@ -2,9 +2,7 @@
 //! Both passes use the same radius and sample in input texture pixels.
 
 use futures::executor::block_on;
-use grafo::{
-    Color, ContentEffectConfig, Scene, SceneContext, Shape, ShapeDrawCommandOptions, Surface,
-};
+use grafo::{Color, ContentEffectConfig, Scene, SceneContext, Shape, ShapeDrawOptions, Surface};
 use grafo_test_scenes::shaders::{BlurParams, HORIZONTAL_BLUR_WGSL, VERTICAL_BLUR_WGSL};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
@@ -83,7 +81,7 @@ impl ApplicationHandler for App {
                         bg,
                         None,
                         None,
-                        ShapeDrawCommandOptions::new().color(Color::rgb(240, 240, 245)),
+                        ShapeDrawOptions::new().color(Color::rgb(240, 240, 245)),
                     )
                     .unwrap();
 
@@ -93,7 +91,7 @@ impl ApplicationHandler for App {
                         marker,
                         Some(bg_id),
                         None,
-                        ShapeDrawCommandOptions::new().color(Color::rgb(200, 200, 255)),
+                        ShapeDrawOptions::new().color(Color::rgb(200, 200, 255)),
                     )
                     .unwrap();
 
@@ -103,7 +101,7 @@ impl ApplicationHandler for App {
                         group_bg,
                         None,
                         None,
-                        ShapeDrawCommandOptions::new().color(Color::rgba(255, 100, 100, 100)),
+                        ShapeDrawOptions::new().color(Color::rgba(255, 100, 100, 100)),
                     )
                     .unwrap();
 
@@ -113,7 +111,7 @@ impl ApplicationHandler for App {
                         child1,
                         Some(group),
                         None,
-                        ShapeDrawCommandOptions::new().color(Color::rgb(50, 120, 255)),
+                        ShapeDrawOptions::new().color(Color::rgb(50, 120, 255)),
                     )
                     .unwrap();
 
@@ -123,7 +121,7 @@ impl ApplicationHandler for App {
                         child2,
                         Some(group),
                         None,
-                        ShapeDrawCommandOptions::new().color(Color::rgb(50, 220, 80)),
+                        ShapeDrawOptions::new().color(Color::rgb(50, 220, 80)),
                     )
                     .unwrap();
 
@@ -144,7 +142,7 @@ impl ApplicationHandler for App {
                         sharp_bg,
                         None,
                         None,
-                        ShapeDrawCommandOptions::new().color(Color::rgb(255, 100, 100)),
+                        ShapeDrawOptions::new().color(Color::rgb(255, 100, 100)),
                     )
                     .unwrap();
 
@@ -154,7 +152,7 @@ impl ApplicationHandler for App {
                         sc1,
                         Some(sharp),
                         None,
-                        ShapeDrawCommandOptions::new().color(Color::rgb(50, 120, 255)),
+                        ShapeDrawOptions::new().color(Color::rgb(50, 120, 255)),
                     )
                     .unwrap();
 
@@ -164,7 +162,7 @@ impl ApplicationHandler for App {
                         sc2,
                         Some(sharp),
                         None,
-                        ShapeDrawCommandOptions::new().color(Color::rgb(50, 220, 80)),
+                        ShapeDrawOptions::new().color(Color::rgb(50, 220, 80)),
                     )
                     .unwrap();
 

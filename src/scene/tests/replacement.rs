@@ -5,7 +5,7 @@ use super::{
 use crate::core::vertex::InstanceTransform;
 use crate::core::{
     BackdropCaptureArea, BackdropEffectConfig, ContentEffectConfig, LineJoin, Shape,
-    ShapeDrawCommandOptions, ShapeMaskEffectConfig, StrokeGeometryError, StrokeGeometryOptions,
+    ShapeDrawOptions, ShapeMaskEffectConfig, StrokeGeometryError, StrokeGeometryOptions,
     UnsignedPhysicalRect,
 };
 use crate::scene_state::effects::EffectConfig;
@@ -20,7 +20,7 @@ fn shape(scene: &mut Scene<TestBackend>, bounds: [(f32, f32); 2], parent: usize)
             Shape::rect(bounds),
             Some(parent),
             None,
-            ShapeDrawCommandOptions::new(),
+            ShapeDrawOptions::new(),
         )
         .unwrap()
 }
@@ -46,7 +46,7 @@ fn tessellation_error_preserves_the_loaded_shape_and_queued_draw() {
     let mut scene = scene();
     let bounds = [(0.0, 0.0), (12.0, 10.0)];
     let cache_key = 1;
-    let options = ShapeDrawCommandOptions::new();
+    let options = ShapeDrawOptions::new();
     scene
         .load_shape(Shape::rect(bounds), cache_key, None)
         .unwrap();
@@ -137,7 +137,7 @@ fn invalid_stroke_preserves_both_loaded_meshes() {
     }
 
     let node = scene
-        .add_cached_shape(1, None, ShapeDrawCommandOptions::new())
+        .add_cached_shape(1, None, ShapeDrawOptions::new())
         .unwrap();
     let queued = &scene.state.shape(node).unwrap().cached_shape;
     assert!(Arc::ptr_eq(
@@ -454,13 +454,13 @@ fn replacements_preserve_topology_and_refresh_or_remove_only_the_nodes_effects()
     let old_capture = scene.state.backdrop_effects[&parent].capture_region;
     let replacement = Shape::rect([(4.0, 5.0), (12.0, 13.0)]);
     scene
-        .replace_with_shape(parent, &replacement, None, ShapeDrawCommandOptions::new())
+        .replace_with_shape(parent, &replacement, None, ShapeDrawOptions::new())
         .unwrap();
     scene
-        .replace_with_cached_shape(first, 1, ShapeDrawCommandOptions::new())
+        .replace_with_cached_shape(first, 1, ShapeDrawOptions::new())
         .unwrap();
     scene
-        .replace_with_cached_shape(first, 1, ShapeDrawCommandOptions::new())
+        .replace_with_cached_shape(first, 1, ShapeDrawOptions::new())
         .unwrap();
     assert_eq!(scene.state.draw_tree.children(root), &[parent, sibling]);
     assert_eq!(scene.state.draw_tree.children(parent), &[first, second]);
@@ -488,7 +488,7 @@ fn replacements_preserve_topology_and_refresh_or_remove_only_the_nodes_effects()
     assert!(scene.state.content_effects.contains_key(&first));
     assert_eq!(scene.state.effect_parameters.bytes.len(), 16);
     scene
-        .replace_with_cached_shape(parent, 1, ShapeDrawCommandOptions::new())
+        .replace_with_cached_shape(parent, 1, ShapeDrawOptions::new())
         .unwrap();
     assert_eq!(scene.state.draw_tree.children(parent), &[first, second]);
     scene.render(&mut surface).unwrap();
@@ -510,10 +510,10 @@ fn replacement_errors_preserve_the_failing_node_and_prior_replacements() {
     let old_effect = *scene.state.shape_mask_effect(second).unwrap();
     scene.backend.registration_failure = Some(second);
     scene
-        .replace_with_cached_shape(first, 2, ShapeDrawCommandOptions::new())
+        .replace_with_cached_shape(first, 2, ShapeDrawOptions::new())
         .unwrap();
     assert!(matches!(
-        scene.replace_with_cached_shape(second, 2, ShapeDrawCommandOptions::new()),
+        scene.replace_with_cached_shape(second, 2, ShapeDrawOptions::new()),
         Err(DrawCommandError::Backend(TestBackendError))
     ));
     for (node_id, expected) in [(first, Some(2)), (second, Some(1)), (last, Some(1))] {
@@ -525,12 +525,12 @@ fn replacement_errors_preserve_the_failing_node_and_prior_replacements() {
     let dirty = scene.dirty_bounds;
     for (node_id, cache_key) in [(usize::MAX, 1), (first, 999)] {
         assert!(scene
-            .replace_with_cached_shape(node_id, cache_key, ShapeDrawCommandOptions::new())
+            .replace_with_cached_shape(node_id, cache_key, ShapeDrawOptions::new())
             .is_err());
         assert_eq!(scene.dirty_bounds, dirty);
     }
     assert!(matches!(
-        scene.replace_with_shape(second, Shape::rect([(0.0, 0.0), (f32::MAX, f32::MAX)]), None, ShapeDrawCommandOptions::new()),
+        scene.replace_with_shape(second, Shape::rect([(0.0, 0.0), (f32::MAX, f32::MAX)]), None, ShapeDrawOptions::new()),
         Err(DrawCommandError::Scene(SceneError::InvalidShapeMaskEffectBounds(id))) if id == second
     ));
     assert_eq!(

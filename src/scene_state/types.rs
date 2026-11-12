@@ -1,6 +1,6 @@
 use super::effects::{EffectAttachmentKind, EffectAttachments};
 use super::paint::GroupFill;
-use crate::core::shape::{CachedShapeHandle, ShapeDrawCommandOptions, ShapeInstance};
+use crate::core::shape::{CachedShapeHandle, ShapeDrawOptions, ShapeInstance};
 use crate::core::vertex::InstanceTransform;
 use crate::core::{geometry, MathRect};
 
@@ -38,7 +38,7 @@ pub(crate) struct CachedShapeDrawData {
 }
 
 impl CachedShapeDrawData {
-    pub(crate) fn new(cached_shape: CachedShapeHandle, options: ShapeDrawCommandOptions) -> Self {
+    pub(crate) fn new(cached_shape: CachedShapeHandle, options: ShapeDrawOptions) -> Self {
         let clips_children = options.clips_children;
         let inherits_fill = options.fill.is_none();
         let instance = ShapeInstance::new(cached_shape, options);

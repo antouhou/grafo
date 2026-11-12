@@ -3,7 +3,7 @@ use crate::commands::RenderOperation;
 use crate::core::effect::{ContentEffectConfig, ShapeMaskEffectBounds};
 use crate::core::vertex::InstanceTransform;
 use crate::core::{
-    BackdropEffectConfig, Color, MathRect, Shape, ShapeDrawCommandOptions, ShapeMaskEffectConfig,
+    BackdropEffectConfig, Color, MathRect, Shape, ShapeDrawOptions, ShapeMaskEffectConfig,
     UnsignedPhysicalRect,
 };
 use crate::scene::Scene;
@@ -17,7 +17,7 @@ fn add_effects_with_mixed_coordinate_ranges(scene: &mut Scene<TestBackend>) -> [
                 Shape::rect([(10.0, 10.0), (14.0, 14.0)]),
                 None,
                 None,
-                ShapeDrawCommandOptions::new().color(Color::WHITE),
+                ShapeDrawOptions::new().color(Color::WHITE),
             )
             .unwrap()
     });
@@ -38,7 +38,7 @@ fn add_effects_with_mixed_coordinate_ranges(scene: &mut Scene<TestBackend>) -> [
             translated,
             Shape::rect([(1_500_000_000.0, 10.0), (1_500_000_128.0, 14.0)]),
             None,
-            ShapeDrawCommandOptions::new()
+            ShapeDrawOptions::new()
                 .color(Color::WHITE)
                 .transform(InstanceTransform::translation(-1_500_000_000.0, 0.0)),
         )
@@ -122,7 +122,7 @@ fn retained_shape_mask_effect_changes_clear_old_footprints() {
             Shape::rect([(10.0, 10.0), (14.0, 14.0)]),
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::WHITE),
+            ShapeDrawOptions::new().color(Color::WHITE),
         )
         .unwrap();
     scene.load_effect(7, &["shape mask effect"]).unwrap();
@@ -236,7 +236,7 @@ fn cached_effect_bounds_follow_rasterization_and_keep_offscreen_coverage() {
             Shape::rect([(0.25, 0.5), (4.25, 3.5)]),
             None,
             None,
-            ShapeDrawCommandOptions::new()
+            ShapeDrawOptions::new()
                 .color(Color::WHITE)
                 .transform(InstanceTransform::affine_2d(0.0, 2.0, -1.0, 0.0, 18.0, 4.0)),
         )
@@ -329,7 +329,7 @@ fn shape_mask_effect_damage_uses_configured_bounds_with_other_effects() {
                 Shape::rect([(10.0, 10.0), (14.0, 14.0)]),
                 None,
                 None,
-                ShapeDrawCommandOptions::new().color(Color::WHITE),
+                ShapeDrawOptions::new().color(Color::WHITE),
             )
             .unwrap();
         if backdrop {
@@ -412,7 +412,7 @@ fn removing_effect_subtrees_clears_shadow_pixels_and_allows_id_reuse() {
             Shape::rect([(10.0, 10.0), (14.0, 14.0)]),
             Some(parent),
             None,
-            ShapeDrawCommandOptions::new().color(Color::WHITE),
+            ShapeDrawOptions::new().color(Color::WHITE),
         )
         .unwrap();
     scene
@@ -435,7 +435,7 @@ fn removing_effect_subtrees_clears_shadow_pixels_and_allows_id_reuse() {
             Shape::rect([(22.0, 22.0), (24.0, 24.0)]),
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::WHITE),
+            ShapeDrawOptions::new().color(Color::WHITE),
         )
         .unwrap();
     scene.render(&mut surface).unwrap();

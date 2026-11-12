@@ -3,7 +3,7 @@
 
 use futures::executor::block_on;
 use grafo::{BackdropEffectConfig, BorderRadii, Scene, Shape};
-use grafo::{Color, ShapeDrawCommandOptions};
+use grafo::{Color, ShapeDrawOptions};
 use grafo::{SceneContext, Surface};
 use grafo_test_scenes::shaders::{BlurParams, HORIZONTAL_BLUR_WGSL, VERTICAL_BLUR_WGSL};
 use std::sync::Arc;
@@ -83,7 +83,7 @@ impl ApplicationHandler for App {
                         bg,
                         None,
                         None,
-                        ShapeDrawCommandOptions::new().color(Color::rgb(245, 245, 250)),
+                        ShapeDrawOptions::new().color(Color::rgb(245, 245, 250)),
                     )
                     .unwrap();
 
@@ -94,7 +94,7 @@ impl ApplicationHandler for App {
                         r1,
                         Some(bg_id),
                         None,
-                        ShapeDrawCommandOptions::new().color(Color::rgb(220, 50, 50)),
+                        ShapeDrawOptions::new().color(Color::rgb(220, 50, 50)),
                     )
                     .unwrap();
 
@@ -104,7 +104,7 @@ impl ApplicationHandler for App {
                         r2,
                         Some(bg_id),
                         None,
-                        ShapeDrawCommandOptions::new().color(Color::rgb(50, 160, 50)),
+                        ShapeDrawOptions::new().color(Color::rgb(50, 160, 50)),
                     )
                     .unwrap();
 
@@ -114,7 +114,7 @@ impl ApplicationHandler for App {
                         r3,
                         Some(bg_id),
                         None,
-                        ShapeDrawCommandOptions::new().color(Color::rgb(50, 80, 220)),
+                        ShapeDrawOptions::new().color(Color::rgb(50, 80, 220)),
                     )
                     .unwrap();
 
@@ -124,7 +124,7 @@ impl ApplicationHandler for App {
                         r4,
                         Some(bg_id),
                         None,
-                        ShapeDrawCommandOptions::new().color(Color::rgb(200, 180, 50)),
+                        ShapeDrawOptions::new().color(Color::rgb(200, 180, 50)),
                     )
                     .unwrap();
 
@@ -135,7 +135,7 @@ impl ApplicationHandler for App {
                         panel,
                         None,
                         None,
-                        ShapeDrawCommandOptions::new().color(Color::rgba(255, 255, 255, 100)),
+                        ShapeDrawOptions::new().color(Color::rgba(255, 255, 255, 100)),
                     )
                     .unwrap();
 
@@ -147,7 +147,7 @@ impl ApplicationHandler for App {
                         panel_content,
                         Some(panel_id),
                         None,
-                        ShapeDrawCommandOptions::new().color(Color::rgba(200, 220, 255, 120)),
+                        ShapeDrawOptions::new().color(Color::rgba(200, 220, 255, 120)),
                     )
                     .unwrap();
 
@@ -168,7 +168,7 @@ impl ApplicationHandler for App {
                         panel2,
                         None,
                         None,
-                        ShapeDrawCommandOptions::new().color(Color::rgba(200, 220, 255, 120)),
+                        ShapeDrawOptions::new().color(Color::rgba(200, 220, 255, 120)),
                     )
                     .unwrap();
 

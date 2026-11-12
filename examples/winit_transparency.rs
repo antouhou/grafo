@@ -1,5 +1,5 @@
 use futures::executor::block_on;
-use grafo::{BorderRadii, Color, Scene, Shape, ShapeDrawCommandOptions};
+use grafo::{BorderRadii, Color, Scene, Shape, ShapeDrawOptions};
 use grafo::{SceneContext, Surface};
 use std::sync::Arc;
 use std::time::Instant;
@@ -79,7 +79,7 @@ impl ApplicationHandler for App {
                         rect,
                         None,
                         None,
-                        ShapeDrawCommandOptions::new().color(Color::rgb(255, 100, 50)),
+                        ShapeDrawOptions::new().color(Color::rgb(255, 100, 50)),
                     )
                     .unwrap();
 
@@ -90,7 +90,7 @@ impl ApplicationHandler for App {
                         rounded_rect,
                         None,
                         None,
-                        ShapeDrawCommandOptions::new().color(Color::rgb(100, 200, 255)),
+                        ShapeDrawOptions::new().color(Color::rgb(100, 200, 255)),
                     )
                     .unwrap();
 

@@ -2,7 +2,7 @@ use super::draw_commands::NodeTarget;
 use super::{DrawCommandError, Scene};
 use crate::commands::ShapeDrawId;
 use crate::core::{
-    geometry, GroupDrawCommandOptions, MathRect, ShapeDrawCommandOptions, Size, TextSource,
+    geometry, GroupDrawCommandOptions, MathRect, ShapeDrawOptions, Size, TextSource,
     TransformInstance,
 };
 use crate::render_backend::RenderBackend;
@@ -78,7 +78,7 @@ impl<B: RenderBackend> Scene<B> {
         &mut self,
         group_id: usize,
         source: &mut impl TextSource,
-        options: ShapeDrawCommandOptions,
+        options: ShapeDrawOptions,
         effects: EffectAttachments,
         scratch: &mut TextScratch,
     ) -> Result<(), DrawCommandError<B::Error>> {
@@ -112,7 +112,7 @@ impl<B: RenderBackend> Scene<B> {
         &mut self,
         target: NodeTarget,
         mut source: impl TextSource,
-        mut options: ShapeDrawCommandOptions,
+        mut options: ShapeDrawOptions,
     ) -> Result<usize, DrawCommandError<B::Error>> {
         match target {
             NodeTarget::Insert { parent } => self.state.validate_parent(parent)?,

@@ -1,7 +1,7 @@
 use super::super::{Scene, TestBackend, TestSurface, TestTextureManager};
 use crate::core::vertex::InstanceTransform;
 use crate::core::{
-    BackdropCaptureArea, BackdropEffectConfig, Shape, ShapeDrawCommandOptions, UnsignedPhysicalRect,
+    BackdropCaptureArea, BackdropEffectConfig, Shape, ShapeDrawOptions, UnsignedPhysicalRect,
 };
 use crate::render_backend::render_target::Surface;
 use crate::render_backend::texture_manager::TextureManager;
@@ -29,15 +29,15 @@ fn scene(texture_manager: TestTextureManager) -> (Scene<TestBackend>, Surface<Te
     for (bounds, options) in [
         (
             [(8.0, 8.0), (16.0, 16.0)],
-            ShapeDrawCommandOptions::new().background_texture_id(11),
+            ShapeDrawOptions::new().background_texture_id(11),
         ),
         (
             [(40.0, 16.0), (48.0, 24.0)],
-            ShapeDrawCommandOptions::new().foreground_texture_id(11),
+            ShapeDrawOptions::new().foreground_texture_id(11),
         ),
         (
             [(100.0, 64.0), (108.0, 72.0)],
-            ShapeDrawCommandOptions::new().background_texture_id(12),
+            ShapeDrawOptions::new().background_texture_id(12),
         ),
     ] {
         scene
@@ -125,12 +125,7 @@ fn texture_damage_is_expanded_through_chained_backdrop_captures() {
         ([(80.0, 8.0), (88.0, 16.0)], [(48.0, 0.0), (64.0, 32.0)]),
     ] {
         let node = scene
-            .add_shape(
-                Shape::rect(output),
-                Some(0),
-                None,
-                ShapeDrawCommandOptions::new(),
-            )
+            .add_shape(Shape::rect(output), Some(0), None, ShapeDrawOptions::new())
             .unwrap();
         scene
             .set_backdrop_effect(
@@ -160,7 +155,7 @@ fn texture_damage_uses_current_associations_after_node_slot_reuse() {
             Shape::rect([(80.0, 80.0), (88.0, 88.0)]),
             Some(0),
             None,
-            ShapeDrawCommandOptions::new().background_texture_id(12),
+            ShapeDrawOptions::new().background_texture_id(12),
         )
         .unwrap();
     assert!([1, 2].contains(&reused));
@@ -207,7 +202,7 @@ fn texture_damage_respects_transforms_scale_and_viewport_clipping() {
             Shape::rect([(0.0, 0.0), (16.0, 8.0)]),
             None,
             None,
-            ShapeDrawCommandOptions::new()
+            ShapeDrawOptions::new()
                 .background_texture_id(11)
                 .transform(InstanceTransform::translation(24.0, 8.0)),
         )

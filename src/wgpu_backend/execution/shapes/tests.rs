@@ -2,7 +2,7 @@ use super::preparation::{self, InstanceTextureData};
 use super::{ShapeBufferLocation, ShapeDrawResources, ShapeExecutionResources};
 use crate::commands::ShapeDrawId;
 use crate::core::vertex::{InstanceTransform, TextureUvTransform};
-use crate::core::{BorderRadii, Shape, ShapeDrawCommandOptions, ShapeInstance, Viewport};
+use crate::core::{BorderRadii, Shape, ShapeDrawOptions, ShapeInstance, Viewport};
 use crate::scene_state::{SceneState, SceneStateContext};
 
 fn insert_draw(resources: &mut ShapeExecutionResources, id: usize, shape: &ShapeInstance) {
@@ -100,7 +100,7 @@ fn tessellation_preserves_large_path_indices_in_boundaries_and_draw_buffers() {
     );
     let shape = ShapeInstance::new(
         scene.tessellate(&path.build(), None).unwrap(),
-        ShapeDrawCommandOptions::new(),
+        ShapeDrawOptions::new(),
     );
     let vertex_count = triangle_count * 3;
     assert_eq!(
@@ -132,19 +132,19 @@ fn removal_compacts_buffers_and_keeps_shared_geometry_until_its_last_draw() {
         scene
             .tessellate(&Shape::rect([(1.0, 2.0), (10.0, 12.0)]), Some(1))
             .unwrap(),
-        ShapeDrawCommandOptions::new(),
+        ShapeDrawOptions::new(),
     );
     let unique = ShapeInstance::new(
         scene
             .tessellate(&Shape::rect([(20.0, 3.0), (27.0, 9.0)]), Some(2))
             .unwrap(),
-        ShapeDrawCommandOptions::new(),
+        ShapeDrawOptions::new(),
     );
     let uncached = ShapeInstance::new(
         scene
             .tessellate(&Shape::rect([(3.0, 5.0), (18.0, 21.0)]), None)
             .unwrap(),
-        ShapeDrawCommandOptions::new(),
+        ShapeDrawOptions::new(),
     );
     let mut resources = ShapeExecutionResources::new();
     insert_draw(&mut resources, 1, &shared);
@@ -207,13 +207,13 @@ fn batch_removal_keeps_surviving_geometry_and_instances() {
         scene
             .tessellate(&Shape::rect([(1.0, 2.0), (10.0, 12.0)]), Some(1))
             .unwrap(),
-        ShapeDrawCommandOptions::new(),
+        ShapeDrawOptions::new(),
     );
     let removed_shape = ShapeInstance::new(
         scene
             .tessellate(&Shape::rect([(20.0, 3.0), (27.0, 9.0)]), Some(2))
             .unwrap(),
-        ShapeDrawCommandOptions::new(),
+        ShapeDrawOptions::new(),
     );
     let uncached = ShapeInstance::new(
         scene
@@ -222,11 +222,11 @@ fn batch_removal_keeps_surviving_geometry_and_instances() {
                 None,
             )
             .unwrap(),
-        ShapeDrawCommandOptions::new(),
+        ShapeDrawOptions::new(),
     );
     let empty = ShapeInstance::new(
         scene.tessellate(&Shape::builder().build(), None).unwrap(),
-        ShapeDrawCommandOptions::new(),
+        ShapeDrawOptions::new(),
     );
     let mut resources = ShapeExecutionResources::new();
     for (id, shape) in [
@@ -324,7 +324,7 @@ fn batch_replacement_compacts_overwritten_instances_and_preserves_shared_geometr
         scene
             .tessellate(&Shape::rect([(1.0, 2.0), (10.0, 12.0)]), Some(1))
             .unwrap(),
-        ShapeDrawCommandOptions::new(),
+        ShapeDrawOptions::new(),
     );
     let replacement = ShapeInstance::new(
         scene
@@ -333,17 +333,17 @@ fn batch_replacement_compacts_overwritten_instances_and_preserves_shared_geometr
                 Some(2),
             )
             .unwrap(),
-        ShapeDrawCommandOptions::new(),
+        ShapeDrawOptions::new(),
     );
     let uncached = ShapeInstance::new(
         scene
             .tessellate(&Shape::rect([(3.0, 5.0), (18.0, 21.0)]), None)
             .unwrap(),
-        ShapeDrawCommandOptions::new(),
+        ShapeDrawOptions::new(),
     );
     let empty = ShapeInstance::new(
         scene.tessellate(&Shape::builder().build(), None).unwrap(),
-        ShapeDrawCommandOptions::new(),
+        ShapeDrawOptions::new(),
     );
     let mut resources = ShapeExecutionResources::new();
     insert_draw(&mut resources, 1, &shared);

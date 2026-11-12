@@ -1,7 +1,7 @@
 use super::{DrawCommandError, RenderBackend, Scene};
 use crate::commands::{RenderCommand, RenderOperation, ShapeDrawId, Target};
 use crate::core::{
-    CachedShapeHandle, Color, ContentEffectConfig, Shape, ShapeDrawCommandOptions, ShapeInstance,
+    CachedShapeHandle, Color, ContentEffectConfig, Shape, ShapeDrawOptions, ShapeInstance,
     ShapeMaskEffectConfig, UnsignedPhysicalRect, Viewport,
 };
 use crate::render_backend::render_target::{
@@ -281,7 +281,7 @@ fn queue_shape(scene: &mut Scene<TestBackend>, with_effects: bool) -> usize {
         .add_cached_shape(
             1,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(255, 0, 0)),
+            ShapeDrawOptions::new().color(Color::rgb(255, 0, 0)),
         )
         .unwrap();
     if with_effects {
@@ -420,7 +420,7 @@ fn failed_registration_leaves_scene_unchanged() {
 
     scene.backend.should_fail = true;
     assert!(matches!(
-        scene.add_cached_shape(1, None, ShapeDrawCommandOptions::new()),
+        scene.add_cached_shape(1, None, ShapeDrawOptions::new()),
         Err(DrawCommandError::Backend(TestBackendError))
     ));
     assert!(scene.state.shape(shape + 1).is_err());
@@ -429,7 +429,7 @@ fn failed_registration_leaves_scene_unchanged() {
     scene.backend.should_fail = false;
     assert_eq!(
         scene
-            .add_cached_shape(1, None, ShapeDrawCommandOptions::new())
+            .add_cached_shape(1, None, ShapeDrawOptions::new())
             .unwrap(),
         shape + 1
     );

@@ -1,7 +1,7 @@
 use super::super::{Scene, TestBackend, TestSurface};
 use crate::core::vertex::InstanceTransform;
 use crate::core::{
-    BackdropCaptureArea, BackdropEffectConfig, Shape, ShapeDrawCommandOptions, UnsignedPhysicalRect,
+    BackdropCaptureArea, BackdropEffectConfig, Shape, ShapeDrawOptions, UnsignedPhysicalRect,
 };
 use crate::render_backend::render_target::Surface;
 use crate::scene_state::SceneStateContext;
@@ -29,12 +29,7 @@ fn scene() -> (Scene<TestBackend>, Surface<TestSurface>) {
 
 fn shape(scene: &mut Scene<TestBackend>, bounds: [(f32, f32); 2]) -> usize {
     scene
-        .add_shape(
-            Shape::rect(bounds),
-            Some(0),
-            None,
-            ShapeDrawCommandOptions::new(),
-        )
+        .add_shape(Shape::rect(bounds), Some(0), None, ShapeDrawOptions::new())
         .unwrap()
 }
 

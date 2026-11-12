@@ -1,7 +1,6 @@
 use super::{create_headless_scene_with_size_and_scale, render_bgra};
 use grafo::{
-    BackdropEffectConfig, BorderRadii, Color, ContentEffectConfig, Scene, Shape,
-    ShapeDrawCommandOptions,
+    BackdropEffectConfig, BorderRadii, Color, ContentEffectConfig, Scene, Shape, ShapeDrawOptions,
 };
 use grafo_test_scenes::shaders::PASSTHROUGH_WGSL;
 
@@ -18,7 +17,7 @@ fn populate_motion_scene(scene: &mut Scene, effects: Effects) -> [usize; 4] {
             Shape::rect([(0.0, 0.0), (160.0, 120.0)]),
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::WHITE),
+            ShapeDrawOptions::new().color(Color::WHITE),
         )
         .unwrap();
     let background = scene
@@ -26,7 +25,7 @@ fn populate_motion_scene(scene: &mut Scene, effects: Effects) -> [usize; 4] {
             Shape::rect([(10.0, 10.0), (70.0, 90.0)]),
             Some(root),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(255, 0, 0)),
+            ShapeDrawOptions::new().color(Color::rgb(255, 0, 0)),
         )
         .unwrap();
     let group = scene
@@ -34,7 +33,7 @@ fn populate_motion_scene(scene: &mut Scene, effects: Effects) -> [usize; 4] {
             Shape::rounded_rect([(20.0, 20.0), (100.0, 100.0)], BorderRadii::new(8.0)),
             Some(root),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgba(0, 255, 0, 128)),
+            ShapeDrawOptions::new().color(Color::rgba(0, 255, 0, 128)),
         )
         .unwrap();
     let child = scene
@@ -42,7 +41,7 @@ fn populate_motion_scene(scene: &mut Scene, effects: Effects) -> [usize; 4] {
             Shape::rounded_rect([(40.0, 30.0), (110.0, 70.0)], BorderRadii::new(5.0)),
             Some(group),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgba(0, 0, 255, 128)),
+            ShapeDrawOptions::new().color(Color::rgba(0, 0, 255, 128)),
         )
         .unwrap();
     if !matches!(effects, Effects::None) {
@@ -73,7 +72,7 @@ fn populate_motion_scene(scene: &mut Scene, effects: Effects) -> [usize; 4] {
             Shape::rect([(60.0, 10.0), (80.0, 80.0)]),
             Some(root),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgba(255, 0, 255, 128)),
+            ShapeDrawOptions::new().color(Color::rgba(255, 0, 255, 128)),
         )
         .unwrap();
     [background, foreground, child, group]
@@ -99,7 +98,7 @@ fn check_motion(scene: &mut Scene, pixels: &mut Vec<u8>, configuration: (u32, f6
                 node,
                 Shape::rounded_rect([(left, 15.0), (left + 45.0, 65.0)], BorderRadii::new(6.0)),
                 None,
-                ShapeDrawCommandOptions::new().color(Color::rgba(20 * step as u8, 180, 220, 160)),
+                ShapeDrawOptions::new().color(Color::rgba(20 * step as u8, 180, 220, 160)),
             )
             .unwrap();
         render_bgra(scene, pixels).unwrap();

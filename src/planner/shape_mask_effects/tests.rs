@@ -14,7 +14,7 @@ use crate::scene_state::effects::parameters::{EffectParameterRange, EffectParame
 use crate::scene_state::effects::ShapeMaskEffectInstance;
 use crate::scene_state::types::CachedShapeDrawData;
 use crate::scene_state::types::DrawTreeNode;
-use crate::{Shape, ShapeDrawCommandOptions, Size};
+use crate::{Shape, ShapeDrawOptions, Size};
 use ahash::{HashMap, HashMapExt};
 use easy_tree::Tree;
 use std::mem;
@@ -81,7 +81,7 @@ fn scene_with_effects(
         let config = ShapeMaskEffectConfig::new().outset(3.0).downsample(0.5);
         let node = tree.add_node(DrawTreeNode::CachedShape(CachedShapeDrawData::new(
             handle.clone(),
-            ShapeDrawCommandOptions::new().transform(transform),
+            ShapeDrawOptions::new().transform(transform),
         )));
         effects.insert(
             node,
@@ -189,7 +189,7 @@ fn empty_or_oversized_masks_never_produce_texture_references() {
     .unwrap();
     let empty = tree.add_node(DrawTreeNode::CachedShape(CachedShapeDrawData::new(
         empty_shape,
-        ShapeDrawCommandOptions::new(),
+        ShapeDrawOptions::new(),
     )));
     effects.insert(
         empty,

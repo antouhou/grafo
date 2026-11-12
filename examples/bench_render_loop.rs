@@ -10,7 +10,7 @@
 //! cargo run --example bench_render_loop --features render_metrics --release
 //! ```
 use futures::executor::block_on;
-use grafo::{Color, Scene, Shape, ShapeDrawCommandOptions, TextureManager, TransformInstance};
+use grafo::{Color, Scene, Shape, ShapeDrawOptions, TextureManager, TransformInstance};
 use grafo::{SceneContext, Surface};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -131,7 +131,7 @@ fn build_scene(scene: &mut Scene) -> usize {
             .add_cached_shape(
                 CACHE_KEY_CONTAINER,
                 None,
-                ShapeDrawCommandOptions::new()
+                ShapeDrawOptions::new()
                     .color(container_colors[c % container_colors.len()])
                     .transform(TransformInstance::translation(cx, 10.0)),
             )
@@ -144,7 +144,7 @@ fn build_scene(scene: &mut Scene) -> usize {
                 .add_cached_shape(
                     CACHE_KEY_ROW,
                     Some(container_id),
-                    ShapeDrawCommandOptions::new()
+                    ShapeDrawOptions::new()
                         .color(Color::rgb(200, 200, 210))
                         .transform(TransformInstance::translation(cx + 10.0, 10.0 + ry)),
                 )
@@ -159,7 +159,7 @@ fn build_scene(scene: &mut Scene) -> usize {
                     .add_cached_shape(
                         CACHE_KEY_CELL,
                         Some(row_id),
-                        ShapeDrawCommandOptions::new()
+                        ShapeDrawOptions::new()
                             .color(Color::rgb(brightness, brightness, brightness))
                             .transform(TransformInstance::translation(cellx, celly)),
                     )
@@ -175,7 +175,7 @@ fn build_scene(scene: &mut Scene) -> usize {
         .add_cached_shape(
             CACHE_KEY_SIDEBAR,
             None,
-            ShapeDrawCommandOptions::new()
+            ShapeDrawOptions::new()
                 .color(Color::rgb(50, 50, 70))
                 .transform(TransformInstance::translation(sidebar_x, 10.0)),
         )
@@ -187,7 +187,7 @@ fn build_scene(scene: &mut Scene) -> usize {
             .add_cached_shape(
                 CACHE_KEY_CIRCLE,
                 Some(sidebar_id),
-                ShapeDrawCommandOptions::new()
+                ShapeDrawOptions::new()
                     .color(Color::rgb(220, 180, 50))
                     .transform(TransformInstance::translation(
                         sidebar_x + 30.0,
@@ -208,7 +208,7 @@ fn build_scene(scene: &mut Scene) -> usize {
             .add_cached_shape(
                 CACHE_KEY_TEXTURED,
                 None,
-                ShapeDrawCommandOptions::new()
+                ShapeDrawOptions::new()
                     .background_texture_id(TEXTURE_ID_BASE + i as u64)
                     .transform(TransformInstance::translation(tx, ty)),
             )

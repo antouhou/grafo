@@ -1,7 +1,7 @@
 use super::{scene, surface};
 use crate::commands::{RenderOperation, Target};
 use crate::core::{
-    BackdropEffectConfig, Color, ContentEffectConfig, Shape, ShapeDrawCommandOptions,
+    BackdropEffectConfig, Color, ContentEffectConfig, Shape, ShapeDrawOptions,
     ShapeMaskEffectConfig, UnsignedPhysicalRect,
 };
 use crate::scene::EffectError;
@@ -21,7 +21,7 @@ fn group_effect_changes_preserve_member_overrides() {
             let ancestor = scene.add_group(None, Default::default()).unwrap();
             let group = scene.add_group(Some(ancestor), Default::default()).unwrap();
             let geometry = Shape::rect([(2.0, 2.0), (8.0, 8.0)]);
-            let options = ShapeDrawCommandOptions::new().color(Color::WHITE);
+            let options = ShapeDrawOptions::new().color(Color::WHITE);
             let explicit = scene
                 .add_shape(&geometry, Some(group), None, options.clone())
                 .unwrap();
@@ -114,7 +114,7 @@ fn group_replacement_removes_inherited_effects_and_preserves_overrides() {
             let ancestor = scene.add_group(None, Default::default()).unwrap();
             let group = scene.add_group(Some(ancestor), Default::default()).unwrap();
             let geometry = Shape::rect([(2.0, 2.0), (8.0, 8.0)]);
-            let options = ShapeDrawCommandOptions::new().color(Color::WHITE);
+            let options = ShapeDrawOptions::new().color(Color::WHITE);
             let first = scene
                 .add_shape(&geometry, Some(group), None, options.clone())
                 .unwrap();
@@ -228,7 +228,7 @@ fn nested_groups_draw_in_order_and_removal_cleans_up_only_their_descendants() {
                     Shape::rect([(position, position), (position + 4.0, position + 4.0)]),
                     Some(parent),
                     None,
-                    ShapeDrawCommandOptions::new().color(Color::WHITE),
+                    ShapeDrawOptions::new().color(Color::WHITE),
                 )
                 .unwrap(),
         );
@@ -270,7 +270,7 @@ fn nested_groups_draw_in_order_and_removal_cleans_up_only_their_descendants() {
             root,
             Shape::rect([(8.0, 8.0), (16.0, 16.0)]),
             None,
-            ShapeDrawCommandOptions::new().color(Color::BLACK),
+            ShapeDrawOptions::new().color(Color::BLACK),
         )
         .unwrap();
     assert_eq!(scene.state.draw_tree.children(root), &[shapes[2]]);
@@ -339,7 +339,7 @@ fn group_effects_apply_to_existing_and_new_members() {
             Shape::rect([(2.0, 2.0), (8.0, 8.0)]),
             Some(group),
             None,
-            ShapeDrawCommandOptions::new().color(Color::WHITE),
+            ShapeDrawOptions::new().color(Color::WHITE),
         )
         .unwrap();
     scene
@@ -354,7 +354,7 @@ fn group_effects_apply_to_existing_and_new_members() {
             Shape::rect([(12.0, 12.0), (18.0, 18.0)]),
             Some(nested),
             None,
-            ShapeDrawCommandOptions::new().color(Color::WHITE),
+            ShapeDrawOptions::new().color(Color::WHITE),
         )
         .unwrap();
     let mut surface = surface();
@@ -390,7 +390,7 @@ fn group_effects_survive_replacement_and_nested_overrides() {
             Shape::rect([(2.0, 2.0), (8.0, 8.0)]),
             Some(nested),
             None,
-            ShapeDrawCommandOptions::new().color(Color::WHITE),
+            ShapeDrawOptions::new().color(Color::WHITE),
         )
         .unwrap();
     let mut surface = surface();
@@ -413,7 +413,7 @@ fn group_effects_survive_replacement_and_nested_overrides() {
             replacement,
             Shape::rect([(12.0, 12.0), (18.0, 18.0)]),
             None,
-            ShapeDrawCommandOptions::new().color(Color::WHITE),
+            ShapeDrawOptions::new().color(Color::WHITE),
         )
         .unwrap();
     assert_eq!(scene.state.content_effects[&replacement].effect_id, 10);
@@ -422,7 +422,7 @@ fn group_effects_survive_replacement_and_nested_overrides() {
             root,
             Shape::rect([(0.0, 0.0), (32.0, 32.0)]),
             None,
-            ShapeDrawCommandOptions::new().color(Color::WHITE),
+            ShapeDrawOptions::new().color(Color::WHITE),
         )
         .unwrap();
     assert_eq!(scene.state.content_effects[&root].effect_id, 10);
@@ -441,7 +441,7 @@ fn inherited_mask_failure_preserves_the_group_and_existing_shapes() {
         .unwrap();
     let mut surface = surface();
     scene.render(&mut surface).unwrap();
-    let options = ShapeDrawCommandOptions::new();
+    let options = ShapeDrawOptions::new();
     assert!(scene
         .add_shape(
             Shape::rect([(0.0, 0.0), (f32::MAX, f32::MAX)]),

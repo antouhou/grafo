@@ -1,5 +1,5 @@
 use futures::executor::block_on;
-use grafo::{Color, Scene, Shape, ShapeDrawCommandOptions};
+use grafo::{Color, Scene, Shape, ShapeDrawOptions};
 use grafo::{SceneContext, Surface};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
@@ -40,7 +40,7 @@ impl ApplicationHandler for App {
                 rect,
                 None,
                 None,
-                ShapeDrawCommandOptions::new().color(Color::rgb(0, 128, 255)),
+                ShapeDrawOptions::new().color(Color::rgb(0, 128, 255)),
             )
             .unwrap();
 
@@ -50,7 +50,7 @@ impl ApplicationHandler for App {
                 rect,
                 None,
                 None,
-                ShapeDrawCommandOptions::new().color(Color::rgb(0, 128, 0)),
+                ShapeDrawOptions::new().color(Color::rgb(0, 128, 0)),
             )
             .unwrap();
 

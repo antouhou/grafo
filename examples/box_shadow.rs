@@ -3,7 +3,7 @@
 //! rendered shadow while the geometry and effect parameters stay unchanged.
 
 use futures::executor::block_on;
-use grafo::{BorderRadii, Color, Scene, Shape, ShapeDrawCommandOptions, ShapeMaskEffectConfig};
+use grafo::{BorderRadii, Color, Scene, Shape, ShapeDrawOptions, ShapeMaskEffectConfig};
 use grafo::{SceneContext, Surface};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
@@ -55,7 +55,7 @@ fn draw_card(scene: &mut Scene, card_spec: CardSpec) -> usize {
             card_shape,
             None,
             Some(card_spec.geometry_id),
-            ShapeDrawCommandOptions::new().color(card_spec.card_color),
+            ShapeDrawOptions::new().color(card_spec.card_color),
         )
         .unwrap();
 
@@ -225,7 +225,7 @@ impl ApplicationHandler for App {
                         scene_bg,
                         None,
                         None,
-                        ShapeDrawCommandOptions::new().color(Color::rgb(235, 235, 240)),
+                        ShapeDrawOptions::new().color(Color::rgb(235, 235, 240)),
                     )
                     .unwrap();
 

@@ -2,7 +2,7 @@ use super::super::{scene, surface};
 use crate::commands::RenderOperation;
 use crate::core::vertex::InstanceTransform;
 use crate::core::{
-    BackdropEffectConfig, Color, MathRect, PhysicalRect, Shape, ShapeDrawCommandOptions,
+    BackdropEffectConfig, Color, MathRect, PhysicalRect, Shape, ShapeDrawOptions,
     UnsignedPhysicalRect,
 };
 
@@ -18,7 +18,7 @@ fn negative_w_shape_addition_dirties_shader_footprint_after_empty_render() {
             Shape::rect([(8.0, 8.0), (16.0, 16.0)]),
             None,
             None,
-            ShapeDrawCommandOptions::new()
+            ShapeDrawOptions::new()
                 .color(Color::WHITE)
                 .transform(transform),
         )
@@ -41,7 +41,7 @@ fn negative_w_shape_removal_dirties_shader_footprint_after_render() {
             Shape::rect([(8.0, 8.0), (16.0, 16.0)]),
             None,
             None,
-            ShapeDrawCommandOptions::new()
+            ShapeDrawOptions::new()
                 .color(Color::WHITE)
                 .transform(transform),
         )
@@ -73,7 +73,7 @@ fn uncertain_projection_redraws_viewport_on_removal_and_addition() {
                 Shape::rect([(8.0, 8.0), (16.0, 16.0)]),
                 None,
                 None,
-                ShapeDrawCommandOptions::new().transform(transform),
+                ShapeDrawOptions::new().transform(transform),
             )
             .unwrap();
         scene.render(&mut surface).unwrap();
@@ -89,7 +89,7 @@ fn uncertain_projection_redraws_viewport_on_removal_and_addition() {
                 Shape::rect([(8.0, 8.0), (16.0, 16.0)]),
                 None,
                 None,
-                ShapeDrawCommandOptions::new().transform(transform),
+                ShapeDrawOptions::new().transform(transform),
             )
             .unwrap();
         scene.render(&mut surface).unwrap();
@@ -126,7 +126,7 @@ fn subtree_replacement_accumulates_bounds_until_a_successful_render() {
         .add_cached_shape(
             17,
             Some(branch),
-            ShapeDrawCommandOptions::new()
+            ShapeDrawOptions::new()
                 .color(Color::WHITE)
                 .transform(InstanceTransform::translation(2.0, 3.0)),
         )
@@ -136,7 +136,7 @@ fn subtree_replacement_accumulates_bounds_until_a_successful_render() {
             Shape::rect([(10.0, 11.0), (12.0, 13.0)]),
             Some(branch),
             None,
-            ShapeDrawCommandOptions::new().color(Color::WHITE),
+            ShapeDrawOptions::new().color(Color::WHITE),
         )
         .unwrap();
     scene.render(&mut surface).unwrap();
@@ -151,7 +151,7 @@ fn subtree_replacement_accumulates_bounds_until_a_successful_render() {
             Shape::rect([(14.0, 1.0), (18.0, 3.0)]),
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::WHITE),
+            ShapeDrawOptions::new().color(Color::WHITE),
         )
         .unwrap();
     scene.backend.should_fail = true;
@@ -199,7 +199,7 @@ fn retained_node_bounds_follow_viewport_changes_and_removal() {
         .add_cached_shape(
             17,
             Some(branch),
-            ShapeDrawCommandOptions::new()
+            ShapeDrawOptions::new()
                 .color(Color::WHITE)
                 .transform(InstanceTransform::affine_2d(-1.0, 0.0, 0.0, 1.0, 13.0, 7.0)),
         )
@@ -208,29 +208,28 @@ fn retained_node_bounds_follow_viewport_changes_and_removal() {
         .add_cached_shape(
             17,
             Some(cached),
-            ShapeDrawCommandOptions::new()
+            ShapeDrawOptions::new()
                 .color(Color::WHITE)
                 .transform(InstanceTransform::translation(9.0, 7.0)),
         )
         .unwrap();
-    let path = scene
-        .add_shape(
-            Shape::builder()
-                .begin((0.0, 0.0))
-                .line_to((4.0, 0.0))
-                .line_to((4.0, 3.0))
-                .line_to((0.0, 3.0))
-                .close()
-                .build(),
-            Some(branch),
-            None,
-            ShapeDrawCommandOptions::new()
-                .color(Color::WHITE)
-                .transform(InstanceTransform::affine_2d(
-                    1.0, 0.5, -0.25, 1.0, 17.0, 11.0,
-                )),
-        )
-        .unwrap();
+    let path =
+        scene
+            .add_shape(
+                Shape::builder()
+                    .begin((0.0, 0.0))
+                    .line_to((4.0, 0.0))
+                    .line_to((4.0, 3.0))
+                    .line_to((0.0, 3.0))
+                    .close()
+                    .build(),
+                Some(branch),
+                None,
+                ShapeDrawOptions::new().color(Color::WHITE).transform(
+                    InstanceTransform::affine_2d(1.0, 0.5, -0.25, 1.0, 17.0, 11.0),
+                ),
+            )
+            .unwrap();
     scene.load_effect(7, &["backdrop effect"]).unwrap();
     scene
         .set_backdrop_effect(

@@ -1,7 +1,7 @@
 use super::{glyph_ids, scene, surface, Glyphs};
 use crate::core::{
     Color, Fill, Gradient, GradientStop, GradientUnits, GroupDrawCommandOptions,
-    LinearGradientDesc, LinearGradientLine, Shape, ShapeDrawCommandOptions, ShapeInstance,
+    LinearGradientDesc, LinearGradientLine, Shape, ShapeDrawOptions, ShapeInstance,
     TransformInstance,
 };
 use crate::scene::tests::TestBackend;
@@ -82,12 +82,11 @@ fn group_fill_ownership_survives_overrides_and_container_replacement() {
         .add_text(
             Glyphs::new(&[10, 10]),
             Some(container),
-            ShapeDrawCommandOptions::new().transform(TransformInstance::translation(4.0, 6.0)),
+            ShapeDrawOptions::new().transform(TransformInstance::translation(4.0, 6.0)),
         )
         .unwrap();
     let glyphs = glyph_ids(&scene, text);
-    let options =
-        ShapeDrawCommandOptions::new().transform(TransformInstance::translation(8.0, 8.0));
+    let options = ShapeDrawOptions::new().transform(TransformInstance::translation(8.0, 8.0));
     let explicit = scene
         .add_shape(
             Shape::rect([(0.0, 0.0), (8.0, 8.0)]),
@@ -153,7 +152,7 @@ fn group_fill_ownership_survives_overrides_and_container_replacement() {
             Shape::rect([(0.0, 0.0), (2.0, 2.0)]),
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::BLACK),
+            ShapeDrawOptions::new().color(Color::BLACK),
         )
         .unwrap();
     scene.render(&mut target).unwrap();
@@ -180,7 +179,7 @@ fn group_fill_ownership_survives_overrides_and_container_replacement() {
             group,
             Shape::rect([(0.0, 0.0), (32.0, 32.0)]),
             None,
-            ShapeDrawCommandOptions::new()
+            ShapeDrawOptions::new()
                 .color(Color::WHITE)
                 .clips_children(false),
         )
@@ -221,7 +220,7 @@ fn text_gradients_share_coordinates_and_cached_geometry_across_replacements() {
     transform.col1[3] = -0.001;
     // A singular unused z axis must not invalidate the projected paint plane.
     transform.col2 = [0.0; 4];
-    let options = ShapeDrawCommandOptions::new()
+    let options = ShapeDrawOptions::new()
         .fill(fill.clone())
         .transform(transform);
     let text = scene
@@ -262,7 +261,7 @@ fn text_gradients_share_coordinates_and_cached_geometry_across_replacements() {
     }
 
     scene
-        .replace_with_text(text, Glyphs::new(&[10]), ShapeDrawCommandOptions::new())
+        .replace_with_text(text, Glyphs::new(&[10]), ShapeDrawOptions::new())
         .unwrap();
     scene.render(&mut target).unwrap();
     let shape = instance(&scene, glyph_ids(&scene, text)[0]);
@@ -302,14 +301,14 @@ fn constant_divisors_preserve_inherited_group_and_text_paint_coordinates() {
                     Shape::rect([(0.0, 0.0), (8.0, 8.0)]),
                     Some(group),
                     None,
-                    ShapeDrawCommandOptions::new().transform(shape_transform),
+                    ShapeDrawOptions::new().transform(shape_transform),
                 )
                 .unwrap();
             let text = scene
                 .add_text(
                     Glyphs::new(&[10, 10]),
                     None,
-                    ShapeDrawCommandOptions::new()
+                    ShapeDrawOptions::new()
                         .fill(fill)
                         .transform(shape_transform),
                 )
@@ -336,7 +335,7 @@ fn invalid_text_paint_transform_preserves_existing_scene() {
         .add_text(
             Glyphs::new(&[10, 10]),
             None,
-            ShapeDrawCommandOptions::new().fill(fill.clone()),
+            ShapeDrawOptions::new().fill(fill.clone()),
         )
         .unwrap();
     scene.render(&mut target).unwrap();
@@ -349,7 +348,7 @@ fn invalid_text_paint_transform_preserves_existing_scene() {
         let result = scene.replace_with_text(
             text,
             Glyphs::new(&[11]),
-            ShapeDrawCommandOptions::new()
+            ShapeDrawOptions::new()
                 .fill(fill.clone())
                 .transform(transform),
         );
@@ -366,7 +365,7 @@ fn invalid_text_paint_transform_preserves_existing_scene() {
         .replace_with_text(
             text,
             Glyphs::new(&[11, 11]),
-            ShapeDrawCommandOptions::new().color(Color::WHITE)
+            ShapeDrawOptions::new().color(Color::WHITE)
         )
         .is_err());
     scene.backend.registration_failure = None;
@@ -388,11 +387,7 @@ fn invalid_text_paint_transform_preserves_existing_scene() {
         )
         .unwrap();
     let canvas_text = scene
-        .add_text(
-            Glyphs::new(&[10]),
-            Some(group),
-            ShapeDrawCommandOptions::new(),
-        )
+        .add_text(Glyphs::new(&[10]), Some(group), ShapeDrawOptions::new())
         .unwrap();
     scene.render(&mut target).unwrap();
     let shape = instance(&scene, glyph_ids(&scene, canvas_text)[0]);

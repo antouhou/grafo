@@ -1,6 +1,6 @@
 use futures::executor::block_on;
 use grafo::{BorderRadii, Scene, Shape, TextureManager};
-use grafo::{Color, ShapeDrawCommandOptions};
+use grafo::{Color, ShapeDrawOptions};
 use grafo::{SceneContext, Surface};
 use image::ImageReader;
 use std::sync::Arc;
@@ -109,7 +109,7 @@ impl ApplicationHandler for App {
                         background,
                         None,
                         None,
-                        ShapeDrawCommandOptions::new().color(Color::rgb(255, 255, 200)),
+                        ShapeDrawOptions::new().color(Color::rgb(255, 255, 200)),
                     )
                     .unwrap();
 
@@ -119,7 +119,7 @@ impl ApplicationHandler for App {
                         red,
                         Some(background_id),
                         None,
-                        ShapeDrawCommandOptions::new().color(Color::rgb(255, 0, 0)),
+                        ShapeDrawOptions::new().color(Color::rgb(255, 0, 0)),
                     )
                     .unwrap();
 
@@ -130,7 +130,7 @@ impl ApplicationHandler for App {
                         green,
                         Some(red_id),
                         None,
-                        ShapeDrawCommandOptions::new()
+                        ShapeDrawOptions::new()
                             .color(Color::rgb(0, 255, 0))
                             .transform(grafo::TransformInstance::translation(100.0, 100.0)),
                     )
@@ -143,7 +143,7 @@ impl ApplicationHandler for App {
                         blue,
                         Some(green_id),
                         None,
-                        ShapeDrawCommandOptions::new()
+                        ShapeDrawOptions::new()
                             .color(Color::rgb(0, 0, 255))
                             .transform(grafo::TransformInstance::translation(150.0, 150.0)),
                     )
@@ -156,7 +156,7 @@ impl ApplicationHandler for App {
                         yellow,
                         Some(green_id),
                         None,
-                        ShapeDrawCommandOptions::new().color(Color::rgb(255, 255, 0)),
+                        ShapeDrawOptions::new().color(Color::rgb(255, 255, 0)),
                     )
                     .unwrap();
 
@@ -166,7 +166,7 @@ impl ApplicationHandler for App {
                         white,
                         Some(red_id),
                         None,
-                        ShapeDrawCommandOptions::new().color(Color::rgb(255, 255, 255)),
+                        ShapeDrawOptions::new().color(Color::rgb(255, 255, 255)),
                     )
                     .unwrap();
 
@@ -177,7 +177,7 @@ impl ApplicationHandler for App {
                         shape_that_doesnt_fit,
                         Some(blue_id),
                         None,
-                        ShapeDrawCommandOptions::new(),
+                        ShapeDrawOptions::new(),
                     )
                     .unwrap();
 
@@ -208,7 +208,7 @@ impl ApplicationHandler for App {
                         img_rect1,
                         Some(red_id),
                         None,
-                        ShapeDrawCommandOptions::new()
+                        ShapeDrawOptions::new()
                             .color(Color::rgb(255, 255, 255))
                             .background_texture_id(texture_id)
                             .transform(grafo::TransformInstance::translation(100.0, 100.0)),
@@ -219,7 +219,7 @@ impl ApplicationHandler for App {
                         img_rect2,
                         Some(background_id),
                         None,
-                        ShapeDrawCommandOptions::new()
+                        ShapeDrawOptions::new()
                             .color(Color::rgb(255, 255, 255))
                             .background_texture_id(texture_id)
                             .transform(grafo::TransformInstance::translation(200.0, 200.0)),
@@ -230,7 +230,7 @@ impl ApplicationHandler for App {
                         img_rect3,
                         None,
                         None,
-                        ShapeDrawCommandOptions::new()
+                        ShapeDrawOptions::new()
                             .color(Color::rgb(255, 255, 255))
                             .background_texture_id(texture_id)
                             .transform(grafo::TransformInstance::translation(400.0, 400.0)),

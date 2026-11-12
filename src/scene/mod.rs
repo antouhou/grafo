@@ -3,7 +3,7 @@ use crate::commands::ShapeDrawId;
 use crate::core::effect::{
     BackdropEffectConfig, ContentEffectConfig, ShapeMaskEffectBounds, ShapeMaskEffectConfig,
 };
-use crate::core::shape::{Shape, ShapeDrawCommandOptions};
+use crate::core::shape::{Shape, ShapeDrawOptions};
 use crate::core::vertex::InstanceTransform;
 use crate::core::{GroupDrawCommandOptions, TextSource, UnsignedPhysicalRect};
 use crate::planner::Planner;
@@ -185,7 +185,7 @@ impl<B: RenderBackend> Scene<B> {
         shape: impl AsRef<Shape>,
         parent_shape_id: Option<usize>,
         geometry_id: Option<u64>,
-        options: ShapeDrawCommandOptions,
+        options: ShapeDrawOptions,
     ) -> Result<usize, DrawCommandError<B::Error>> {
         self.queue_draw_command(
             NodeTarget::Insert {
@@ -211,7 +211,7 @@ impl<B: RenderBackend> Scene<B> {
         &mut self,
         source: impl TextSource,
         parent_shape_id: Option<usize>,
-        options: ShapeDrawCommandOptions,
+        options: ShapeDrawOptions,
     ) -> Result<usize, DrawCommandError<B::Error>> {
         self.queue_text(
             NodeTarget::Insert {
@@ -227,7 +227,7 @@ impl<B: RenderBackend> Scene<B> {
         &mut self,
         cache_key: u64,
         parent_shape_id: Option<usize>,
-        options: ShapeDrawCommandOptions,
+        options: ShapeDrawOptions,
     ) -> Result<usize, DrawCommandError<B::Error>> {
         self.queue_draw_command(
             NodeTarget::Insert {
@@ -267,7 +267,7 @@ impl<B: RenderBackend> Scene<B> {
         node_id: usize,
         shape: impl AsRef<Shape>,
         geometry_id: Option<u64>,
-        options: ShapeDrawCommandOptions,
+        options: ShapeDrawOptions,
     ) -> Result<usize, DrawCommandError<B::Error>> {
         self.queue_draw_command(
             NodeTarget::Replace { node_id },
@@ -289,7 +289,7 @@ impl<B: RenderBackend> Scene<B> {
         &mut self,
         node_id: usize,
         source: impl TextSource,
-        options: ShapeDrawCommandOptions,
+        options: ShapeDrawOptions,
     ) -> Result<usize, DrawCommandError<B::Error>> {
         self.queue_text(NodeTarget::Replace { node_id }, source, options)
     }
@@ -301,7 +301,7 @@ impl<B: RenderBackend> Scene<B> {
         &mut self,
         node_id: usize,
         cache_key: u64,
-        options: ShapeDrawCommandOptions,
+        options: ShapeDrawOptions,
     ) -> Result<usize, DrawCommandError<B::Error>> {
         self.queue_draw_command(
             NodeTarget::Replace { node_id },

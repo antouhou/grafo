@@ -13,9 +13,7 @@ use crate::scene_state::effects::parameters::{EffectParameterRange, EffectParame
 use crate::scene_state::effects::{ContentEffectInstance, EffectInstance};
 use crate::scene_state::types::CachedShapeDrawData;
 use crate::scene_state::types::DrawTreeNode;
-use crate::{
-    CachedShapeHandle, Color, Shape, ShapeDrawCommandOptions, Size, TransformInstance, Viewport,
-};
+use crate::{CachedShapeHandle, Color, Shape, ShapeDrawOptions, Size, TransformInstance, Viewport};
 use ahash::{HashMap, HashMapExt};
 
 fn create_test_gradient() -> Gradient {
@@ -41,7 +39,7 @@ fn create_test_gradient() -> Gradient {
     .expect("valid test gradient")
 }
 
-fn rect_draw_tree_node_with_options(options: ShapeDrawCommandOptions) -> DrawTreeNode {
+fn rect_draw_tree_node_with_options(options: ShapeDrawOptions) -> DrawTreeNode {
     let mut shape_resources = ShapeResources::new();
     let shape_handle = CachedShapeHandle::new(
         &Shape::rect([(0.0, 0.0), (10.0, 10.0)]),
@@ -53,7 +51,7 @@ fn rect_draw_tree_node_with_options(options: ShapeDrawCommandOptions) -> DrawTre
 }
 
 fn rect_draw_tree_node() -> DrawTreeNode {
-    rect_draw_tree_node_with_options(ShapeDrawCommandOptions::new())
+    rect_draw_tree_node_with_options(ShapeDrawOptions::new())
 }
 
 fn should_skip(
@@ -71,7 +69,7 @@ fn should_skip(
 #[test]
 fn scissor_rejects_non_axis_aligned_transform() {
     let draw_tree_node = rect_draw_tree_node_with_options(
-        ShapeDrawCommandOptions::new()
+        ShapeDrawOptions::new()
             .transform(TransformInstance::affine_2d(1.0, 0.0, 0.5, 1.0, 5.0, 5.0)),
     );
 
@@ -118,12 +116,12 @@ fn skip_visible_rect_draw_accepts_untextured_none_color_rect() {
 #[test]
 fn skip_visible_rect_draw_rejects_opaque_color_and_textures() {
     let opaque_draw_tree_node =
-        rect_draw_tree_node_with_options(ShapeDrawCommandOptions::new().color(Color::WHITE));
+        rect_draw_tree_node_with_options(ShapeDrawOptions::new().color(Color::WHITE));
 
     assert!(!should_skip(1, &opaque_draw_tree_node, &HashMap::new(),));
 
     let textured_draw_tree_node =
-        rect_draw_tree_node_with_options(ShapeDrawCommandOptions::new().background_texture_id(9));
+        rect_draw_tree_node_with_options(ShapeDrawOptions::new().background_texture_id(9));
 
     assert!(!should_skip(2, &textured_draw_tree_node, &HashMap::new(),));
 }
