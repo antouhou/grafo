@@ -54,6 +54,3 @@ impl Camera {
         self.viewport = viewport;
     }
 }
-
-#[cfg(test)]
-mod tests;

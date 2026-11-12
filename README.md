@@ -230,8 +230,7 @@ scene
 - `tiger` renders the Ghostscript tiger with scroll zoom, left-drag panning, and frame statistics.
   Run `cargo run --release --example tiger`. Space toggles clearing and requeueing all draw commands
   on every redraw; loaded geometry is reused in both modes. The default mode retains the scene
-  and calls `render` on every redraw. Vsync is disabled. The bottom-right panel shows FPS, average
-  frame interval, CPU render-call time, and scene rebuild time, updated twice a second.
+  and calls `render` on every redraw. Vsync is disabled.
   The tiger artwork is licensed under AGPL-3.0-or-later; see its
   [attribution and source](examples/assets/tiger.NOTICE) and [license](examples/assets/tiger.LICENSE).
 - `benches/visual_regression.rs` benchmarks the visual regression scene with Criterion.
