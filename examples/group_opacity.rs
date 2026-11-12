@@ -2,9 +2,7 @@
 //! Each group composites its parent and children into one translucent layer.
 
 use futures::executor::block_on;
-use grafo::{
-    Color, ContentEffectConfig, Scene, SceneContext, Shape, ShapeDrawOptions, Surface,
-};
+use grafo::{Color, ContentEffectConfig, Scene, SceneContext, Shape, ShapeDrawOptions, Surface};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;

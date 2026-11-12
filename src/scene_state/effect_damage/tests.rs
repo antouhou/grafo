@@ -47,10 +47,7 @@ fn shape_node(bounds: [(f32, f32); 2]) -> DrawTreeNode {
     )
     .tessellate(&Shape::rect(bounds), None)
     .unwrap();
-    DrawTreeNode::CachedShape(CachedShapeDrawData::new(
-        shape,
-        ShapeDrawOptions::new(),
-    ))
+    DrawTreeNode::CachedShape(CachedShapeDrawData::new(shape, ShapeDrawOptions::new()))
 }
 
 fn capture(bounds: [(f32, f32); 2], viewport: Viewport) -> Option<CaptureRegion> {

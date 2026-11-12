@@ -13,9 +13,8 @@ use grafo::{
     ColorInterpolation, ConicGradientDesc, ContentEffectConfig, Fill, GlyphContent, Gradient,
     GradientColor, GradientCommonDesc, GradientStop, GradientStopOffset, GradientStopPositions,
     GradientUnits, LinearGradientDesc, LinearGradientLine, PositionedGlyph, RadialGradientDesc,
-    RadialGradientSize, Scene, Shape, ShapeDrawOptions, ShapeMaskEffectConfig,
-    ShapeTextureFitMode, ShapeTextureOptions, SpreadMode, TextSource, TextureManager,
-    TransformInstance,
+    RadialGradientSize, Scene, Shape, ShapeDrawOptions, ShapeMaskEffectConfig, ShapeTextureFitMode,
+    ShapeTextureOptions, SpreadMode, TextSource, TextureManager, TransformInstance,
 };
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
 use std::slice;
@@ -223,8 +222,8 @@ fn tile_91_cached_glyphs(scene: &mut Scene) -> Vec<PixelExpectation> {
 /// Captures sample overflowing content before the final crop; nested filters keep canvas gradients.
 fn tile_90_bounded_effect_targets(scene: &mut Scene) -> Vec<PixelExpectation> {
     let (origin_x, origin_y) = tile_origin(90);
-    let options = ShapeDrawOptions::new()
-        .transform(TransformInstance::translation(origin_x, origin_y));
+    let options =
+        ShapeDrawOptions::new().transform(TransformInstance::translation(origin_x, origin_y));
     scene
         .load_effect(90_001, &[LEFT_CAPTURE_MARGIN_WGSL])
         .unwrap();
@@ -449,8 +448,8 @@ fn tile_87_rectangle_pixel_coverage(scene: &mut Scene) -> Vec<PixelExpectation> 
 
 fn tile_88_rectangle_coverage_materials(scene: &mut Scene) -> Vec<PixelExpectation> {
     let (origin_x, origin_y) = tile_origin(88);
-    let options = ShapeDrawOptions::new()
-        .transform(TransformInstance::translation(origin_x, origin_y));
+    let options =
+        ShapeDrawOptions::new().transform(TransformInstance::translation(origin_x, origin_y));
     for (bounds, material) in [
         (
             [(5.75, 5.0), (6.0, 30.0)],
@@ -556,8 +555,8 @@ fn tile_88_rectangle_coverage_materials(scene: &mut Scene) -> Vec<PixelExpectati
 
 fn tile_89_rectangle_coverage_effects(scene: &mut Scene) -> Vec<PixelExpectation> {
     let (origin_x, origin_y) = tile_origin(89);
-    let options = ShapeDrawOptions::new()
-        .transform(TransformInstance::translation(origin_x, origin_y));
+    let options =
+        ShapeDrawOptions::new().transform(TransformInstance::translation(origin_x, origin_y));
     let background = scene
         .add_shape(
             Shape::rect([(0.0, 0.0), (80.0, 80.0)]),
@@ -678,8 +677,8 @@ fn tile_89_rectangle_coverage_effects(scene: &mut Scene) -> Vec<PixelExpectation
 
 fn tile_84_mixed_command_replacement(scene: &mut Scene) -> Vec<PixelExpectation> {
     let (origin_x, origin_y) = tile_origin(84);
-    let options = ShapeDrawOptions::new()
-        .transform(TransformInstance::translation(origin_x, origin_y));
+    let options =
+        ShapeDrawOptions::new().transform(TransformInstance::translation(origin_x, origin_y));
     let initial = Shape::rect([(5.0, 5.0), (30.0, 30.0)]);
     let parent = scene
         .add_shape(&initial, None, None, options.clone())
@@ -750,8 +749,8 @@ fn tile_84_mixed_command_replacement(scene: &mut Scene) -> Vec<PixelExpectation>
 
 fn tile_85_replacement_preserves_effects_and_children(scene: &mut Scene) -> Vec<PixelExpectation> {
     let (origin_x, origin_y) = tile_origin(85);
-    let options = ShapeDrawOptions::new()
-        .transform(TransformInstance::translation(origin_x, origin_y));
+    let options =
+        ShapeDrawOptions::new().transform(TransformInstance::translation(origin_x, origin_y));
     scene
         .add_shape(
             Shape::rect([(5.0, 5.0), (75.0, 70.0)]),
@@ -6034,10 +6033,7 @@ fn tile_73_padded_layered_backdrops(scene: &mut Scene) -> Vec<PixelExpectation> 
     .unwrap();
     for (top, options) in [
         (10.0, ShapeDrawOptions::new()),
-        (
-            50.0,
-            ShapeDrawOptions::new().fill(Fill::Gradient(gradient)),
-        ),
+        (50.0, ShapeDrawOptions::new().fill(Fill::Gradient(gradient))),
     ] {
         let panel = scene
             .add_shape(
@@ -6211,12 +6207,7 @@ fn tile_76_rotated_under_fill_sampling(scene: &mut Scene) -> Vec<PixelExpectatio
         )
         .unwrap();
     let group = scene
-        .add_shape(
-            Shape::rect(bounds),
-            None,
-            None,
-            ShapeDrawOptions::new(),
-        )
+        .add_shape(Shape::rect(bounds), None, None, ShapeDrawOptions::new())
         .unwrap();
     scene
         .set_content_effect(

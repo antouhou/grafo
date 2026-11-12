@@ -6,9 +6,9 @@ use grafo::{
     BackdropCaptureArea, BackdropEffectConfig, BorderRadii, Color, ColorInterpolation,
     ContentEffectConfig, DrawCommandError, EffectError, EffectResourceError, Fill, Gradient,
     GradientStop, GradientStopOffset, LinearGradientDesc, LinearGradientLine, PixelFormat,
-    PixelLayout, Pixmap, PixmapMut, Scene, SceneCreationError, SceneError, Shape,
-    ShapeDrawOptions, ShapeMaskEffectConfig, ShapeTextureFitMode, ShapeTextureOptions,
-    TextureManager, TransformInstance, WgpuBackendError,
+    PixelLayout, Pixmap, PixmapMut, Scene, SceneCreationError, SceneError, Shape, ShapeDrawOptions,
+    ShapeMaskEffectConfig, ShapeTextureFitMode, ShapeTextureOptions, TextureManager,
+    TransformInstance, WgpuBackendError,
 };
 use grafo_test_scenes::shaders::{PASSTHROUGH_WGSL, SHAPE_DROP_WGSL};
 use grafo_test_scenes::{
@@ -1186,11 +1186,7 @@ fn command_replacements_update_retained_geometry_effects_and_child_clips() {
         assert_incremental_pixels_match_full_redraw(&mut scene, &mut pixels);
 
         scene
-            .replace_with_cached_shape(
-                parent,
-                9_402,
-                ShapeDrawOptions::new().clips_children(false),
-            )
+            .replace_with_cached_shape(parent, 9_402, ShapeDrawOptions::new().clips_children(false))
             .unwrap();
         render_bgra(&mut scene, &mut pixels).unwrap();
         assert_eq!(read_pixel_rgba(&pixels, 96, 55, 25), background);
@@ -1529,12 +1525,7 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
         )
         .unwrap();
     let seeded_blue_panel_id = scene
-        .add_shape(
-            seeded_blue_panel,
-            None,
-            None,
-            ShapeDrawOptions::new(),
-        )
+        .add_shape(seeded_blue_panel, None, None, ShapeDrawOptions::new())
         .unwrap();
     scene
         .set_backdrop_effect(

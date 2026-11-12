@@ -1,7 +1,6 @@
 use super::{create_headless_scene_with_size_and_scale, render_bgra};
 use grafo::{
-    BackdropEffectConfig, BorderRadii, Color, ContentEffectConfig, Scene, Shape,
-    ShapeDrawOptions,
+    BackdropEffectConfig, BorderRadii, Color, ContentEffectConfig, Scene, Shape, ShapeDrawOptions,
 };
 use grafo_test_scenes::shaders::PASSTHROUGH_WGSL;
 

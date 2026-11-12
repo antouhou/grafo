@@ -125,12 +125,7 @@ fn texture_damage_is_expanded_through_chained_backdrop_captures() {
         ([(80.0, 8.0), (88.0, 16.0)], [(48.0, 0.0), (64.0, 32.0)]),
     ] {
         let node = scene
-            .add_shape(
-                Shape::rect(output),
-                Some(0),
-                None,
-                ShapeDrawOptions::new(),
-            )
+            .add_shape(Shape::rect(output), Some(0), None, ShapeDrawOptions::new())
             .unwrap();
         scene
             .set_backdrop_effect(

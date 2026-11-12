@@ -2,9 +2,7 @@
 //! Both passes use the same radius and sample in input texture pixels.
 
 use futures::executor::block_on;
-use grafo::{
-    Color, ContentEffectConfig, Scene, SceneContext, Shape, ShapeDrawOptions, Surface,
-};
+use grafo::{Color, ContentEffectConfig, Scene, SceneContext, Shape, ShapeDrawOptions, Surface};
 use grafo_test_scenes::shaders::{BlurParams, HORIZONTAL_BLUR_WGSL, VERTICAL_BLUR_WGSL};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;

@@ -184,10 +184,7 @@ impl Scene {
         .unwrap();
         let node = self.tree.add_child(
             parent,
-            DrawTreeNode::CachedShape(CachedShapeDrawData::new(
-                shape,
-                ShapeDrawOptions::new(),
-            )),
+            DrawTreeNode::CachedShape(CachedShapeDrawData::new(shape, ShapeDrawOptions::new())),
         );
         self.backdrops.insert(
             node,

@@ -29,12 +29,7 @@ fn scene() -> (Scene<TestBackend>, Surface<TestSurface>) {
 
 fn shape(scene: &mut Scene<TestBackend>, bounds: [(f32, f32); 2]) -> usize {
     scene
-        .add_shape(
-            Shape::rect(bounds),
-            Some(0),
-            None,
-            ShapeDrawOptions::new(),
-        )
+        .add_shape(Shape::rect(bounds), Some(0), None, ShapeDrawOptions::new())
         .unwrap()
 }
 

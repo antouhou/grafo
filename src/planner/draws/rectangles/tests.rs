@@ -13,9 +13,7 @@ use crate::scene_state::effects::parameters::{EffectParameterRange, EffectParame
 use crate::scene_state::effects::{ContentEffectInstance, EffectInstance};
 use crate::scene_state::types::CachedShapeDrawData;
 use crate::scene_state::types::DrawTreeNode;
-use crate::{
-    CachedShapeHandle, Color, Shape, ShapeDrawOptions, Size, TransformInstance, Viewport,
-};
+use crate::{CachedShapeHandle, Color, Shape, ShapeDrawOptions, Size, TransformInstance, Viewport};
 use ahash::{HashMap, HashMapExt};
 
 fn create_test_gradient() -> Gradient {

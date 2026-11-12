@@ -146,22 +146,14 @@ fn removing_clip_subtrees_and_the_root_preserves_loaded_shapes() {
         .load_shape(Shape::rect([(0.0, 0.0), (16.0, 16.0)]), 1, Some(1))
         .unwrap();
     let child = scene
-        .add_cached_shape(
-            1,
-            Some(clip),
-            ShapeDrawOptions::new().color(Color::WHITE),
-        )
+        .add_cached_shape(1, Some(clip), ShapeDrawOptions::new().color(Color::WHITE))
         .unwrap();
     let mut removed_ids = Vec::new();
     scene.remove_subtrees([child], |id| removed_ids.push(id));
     assert_eq!(removed_ids, [child]);
     assert!(scene.state.draw_tree.children(clip).is_empty());
     let replacement_child = scene
-        .add_cached_shape(
-            1,
-            Some(clip),
-            ShapeDrawOptions::new().color(Color::WHITE),
-        )
+        .add_cached_shape(1, Some(clip), ShapeDrawOptions::new().color(Color::WHITE))
         .unwrap();
     removed_ids.clear();
     scene.remove_subtrees([clip], |id| removed_ids.push(id));

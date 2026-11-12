@@ -86,8 +86,7 @@ fn group_fill_ownership_survives_overrides_and_container_replacement() {
         )
         .unwrap();
     let glyphs = glyph_ids(&scene, text);
-    let options =
-        ShapeDrawOptions::new().transform(TransformInstance::translation(8.0, 8.0));
+    let options = ShapeDrawOptions::new().transform(TransformInstance::translation(8.0, 8.0));
     let explicit = scene
         .add_shape(
             Shape::rect([(0.0, 0.0), (8.0, 8.0)]),
@@ -388,11 +387,7 @@ fn invalid_text_paint_transform_preserves_existing_scene() {
         )
         .unwrap();
     let canvas_text = scene
-        .add_text(
-            Glyphs::new(&[10]),
-            Some(group),
-            ShapeDrawOptions::new(),
-        )
+        .add_text(Glyphs::new(&[10]), Some(group), ShapeDrawOptions::new())
         .unwrap();
     scene.render(&mut target).unwrap();
     let shape = instance(&scene, glyph_ids(&scene, canvas_text)[0]);

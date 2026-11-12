@@ -1,8 +1,7 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use futures::executor::block_on;
 use grafo::{
-    BorderRadii, Color, PixelFormat, Pixmap, Scene, Shape, ShapeDrawOptions,
-    TransformInstance,
+    BorderRadii, Color, PixelFormat, Pixmap, Scene, Shape, ShapeDrawOptions, TransformInstance,
 };
 
 #[derive(Clone, Copy)]

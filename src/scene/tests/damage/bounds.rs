@@ -213,24 +213,23 @@ fn retained_node_bounds_follow_viewport_changes_and_removal() {
                 .transform(InstanceTransform::translation(9.0, 7.0)),
         )
         .unwrap();
-    let path = scene
-        .add_shape(
-            Shape::builder()
-                .begin((0.0, 0.0))
-                .line_to((4.0, 0.0))
-                .line_to((4.0, 3.0))
-                .line_to((0.0, 3.0))
-                .close()
-                .build(),
-            Some(branch),
-            None,
-            ShapeDrawOptions::new()
-                .color(Color::WHITE)
-                .transform(InstanceTransform::affine_2d(
-                    1.0, 0.5, -0.25, 1.0, 17.0, 11.0,
-                )),
-        )
-        .unwrap();
+    let path =
+        scene
+            .add_shape(
+                Shape::builder()
+                    .begin((0.0, 0.0))
+                    .line_to((4.0, 0.0))
+                    .line_to((4.0, 3.0))
+                    .line_to((0.0, 3.0))
+                    .close()
+                    .build(),
+                Some(branch),
+                None,
+                ShapeDrawOptions::new().color(Color::WHITE).transform(
+                    InstanceTransform::affine_2d(1.0, 0.5, -0.25, 1.0, 17.0, 11.0),
+                ),
+            )
+            .unwrap();
     scene.load_effect(7, &["backdrop effect"]).unwrap();
     scene
         .set_backdrop_effect(

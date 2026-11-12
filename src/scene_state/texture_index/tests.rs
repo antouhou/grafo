@@ -120,10 +120,7 @@ fn replacements_update_only_the_shapes_texture_associations() {
             .foreground_texture_id(2),
     );
     let parent = scene.insert_node(node, None);
-    let node = shape(
-        &mut scene,
-        ShapeDrawOptions::new().background_texture_id(1),
-    );
+    let node = shape(&mut scene, ShapeDrawOptions::new().background_texture_id(1));
     let child = scene.insert_node(node, Some(parent));
     for options in [
         ShapeDrawOptions::new()
@@ -152,10 +149,7 @@ fn replacements_update_only_the_shapes_texture_associations() {
     assert_texture_shapes(&scene, 3, &[]);
     assert_eq!(scene.draw_tree.children(parent), &[child]);
 
-    let node = shape(
-        &mut scene,
-        ShapeDrawOptions::new().background_texture_id(4),
-    );
+    let node = shape(&mut scene, ShapeDrawOptions::new().background_texture_id(4));
     scene.replace_node(parent, node, None, 4096);
     assert_eq!(scene.texture_index.textures_used_by(parent), &[4]);
     assert_texture_shapes(&scene, 4, &[parent]);
@@ -181,15 +175,9 @@ fn subtree_removal_clears_descendants_and_keeps_reused_ids_free_of_old_textures(
             .foreground_texture_id(2),
     );
     let child = scene.insert_node(node, Some(branch));
-    let node = shape(
-        &mut scene,
-        ShapeDrawOptions::new().background_texture_id(2),
-    );
+    let node = shape(&mut scene, ShapeDrawOptions::new().background_texture_id(2));
     let descendant = scene.insert_node(node, Some(child));
-    let node = shape(
-        &mut scene,
-        ShapeDrawOptions::new().background_texture_id(1),
-    );
+    let node = shape(&mut scene, ShapeDrawOptions::new().background_texture_id(1));
     let sibling = scene.insert_node(node, Some(root));
     scene.remove_subtrees_with([child, branch, child, usize::MAX], |_, _, _, _| {});
 
@@ -199,10 +187,7 @@ fn subtree_removal_clears_descendants_and_keeps_reused_ids_free_of_old_textures(
     assert_texture_shapes(&scene, 1, &[sibling]);
     assert_texture_shapes(&scene, 2, &[]);
 
-    let node = shape(
-        &mut scene,
-        ShapeDrawOptions::new().foreground_texture_id(3),
-    );
+    let node = shape(&mut scene, ShapeDrawOptions::new().foreground_texture_id(3));
     let reused = scene.insert_node(node, Some(root));
     assert!([branch, child, descendant].contains(&reused));
     assert_eq!(scene.texture_index.textures_used_by(reused), &[3]);
