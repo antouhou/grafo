@@ -334,6 +334,7 @@ impl SceneState {
             Option<UnsignedPhysicalRect>,
         ),
     ) {
+        let mut effect_removals = self.effect_damage.removal_batch();
         self.draw_tree.remove_subtrees_with(node_ids, |id, node| {
             self.group_effect_index
                 .replace(id, node.group_effects(), EffectAttachments::default());
@@ -348,23 +349,21 @@ impl SceneState {
                     .remove_node(&node);
             }
             self.texture_index.remove(id);
-            let group_output = self
-                .effect_damage
-                .output_region(EffectDamageKind::Content, id);
+            let group_output = effect_removals.remove(EffectDamageKind::Content, id);
             if self.content_effects.remove(&id).is_some() {
                 self.effect_parameters.request_compaction();
             }
-            self.effect_damage.remove(EffectDamageKind::Content, id);
             if self.backdrop_effects.remove(&id).is_some() {
                 self.effect_parameters.request_compaction();
             }
-            self.effect_damage.remove(EffectDamageKind::Backdrop, id);
+            effect_removals.remove(EffectDamageKind::Backdrop, id);
             let shape_mask_effect = self.shape_mask_effects.remove(&id);
             if shape_mask_effect.is_some() {
                 self.effect_parameters.request_compaction();
             }
             removed(id, node, shape_mask_effect, group_output);
         });
+        drop(effect_removals);
         if self.draw_tree.is_empty() {
             self.effect_parameters.clear();
         }

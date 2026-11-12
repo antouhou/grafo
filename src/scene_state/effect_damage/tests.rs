@@ -28,8 +28,8 @@ fn entry(
 fn assert_matching_nodes(damage: &EffectDamage, query: UnsignedPhysicalRect, expected: &[usize]) {
     let mut nodes = [0; 4];
     let mut count = 0;
-    for entry in damage.tree.locate_in_envelope_intersecting(envelope(query)) {
-        nodes[count] = entry.entry.node_id;
+    for trigger in damage.tree.locate_in_envelope_intersecting(envelope(query)) {
+        nodes[count] = trigger.entry.node_id;
         count += 1;
     }
     let nodes = &mut nodes[..count];

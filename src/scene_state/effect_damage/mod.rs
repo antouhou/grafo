@@ -8,6 +8,7 @@ use rstar::{RTree, RTreeObject, AABB};
 use std::ops::ControlFlow;
 use traversal::DamageTraversal;
 
+mod removal;
 mod traversal;
 
 fn envelope(bounds: UnsignedPhysicalRect) -> AABB<[f64; 2]> {
@@ -176,11 +177,10 @@ impl EffectDamage {
     pub(super) fn clear(&mut self) {
         self.traversal.clear();
         self.processed_effects.clear();
-        if self.is_empty() {
-            return;
-        }
         self.entries.clear();
-        self.tree.drain().for_each(drop);
+        if self.tree.size() != 0 {
+            self.tree.drain().for_each(drop);
+        }
     }
 
     fn is_empty(&self) -> bool {
