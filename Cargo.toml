@@ -40,6 +40,7 @@ image = "0.25"
 transformator = "0.1.1"
 euclid = "0.22.11"
 grafo-test-scenes = { path = "grafo-test-scenes", default-features = false }
+usvg = { version = "0.49", default-features = false }
 
 [features]
 default = ["cosmic-text"]

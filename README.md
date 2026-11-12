@@ -227,6 +227,12 @@ scene
 
 - `basic.rs` draws shapes using winit 0.30's `ApplicationHandler`.
 - `transforms.rs` covers instance transforms, color, perspective, and hit-testing.
+- `tiger` renders the Ghostscript tiger with scroll zoom, left-drag panning, and frame statistics.
+  Run `cargo run --release --example tiger`. Space toggles clearing and requeueing all draw commands
+  on every redraw; loaded geometry is reused in both modes. The default mode retains the scene
+  and calls `render` on every redraw. Vsync is disabled.
+  The tiger artwork is licensed under AGPL-3.0-or-later; see its
+  [attribution and source](examples/assets/tiger.NOTICE) and [license](examples/assets/tiger.LICENSE).
 - `benches/visual_regression.rs` benchmarks the visual regression scene with Criterion.
 
 Run the visual-regression benchmark in release mode:

@@ -1,3 +1,4 @@
+pub mod caption_font;
 pub mod expectations;
 pub mod scene;
 pub mod shaders;
