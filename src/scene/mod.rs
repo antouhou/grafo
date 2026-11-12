@@ -181,7 +181,8 @@ impl<B: RenderBackend> Scene<B> {
     /// Queues a shape without retaining it in the loaded-shape cache.
     /// Equal geometry IDs must identify identical fill and stroke geometry.
     /// Children inherit clipping unless their parent uses `clips_children(false)`.
-    /// Stroke draws must be leaf nodes.
+    /// If the draw mode is set to [`DrawMode::Stroke`], the node can't be used to attach children
+    /// to it.
     pub fn add_shape(
         &mut self,
         shape: impl AsRef<Shape>,
@@ -225,7 +226,8 @@ impl<B: RenderBackend> Scene<B> {
     }
 
     /// Queues a loaded shape and prepares backend resources for this instance.
-    /// Stroke draws must be leaf nodes.
+    /// If the draw mode is set to [`DrawMode::Stroke`], the node can't be used to attach child
+    /// nodes to it.
     pub fn add_cached_shape(
         &mut self,
         cache_key: u64,

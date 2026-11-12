@@ -37,7 +37,8 @@ pub enum DrawMode {
     /// Draws the shape's filled interior.
     #[default]
     Fill,
-    /// Draws the shape's stroke. Stroke draws must be leaf nodes.
+    /// Draws the shape's stroke. Stroke draws must be leaf nodes - i.e, you can't attach any child
+    /// nodes to it.
     Stroke,
 }
 
