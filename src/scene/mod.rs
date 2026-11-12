@@ -25,7 +25,6 @@ use std::mem;
 use std::time::Instant;
 use text::TextScratch;
 use thiserror::Error;
-use crate::DrawMode;
 
 mod damage;
 mod draw_commands;
