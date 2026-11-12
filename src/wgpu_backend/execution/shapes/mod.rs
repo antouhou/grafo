@@ -2,6 +2,7 @@ use super::composites::CompositeExecutionResources;
 use crate::commands::ShapeDrawId;
 use crate::core::cache::CachedTessellation;
 use crate::core::gradient::types::Fill;
+use crate::core::shape::DrawMode;
 use crate::core::vertex::{CustomVertex, InstanceTransform};
 use crate::wgpu_backend::gradient::{GradientCache, GradientMaterial};
 use crate::wgpu_backend::vertex::{GeometryBufferRange, InstanceColor, InstanceMetadata};
@@ -77,7 +78,7 @@ pub(crate) struct ShapeExecutionResources {
     pub(crate) gradient_cache: GradientCache,
     pub(crate) vertices: Vec<CustomVertex>,
     pub(crate) indices: Vec<u32>,
-    pub(crate) geometry_ranges: HashMap<u64, GeometryBufferRange>,
+    pub(crate) geometry_ranges: HashMap<(u64, DrawMode), GeometryBufferRange>,
     pub(crate) instance_transforms: Vec<InstanceTransform>,
     pub(crate) instance_colors: Vec<InstanceColor>,
     pub(crate) instance_metadata: Vec<InstanceMetadata>,

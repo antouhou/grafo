@@ -181,9 +181,14 @@ impl SceneState {
     }
 
     pub(crate) fn validate_parent(&self, parent: Option<usize>) -> Result<(), SceneError> {
+        let parent = parent.or_else(|| (!self.draw_tree.is_empty()).then_some(0));
         if let Some(parent) = parent {
-            if self.draw_tree.get(parent).is_none() {
-                return Err(SceneError::InvalidShapeId(parent));
+            let node = self
+                .draw_tree
+                .get(parent)
+                .ok_or(SceneError::InvalidShapeId(parent))?;
+            if node.is_stroke_draw() {
+                return Err(SceneError::StrokeDrawMustBeLeaf(parent));
             }
         }
         Ok(())

@@ -2,7 +2,9 @@ use super::preparation::{self, InstanceTextureData};
 use super::{ShapeBufferLocation, ShapeDrawResources, ShapeExecutionResources};
 use crate::commands::ShapeDrawId;
 use crate::core::vertex::{InstanceTransform, TextureUvTransform};
-use crate::core::{BorderRadii, Shape, ShapeDrawOptions, ShapeInstance, Viewport};
+use crate::core::{
+    BorderRadii, DrawMode, Shape, ShapeDrawOptions, ShapeInstance, StrokeGeometryOptions, Viewport,
+};
 use crate::scene_state::{SceneState, SceneStateContext};
 
 fn insert_draw(resources: &mut ShapeExecutionResources, id: usize, shape: &ShapeInstance) {
@@ -45,7 +47,7 @@ fn insert_draw(resources: &mut ShapeExecutionResources, id: usize, shape: &Shape
 fn assert_draw_data(resources: &ShapeExecutionResources, id: usize, shape: &ShapeInstance) {
     let location = resources.draws[&id].geometry_buffer_location.unwrap();
     let geometry = location.geometry_range;
-    let expected = shape.cached_shape.fill_vertex_buffers();
+    let expected = shape.vertex_buffers().unwrap();
     let vertices = &resources.vertices
         [geometry.vertex_start as usize..geometry.vertex_start as usize + geometry.vertex_count];
     assert_eq!(
@@ -74,8 +76,46 @@ fn assert_draw_data(resources: &ShapeExecutionResources, id: usize, shape: &Shap
         assert_eq!(transform.offset, [0.0; 2]);
     }
     if let Some(geometry_id) = shape.cached_shape.geometry_id {
-        assert_eq!(resources.geometry_ranges[&geometry_id], geometry);
+        assert_eq!(
+            resources.geometry_ranges[&(geometry_id, shape.draw_mode)],
+            geometry
+        );
     }
+}
+
+#[test]
+fn fill_and_stroke_ranges_remain_distinct_through_reuse_and_compaction() {
+    let mut scene = SceneState::new(
+        SceneStateContext::default(),
+        Viewport {
+            physical_size: (32, 32),
+            scale_factor: 1.0,
+        },
+    );
+    let cached = scene
+        .tessellate(
+            &Shape::rect([(4.0, 4.0), (28.0, 28.0)]).with_stroke(StrokeGeometryOptions::new(4.0)),
+            Some(1),
+        )
+        .unwrap();
+    let fill = ShapeInstance::new(cached.clone(), ShapeDrawOptions::new());
+    let stroke = ShapeInstance::new(cached, ShapeDrawOptions::new().draw_mode(DrawMode::Stroke));
+    let mut resources = ShapeExecutionResources::new();
+    for (id, shape) in [(1, &fill), (2, &stroke), (3, &stroke)] {
+        insert_draw(&mut resources, id, shape);
+        assert_draw_data(&resources, id, shape);
+    }
+    assert_ne!(
+        resources.geometry_ranges[&(1, DrawMode::Fill)],
+        resources.geometry_ranges[&(1, DrawMode::Stroke)],
+    );
+    resources.remove_draws(&[ShapeDrawId(1), ShapeDrawId(2)]);
+    resources.compact_draw_buffers();
+    assert!(!resources.geometry_ranges.contains_key(&(1, DrawMode::Fill)));
+    assert_draw_data(&resources, 3, &stroke);
+    insert_draw(&mut resources, 4, &fill);
+    assert_draw_data(&resources, 3, &stroke);
+    assert_draw_data(&resources, 4, &fill);
 }
 
 #[test]
@@ -160,7 +200,7 @@ fn removal_compacts_buffers_and_keeps_shared_geometry_until_its_last_draw() {
     }
     resources.remove_draws(&[ShapeDrawId(3)]);
     resources.compact_draw_buffers();
-    assert!(!resources.geometry_ranges.contains_key(&1));
+    assert!(!resources.geometry_ranges.contains_key(&(1, DrawMode::Fill)));
     assert_draw_data(&resources, 2, &unique);
     assert_draw_data(&resources, 4, &uncached);
     resources.remove_draws(&[ShapeDrawId(2)]);
@@ -273,7 +313,7 @@ fn batch_removal_keeps_surviving_geometry_and_instances() {
             index
         );
     }
-    assert!(!resources.geometry_ranges.contains_key(&2));
+    assert!(!resources.geometry_ranges.contains_key(&(2, DrawMode::Fill)));
     assert_eq!(
         resources.vertices.len(),
         shared.cached_shape.fill_vertex_buffers().vertices.len()
@@ -389,7 +429,7 @@ fn batch_replacement_compacts_overwritten_instances_and_preserves_shared_geometr
     }
     insert_draw(&mut resources, 2, &replacement);
     resources.compact_draw_buffers();
-    assert!(!resources.geometry_ranges.contains_key(&1));
+    assert!(!resources.geometry_ranges.contains_key(&(1, DrawMode::Fill)));
     assert_draw_data(&resources, 2, &replacement);
     assert_draw_data(&resources, 3, &replacement);
 }

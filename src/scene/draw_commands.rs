@@ -87,7 +87,7 @@ impl<B: RenderBackend> Scene<B> {
                 .map_err(DrawCommandError::Backend)?;
             if let EffectConfig::ShapeMask(config) = effect.config {
                 ShapeMaskEffectBounds::new(
-                    shape.instance.cached_shape.fill_local_bounds(),
+                    shape.instance.local_bounds(),
                     config,
                     shape.instance.transform,
                     self.state.viewport().scale_factor,
@@ -109,7 +109,7 @@ impl<B: RenderBackend> Scene<B> {
             return Ok(None);
         };
         let bounds = ShapeMaskEffectBounds::new(
-            shape.instance.cached_shape.fill_local_bounds(),
+            shape.instance.local_bounds(),
             effect.config,
             shape.instance.transform,
             self.state.viewport().scale_factor,
@@ -197,6 +197,12 @@ impl<B: RenderBackend> Scene<B> {
         };
         let previous_dirty = self.dirty_bounds;
         let node = self.prepare_draw_command(command)?;
+        if matches!(target, NodeTarget::Replace { .. })
+            && node.is_stroke_draw()
+            && !self.state.draw_tree.children(node_id).is_empty()
+        {
+            return Err(SceneError::StrokeDrawMustBeLeaf(node_id).into());
+        }
         let replacement_effects = self.prepare_replacement_effects(&target, &node)?;
         let shape_mask_effect_bounds = self.validate_replacement_shape_mask(node_id, &node)?;
         let member_effects = self.prepare_replacement_member_effects(&target, &node)?;
@@ -205,10 +211,8 @@ impl<B: RenderBackend> Scene<B> {
                 .register_shape(ShapeDrawId(node_id), &shape.instance)
                 .map_err(DrawCommandError::Backend)?;
             if shape_mask_effect_bounds.is_some() {
-                self.backend.set_shape_mask_effect_geometry(
-                    ShapeDrawId(node_id),
-                    &shape.instance.cached_shape,
-                );
+                self.backend
+                    .set_shape_mask_effect_geometry(ShapeDrawId(node_id), &shape.instance);
             }
         } else if matches!(target, NodeTarget::Replace { .. }) {
             self.backend.unregister_shapes(&[ShapeDrawId(node_id)]);

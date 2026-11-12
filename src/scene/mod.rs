@@ -180,6 +180,7 @@ impl<B: RenderBackend> Scene<B> {
     /// Queues a shape without retaining it in the loaded-shape cache.
     /// Equal geometry IDs must identify identical fill and stroke geometry.
     /// Children inherit clipping unless their parent uses `clips_children(false)`.
+    /// Stroke draws must be leaf nodes.
     pub fn add_shape(
         &mut self,
         shape: impl AsRef<Shape>,
@@ -223,6 +224,7 @@ impl<B: RenderBackend> Scene<B> {
     }
 
     /// Queues a loaded shape and prepares backend resources for this instance.
+    /// Stroke draws must be leaf nodes.
     pub fn add_cached_shape(
         &mut self,
         cache_key: u64,
@@ -260,6 +262,7 @@ impl<B: RenderBackend> Scene<B> {
     /// Replaces one command with a shape and returns its unchanged ID.
     /// Equal geometry IDs must identify identical fill and stroke geometry.
     /// Parent, children and attached effects are preserved.
+    /// Stroke mode requires a leaf node.
     /// Replacing a group moves its effects onto the shape. Descendants keep their own
     /// effects and those supplied by nested groups.
     pub fn replace_with_shape(
@@ -296,6 +299,7 @@ impl<B: RenderBackend> Scene<B> {
 
     /// Replaces one command with a loaded shape and returns its unchanged ID.
     /// Children and attached effects are retained.
+    /// Stroke mode requires a leaf node.
     /// Group effects follow the same rules as [`Scene::replace_with_shape`].
     pub fn replace_with_cached_shape(
         &mut self,
@@ -556,10 +560,8 @@ impl<B: RenderBackend> Scene<B> {
             config,
             self.backend.maximum_texture_dimension(),
         )?;
-        self.backend.set_shape_mask_effect_geometry(
-            ShapeDrawId(node_id),
-            &self.state.shape(node_id)?.cached_shape,
-        );
+        self.backend
+            .set_shape_mask_effect_geometry(ShapeDrawId(node_id), self.state.shape(node_id)?);
         if let Some(bounds) = old_bounds {
             self.mark_shape_mask_effect_dirty(bounds);
         }

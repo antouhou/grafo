@@ -1,8 +1,8 @@
 use super::{glyph_ids, options, scene, surface, Glyphs};
 use crate::commands::RenderOperation;
 use crate::core::{
-    BackdropEffectConfig, ContentEffectConfig, Shape, ShapeMaskEffectConfig, TransformInstance,
-    UnsignedPhysicalRect,
+    BackdropEffectConfig, Color, ContentEffectConfig, DrawMode, Shape, ShapeDrawOptions,
+    ShapeMaskEffectConfig, StrokeGeometryOptions, TransformInstance, UnsignedPhysicalRect,
 };
 use crate::scene::tests::path_with_nan_positions;
 use crate::scene::DrawCommandError;
@@ -15,6 +15,89 @@ enum ReplacedNodeKind {
     Shape,
     ClipRect,
     Group,
+}
+
+#[test]
+fn stroke_to_text_replacement_commits_glyphs_or_preserves_the_stroke() {
+    for should_fail in [false, true] {
+        let mut scene = scene();
+        let stroke = scene
+            .add_shape(
+                Shape::rect([(2.0, 2.0), (20.0, 20.0)])
+                    .with_stroke(StrokeGeometryOptions::new(4.0)),
+                None,
+                None,
+                ShapeDrawOptions::new()
+                    .draw_mode(DrawMode::Stroke)
+                    .color(Color::BLACK),
+            )
+            .unwrap();
+        scene
+            .set_content_effect(stroke, 8, &[1, 2, 3, 4], ContentEffectConfig::default())
+            .unwrap();
+        let mut surface = surface();
+        scene.render(&mut surface).unwrap();
+        let bounds = scene
+            .state
+            .draw_tree
+            .get(stroke)
+            .unwrap()
+            .logical_screen_bounds();
+        let effect_bounds = scene.state.content_effects[&stroke]
+            .bounds
+            .unwrap()
+            .capture_region
+            .bounds;
+        if should_fail {
+            scene.backend.registration_failure = Some(scene.state.next_node_id() + 1);
+        }
+
+        let result = scene.replace_with_text(stroke, Glyphs::new(&[10, 11]), options());
+
+        if should_fail {
+            assert!(matches!(result, Err(DrawCommandError::Backend(_))));
+            assert_eq!(
+                scene.state.shape(stroke).unwrap().draw_mode,
+                DrawMode::Stroke
+            );
+            assert!(scene.state.draw_tree.children(stroke).is_empty());
+            assert_eq!(scene.backend.registered_shapes, [stroke]);
+            assert_eq!(
+                scene
+                    .state
+                    .draw_tree
+                    .get(stroke)
+                    .unwrap()
+                    .logical_screen_bounds(),
+                bounds
+            );
+            assert_eq!(
+                scene.state.content_effects[&stroke]
+                    .bounds
+                    .unwrap()
+                    .capture_region
+                    .bounds,
+                effect_bounds,
+            );
+            assert!(scene.dirty_bounds.is_none());
+        } else {
+            assert_eq!(result.unwrap(), stroke);
+            assert!(matches!(
+                scene.state.draw_tree.get(stroke),
+                Some(DrawTreeNode::Group(_))
+            ));
+            let glyphs = glyph_ids(&scene, stroke);
+            assert_eq!(glyphs.len(), 2);
+            scene.render(&mut surface).unwrap();
+            assert_eq!(surface.resource().draws, glyphs);
+            assert!(!scene.backend.registered_shapes.contains(&stroke));
+            assert!(scene
+                .state
+                .node_effects(stroke)
+                .iter()
+                .any(|effect| effect.instance.effect_id == 8));
+        }
+    }
 }
 
 #[test]

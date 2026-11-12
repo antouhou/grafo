@@ -1,12 +1,11 @@
 use super::texture_manager::WgpuTextureManager;
 use super::{WgpuBackend, WgpuBackendError, WgpuSurface};
 use crate::commands::{RenderCommand, ShapeDrawId};
-use crate::core::shape::{CachedShapeHandle, ShapeInstance};
+use crate::core::shape::ShapeInstance;
 use crate::core::Viewport;
 use crate::render_backend::render_target::{PixelFormat, RenderTarget};
 use crate::render_backend::RenderBackend;
 use crate::UnsignedPhysicalRect;
-use std::sync::Arc;
 use wgpu::TextureFormat;
 
 impl RenderBackend for WgpuBackend {
@@ -92,14 +91,13 @@ impl RenderBackend for WgpuBackend {
             .invalidate_shape_mask_effect(effect_id);
     }
 
-    fn set_shape_mask_effect_geometry(&mut self, id: ShapeDrawId, shape: &CachedShapeHandle) {
+    fn set_shape_mask_effect_geometry(&mut self, id: ShapeDrawId, shape: &ShapeInstance) {
         self.resources
             .shape_execution
             .draws
             .get_mut(&id.0)
             .expect("shape registered before effects are attached")
-            .mask_tessellation
-            .get_or_insert_with(|| Arc::clone(&shape.fill_tessellation));
+            .mask_tessellation = shape.tessellation().cloned();
     }
 
     fn remove_shape_mask_effect(&mut self, id: ShapeDrawId) {

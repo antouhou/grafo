@@ -1,7 +1,7 @@
 //! Contracts shared by the scene coordinator and backend implementations.
 
 use crate::commands::{RenderCommand, ShapeDrawId};
-use crate::core::{CachedShapeHandle, ShapeInstance, Viewport};
+use crate::core::{ShapeInstance, Viewport};
 use crate::UnsignedPhysicalRect;
 use render_target::{RenderTarget, RenderTargetError};
 use texture_manager::TextureManager;
@@ -48,7 +48,7 @@ pub trait RenderBackend {
 
     fn invalidate_effect(&mut self, effect_id: u64);
 
-    fn set_shape_mask_effect_geometry(&mut self, id: ShapeDrawId, shape: &CachedShapeHandle);
+    fn set_shape_mask_effect_geometry(&mut self, id: ShapeDrawId, shape: &ShapeInstance);
 
     fn remove_shape_mask_effect(&mut self, id: ShapeDrawId);
 

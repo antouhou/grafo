@@ -10,11 +10,12 @@ use grafo::lyon::math::Box2D;
 use grafo::lyon::path::{Path, PathEvent, Winding};
 use grafo::{
     premultiply_rgba8_srgb_inplace, BackdropCaptureArea, BackdropEffectConfig, BorderRadii, Color,
-    ColorInterpolation, ConicGradientDesc, ContentEffectConfig, Fill, GlyphContent, Gradient,
-    GradientColor, GradientCommonDesc, GradientStop, GradientStopOffset, GradientStopPositions,
-    GradientUnits, LinearGradientDesc, LinearGradientLine, PositionedGlyph, RadialGradientDesc,
-    RadialGradientSize, Scene, Shape, ShapeDrawOptions, ShapeMaskEffectConfig, ShapeTextureFitMode,
-    ShapeTextureOptions, SpreadMode, TextSource, TextureManager, TransformInstance,
+    ColorInterpolation, ConicGradientDesc, ContentEffectConfig, DrawMode, Fill, GlyphContent,
+    Gradient, GradientColor, GradientCommonDesc, GradientStop, GradientStopOffset,
+    GradientStopPositions, GradientUnits, LineCap, LinearGradientDesc, LinearGradientLine,
+    PositionedGlyph, RadialGradientDesc, RadialGradientSize, Scene, Shape, ShapeDrawOptions,
+    ShapeMaskEffectConfig, ShapeTextureFitMode, ShapeTextureOptions, SpreadMode,
+    StrokeGeometryOptions, TextSource, TextureManager, TransformInstance,
 };
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
 use std::slice;
@@ -7413,6 +7414,445 @@ fn tile_83_nested_target_restoration(scene: &mut Scene) -> Vec<PixelExpectation>
     .collect()
 }
 
+fn stroke_caption_rows(character: u8) -> [u8; 7] {
+    match character {
+        b'A' => [14, 17, 17, 31, 17, 17, 17],
+        b'B' => [30, 17, 17, 30, 17, 17, 30],
+        b'C' => [14, 17, 16, 16, 16, 17, 14],
+        b'D' => [30, 17, 17, 17, 17, 17, 30],
+        b'E' => [31, 16, 16, 30, 16, 16, 31],
+        b'F' => [31, 16, 16, 30, 16, 16, 16],
+        b'G' => [14, 17, 16, 23, 17, 17, 15],
+        b'H' => [17, 17, 17, 31, 17, 17, 17],
+        b'I' => [31, 4, 4, 4, 4, 4, 31],
+        b'K' => [17, 18, 20, 24, 20, 18, 17],
+        b'L' => [16, 16, 16, 16, 16, 16, 31],
+        b'N' => [17, 25, 25, 21, 19, 19, 17],
+        b'O' => [14, 17, 17, 17, 17, 17, 14],
+        b'P' => [30, 17, 17, 30, 16, 16, 16],
+        b'Q' => [14, 17, 17, 17, 21, 18, 13],
+        b'R' => [30, 17, 17, 30, 20, 18, 17],
+        b'S' => [15, 16, 16, 14, 1, 1, 30],
+        b'T' => [31, 4, 4, 4, 4, 4, 4],
+        b'U' => [17, 17, 17, 17, 17, 17, 14],
+        b'W' => [17, 17, 17, 21, 21, 21, 10],
+        b'X' => [17, 17, 10, 4, 10, 17, 17],
+        b'+' => [0, 4, 4, 31, 4, 4, 0],
+        _ => [0; 7],
+    }
+}
+
+fn add_stroke_tile_caption(scene: &mut Scene, caption: &str, position: (f32, f32)) {
+    let left = (position.0 - (caption.len() as f32 * 6.0 - 1.0) * 0.5).floor();
+    let mut path = Shape::builder();
+    for (column, character) in caption.bytes().enumerate() {
+        for (row, bits) in stroke_caption_rows(character).into_iter().enumerate() {
+            for pixel in 0..5 {
+                if bits & (1 << (4 - pixel)) == 0 {
+                    continue;
+                }
+                let x = left + (column * 6 + pixel) as f32;
+                let y = position.1 + row as f32;
+                path = path
+                    .begin((x, y))
+                    .line_to((x + 1.0, y))
+                    .line_to((x + 1.0, y + 1.0))
+                    .line_to((x, y + 1.0))
+                    .close();
+            }
+        }
+    }
+    scene
+        .add_shape(
+            path.build(),
+            None,
+            None,
+            ShapeDrawOptions::new().color(Color::rgb(40, 50, 65)),
+        )
+        .unwrap();
+}
+
+fn tile_92_stroke_fill_and_outline(scene: &mut Scene) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(92);
+    add_stroke_tile_caption(scene, "FILL+STROKE", (origin_x + 40.0, origin_y + 4.0));
+    let heart = Shape::builder()
+        .begin((40.0, 32.0))
+        .cubic_bezier_to((52.0, 10.0), (79.0, 27.0), (64.0, 44.0))
+        .line_to((40.0, 68.0))
+        .line_to((16.0, 44.0))
+        .cubic_bezier_to((1.0, 27.0), (28.0, 10.0), (40.0, 32.0))
+        .close()
+        .build()
+        .with_stroke(StrokeGeometryOptions::new(4.0));
+    scene.load_shape(heart, 92_000, Some(92_000)).unwrap();
+    let options =
+        ShapeDrawOptions::new().transform(TransformInstance::translation(origin_x, origin_y));
+    scene
+        .add_cached_shape(
+            92_000,
+            None,
+            options.clone().color(Color::rgb(240, 105, 120)),
+        )
+        .unwrap();
+    scene
+        .add_cached_shape(
+            92_000,
+            None,
+            options
+                .draw_mode(DrawMode::Stroke)
+                .color(Color::rgb(40, 50, 65)),
+        )
+        .unwrap();
+    [
+        (40, 45, (240, 105, 120), "t92_heart_fill"),
+        (40, 66, (40, 50, 65), "t92_heart_outline"),
+        (6, 50, (255, 255, 255), "t92_outside_heart"),
+    ]
+    .into_iter()
+    .map(|(x, y, (r, g, b), label)| {
+        PixelExpectation::opaque(origin_x as u32 + x, origin_y as u32 + y, r, g, b, label)
+    })
+    .collect()
+}
+
+fn tile_93_stroke_paints(scene: &mut Scene) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(93);
+    add_stroke_tile_caption(scene, "GRADIENT", (origin_x + 40.0, origin_y + 4.0));
+    add_stroke_tile_caption(scene, "TEXTURE", (origin_x + 40.0, origin_y + 43.0));
+    let wave = Shape::builder()
+        .begin((10.0, 27.0))
+        .cubic_bezier_to((22.0, 10.0), (25.0, 44.0), (40.0, 27.0))
+        .cubic_bezier_to((53.0, 10.0), (57.0, 44.0), (70.0, 27.0))
+        .end()
+        .build()
+        .with_stroke(StrokeGeometryOptions::new(8.0).line_cap(LineCap::Round));
+    scene.load_shape(wave, 93_000, Some(93_000)).unwrap();
+    let gradient = Gradient::linear(LinearGradientDesc {
+        common: two_stop_common((240, 80, 70), (40, 100, 230), SpreadMode::Pad),
+        line: LinearGradientLine {
+            start: [10.0, 0.0],
+            end: [70.0, 0.0],
+        },
+    })
+    .unwrap();
+    let options = ShapeDrawOptions::new()
+        .draw_mode(DrawMode::Stroke)
+        .transform(TransformInstance::translation(origin_x, origin_y));
+    let mut stripes = [0u8; 64 * 16 * 4];
+    for row in 0..16 {
+        for column in 0..64 {
+            let value = if ((column + row) / 8) % 2 == 0 {
+                255
+            } else {
+                0
+            };
+            let offset = (row * 64 + column) * 4;
+            stripes[offset..offset + 4].copy_from_slice(&[value, value, value, 255]);
+        }
+    }
+    scene
+        .texture_manager()
+        .allocate_texture_with_data(93_000, (64, 16), &stripes);
+    scene
+        .add_cached_shape(93_000, None, options.clone().fill(Fill::Gradient(gradient)))
+        .unwrap();
+    scene
+        .add_cached_shape(
+            93_000,
+            None,
+            options
+                .transform(TransformInstance::translation(origin_x, origin_y + 36.0))
+                .background_texture_id(93_000)
+                .foreground_texture_id(TRANSLUCENT_RED_TEXTURE_ID),
+        )
+        .unwrap();
+    [
+        (10, 27, (238, 80, 71), 6, "t93_gradient_warm_end"),
+        (70, 27, (40, 100, 230), 6, "t93_gradient_cool_end"),
+        (10, 65, (188, 0, 0), 5, "t93_dark_texture_stripe"),
+        (70, 65, (255, 187, 187), 5, "t93_light_texture_stripe"),
+        (40, 50, (255, 255, 255), 5, "t93_gap_between_paints"),
+    ]
+    .into_iter()
+    .map(|(x, y, (r, g, b), tolerance, label)| {
+        PixelExpectation::opaque_approx(
+            origin_x as u32 + x,
+            origin_y as u32 + y,
+            r,
+            g,
+            b,
+            tolerance,
+            label,
+        )
+    })
+    .collect()
+}
+
+fn tile_94_stroke_caps(scene: &mut Scene) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(94);
+    add_stroke_tile_caption(scene, "CAPS", (origin_x + 40.0, origin_y + 4.0));
+    let options =
+        ShapeDrawOptions::new().transform(TransformInstance::translation(origin_x, origin_y));
+    for x in [43.0, 65.0] {
+        for y in (17..74).step_by(6) {
+            scene
+                .add_shape(
+                    Shape::rect([(x, y as f32), (x + 1.0, y as f32 + 3.0)]),
+                    None,
+                    None,
+                    options.clone().color(Color::rgb(185, 195, 205)),
+                )
+                .unwrap();
+        }
+    }
+    for (y, label, cap) in [
+        (25.0, "BUTT", LineCap::Butt),
+        (45.0, "ROUND", LineCap::Round),
+        (65.0, "SQUARE", LineCap::Square),
+    ] {
+        add_stroke_tile_caption(scene, label, (origin_x + 19.0, origin_y + y - 3.0));
+        scene
+            .add_shape(
+                Shape::builder()
+                    .begin((43.0, y))
+                    .line_to((65.0, y))
+                    .end()
+                    .build()
+                    .with_stroke(StrokeGeometryOptions::new(8.0).line_cap(cap)),
+                None,
+                None,
+                options
+                    .clone()
+                    .draw_mode(DrawMode::Stroke)
+                    .color(Color::rgb(45, 110, 210)),
+            )
+            .unwrap();
+    }
+    [
+        (40, 25, (255, 255, 255), "t94_butt_stops_at_guide"),
+        (45, 25, (45, 110, 210), "t94_butt_body"),
+        (40, 45, (45, 110, 210), "t94_round_extends_past_guide"),
+        (39, 41, (255, 255, 255), "t94_round_cap_outer_corner"),
+        (39, 61, (45, 110, 210), "t94_square_corner"),
+    ]
+    .into_iter()
+    .map(|(x, y, (r, g, b), label)| {
+        PixelExpectation::opaque(origin_x as u32 + x, origin_y as u32 + y, r, g, b, label)
+    })
+    .collect()
+}
+
+fn tile_95_stroke_shadow_and_blur(scene: &mut Scene) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(95);
+    add_stroke_tile_caption(scene, "EFFECTS", (origin_x + 40.0, origin_y + 4.0));
+    add_stroke_tile_caption(scene, "SHADOW", (origin_x + 20.0, origin_y + 64.0));
+    add_stroke_tile_caption(scene, "BLUR", (origin_x + 60.0, origin_y + 64.0));
+    let ring = Shape::rounded_rect([(8.0, 25.0), (32.0, 49.0)], BorderRadii::new(12.0))
+        .with_stroke(StrokeGeometryOptions::new(4.0));
+    let options = ShapeDrawOptions::new()
+        .draw_mode(DrawMode::Stroke)
+        .color(Color::rgb(45, 110, 210))
+        .transform(TransformInstance::translation(origin_x, origin_y));
+    let shadow = scene.add_shape(&ring, None, None, options.clone()).unwrap();
+    scene
+        .set_shape_mask_effect(
+            shadow,
+            DROP_SHADOW_EFFECT_ID,
+            bytemuck::bytes_of(&DropShadowParams {
+                radius: 2.0,
+                sigma: 1.0,
+                offset: [3.0, 4.0],
+                color: [0.0, 0.0, 0.0, 0.75],
+            }),
+            ShapeMaskEffectConfig::new().outset(8.0),
+        )
+        .unwrap();
+    let blur = scene
+        .add_shape(
+            &ring,
+            None,
+            None,
+            options.transform(TransformInstance::translation(origin_x + 40.0, origin_y)),
+        )
+        .unwrap();
+    let blur_params = BlurParams::new(2.0);
+    scene
+        .set_content_effect(
+            blur,
+            BLUR_EFFECT_ID,
+            bytemuck::bytes_of(&blur_params),
+            ContentEffectConfig::new().outset(blur_params.radius),
+        )
+        .unwrap();
+    [
+        (8, 37, (45, 110, 210), 5, "t95_crisp_shadow_source"),
+        (20, 37, (255, 255, 255), 5, "t95_shadow_ring_hole"),
+        (32, 51, (217, 217, 217), 10, "t95_offset_shadow"),
+        (46, 37, (140, 162, 223), 10, "t95_blurred_outer_edge"),
+        (60, 37, (255, 255, 255), 5, "t95_blurred_ring_hole"),
+    ]
+    .into_iter()
+    .map(|(x, y, (r, g, b), tolerance, label)| {
+        PixelExpectation::opaque_approx(
+            origin_x as u32 + x,
+            origin_y as u32 + y,
+            r,
+            g,
+            b,
+            tolerance,
+            label,
+        )
+    })
+    .collect()
+}
+
+fn tile_96_stroke_backdrop(scene: &mut Scene) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(96);
+    add_stroke_tile_caption(scene, "BACKDROP", (origin_x + 40.0, origin_y + 4.0));
+    let mut checkerboard = [0u8; 16 * 16 * 4];
+    for row in 0..16 {
+        for column in 0..16 {
+            let color = if (row + column) % 2 == 0 {
+                [255, 255, 255, 255]
+            } else {
+                [30, 50, 80, 255]
+            };
+            let offset = (row * 16 + column) * 4;
+            checkerboard[offset..offset + 4].copy_from_slice(&color);
+        }
+    }
+    scene
+        .texture_manager()
+        .allocate_texture_with_data(96_000, (16, 16), &checkerboard);
+    let options =
+        ShapeDrawOptions::new().transform(TransformInstance::translation(origin_x, origin_y));
+    scene
+        .add_shape(
+            Shape::rect([(8.0, 20.0), (72.0, 76.0)]),
+            None,
+            None,
+            options.clone().background_texture_id(96_000),
+        )
+        .unwrap();
+    let ring = scene
+        .add_shape(
+            Shape::rounded_rect([(18.0, 26.0), (62.0, 70.0)], BorderRadii::new(22.0))
+                .with_stroke(StrokeGeometryOptions::new(12.0)),
+            None,
+            None,
+            options.clone().draw_mode(DrawMode::Stroke),
+        )
+        .unwrap();
+    scene
+        .set_backdrop_effect(
+            ring,
+            BLUR_EFFECT_ID,
+            bytemuck::bytes_of(&BlurParams::new(4.0)),
+            BackdropEffectConfig::new().padding(4.0),
+        )
+        .unwrap();
+    for (bounds, radius) in [
+        ([(12.0, 20.0), (68.0, 76.0)], 28.0),
+        ([(24.0, 32.0), (56.0, 64.0)], 16.0),
+    ] {
+        scene
+            .add_shape(
+                Shape::rounded_rect(bounds, BorderRadii::new(radius))
+                    .with_stroke(StrokeGeometryOptions::new(1.0)),
+                None,
+                None,
+                options
+                    .clone()
+                    .draw_mode(DrawMode::Stroke)
+                    .color(Color::rgb(40, 50, 65)),
+            )
+            .unwrap();
+    }
+    [
+        (42, 49, (235, 236, 240), 20, "t96_sharp_checker_inside_ring"),
+        (18, 46, (185, 188, 193), 15, "t96_blurred_checker_in_stroke"),
+        (4, 48, (255, 255, 255), 5, "t96_outside_checker"),
+    ]
+    .into_iter()
+    .map(|(x, y, (r, g, b), tolerance, label)| {
+        PixelExpectation::opaque_approx(
+            origin_x as u32 + x,
+            origin_y as u32 + y,
+            r,
+            g,
+            b,
+            tolerance,
+            label,
+        )
+    })
+    .collect()
+}
+
+fn tile_97_stroke_clipping(scene: &mut Scene) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(97);
+    add_stroke_tile_caption(scene, "CLIP", (origin_x + 40.0, origin_y + 4.0));
+    let wave = Shape::builder()
+        .begin((2.0, 26.0))
+        .cubic_bezier_to((7.0, 3.0), (15.0, 36.0), (20.0, 24.0))
+        .cubic_bezier_to((25.0, 12.0), (31.0, 38.0), (38.0, 20.0))
+        .end()
+        .build()
+        .with_stroke(StrokeGeometryOptions::new(3.0).line_cap(LineCap::Round));
+    scene.load_shape(wave, 97_000, Some(97_000)).unwrap();
+    let transform = TransformInstance::translation(origin_x, origin_y);
+    let stroke_options = ShapeDrawOptions::new()
+        .draw_mode(DrawMode::Stroke)
+        .transform(TransformInstance::scale(2.0, 2.0).then(&transform));
+    scene
+        .add_cached_shape(
+            97_000,
+            None,
+            stroke_options.clone().color(Color::rgb(195, 205, 215)),
+        )
+        .unwrap();
+    let circle = Shape::rounded_rect([(16.0, 24.0), (64.0, 72.0)], BorderRadii::new(24.0))
+        .with_stroke(StrokeGeometryOptions::new(1.0));
+    let clip = scene
+        .add_shape(
+            &circle,
+            None,
+            None,
+            ShapeDrawOptions::new()
+                .transform(transform)
+                .color(Color::rgb(235, 243, 252)),
+        )
+        .unwrap();
+    scene
+        .add_cached_shape(
+            97_000,
+            Some(clip),
+            stroke_options.color(Color::rgb(245, 140, 40)),
+        )
+        .unwrap();
+    scene
+        .add_shape(
+            &circle,
+            None,
+            None,
+            ShapeDrawOptions::new()
+                .draw_mode(DrawMode::Stroke)
+                .transform(transform)
+                .color(Color::rgb(40, 50, 65)),
+        )
+        .unwrap();
+    [
+        (40, 48, (245, 140, 40), "t97_stroke_inside_clip"),
+        (4, 52, (195, 205, 215), "t97_faint_unclipped_reference"),
+        (40, 65, (235, 243, 252), "t97_circular_aperture"),
+        (4, 20, (255, 255, 255), "t97_outside_clip"),
+    ]
+    .into_iter()
+    .map(|(x, y, (r, g, b), label)| {
+        PixelExpectation::opaque(origin_x as u32 + x, origin_y as u32 + y, r, g, b, label)
+    })
+    .collect()
+}
+
 /// Queues the tile grid and returns its expected pixel colors.
 /// The headless regression test and visual_test_grid example share this scene.
 pub fn build_main_scene(scene: &mut Scene) -> Vec<PixelExpectation> {
@@ -7535,6 +7975,12 @@ pub fn build_main_scene(scene: &mut Scene) -> Vec<PixelExpectation> {
     expectations.extend(tile_89_rectangle_coverage_effects(scene));
     expectations.extend(tile_90_bounded_effect_targets(scene));
     expectations.extend(tile_91_cached_glyphs(scene));
+    expectations.extend(tile_92_stroke_fill_and_outline(scene));
+    expectations.extend(tile_93_stroke_paints(scene));
+    expectations.extend(tile_94_stroke_caps(scene));
+    expectations.extend(tile_95_stroke_shadow_and_blur(scene));
+    expectations.extend(tile_96_stroke_backdrop(scene));
+    expectations.extend(tile_97_stroke_clipping(scene));
 
     expectations
 }

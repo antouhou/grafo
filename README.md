@@ -139,6 +139,38 @@ the fill and stroke geometry match. Pass `None` to skip reuse by ID.
 `SceneError::InvalidStrokeGeometry` for invalid stroke geometry. Both errors preserve
 any existing entry under `cache_key`.
 
+### Fill and stroke draws
+
+Attach stroke geometry to `Shape` before loading it. `DrawMode` selects which geometry
+to draw, and the same color, gradient, texture, and effect APIs apply to either mode.
+Queue the cached shape twice to draw both its interior and its stroke:
+
+```rust
+use grafo::{Color, DrawMode, Shape, ShapeDrawOptions, StrokeGeometryOptions};
+
+let group = scene.add_group(None, Default::default()).unwrap();
+let shape = Shape::rect([(10.0, 10.0), (110.0, 70.0)])
+    .with_stroke(StrokeGeometryOptions::new(4.0));
+scene.load_shape(shape, 42, None).unwrap();
+scene.add_cached_shape(
+    42,
+    Some(group),
+    ShapeDrawOptions::new().color(Color::WHITE),
+).unwrap();
+let stroke = scene.add_cached_shape(
+    42,
+    Some(group),
+    ShapeDrawOptions::new()
+        .draw_mode(DrawMode::Stroke)
+        .color(Color::BLACK),
+).unwrap();
+```
+
+`DrawMode::Fill` is the default. Stroke mode draws nothing if the shape has no stroke
+mesh. Stroke draws must be leaf nodes. Inserting descendants beneath one or replacing
+a non-leaf node with a stroke draw returns `SceneError::StrokeDrawMustBeLeaf`.
+Attach effects to either draw's ID independently, or use their group for shared effects.
+
 ### Shape hierarchy and overflow
 
 The second argument to `add_shape` and `add_clipping_rect` is the optional

@@ -77,9 +77,7 @@ impl ContentEffectInstance {
         maximum_texture_dimension: u32,
     ) -> Self {
         let shape_mask_effect_bounds = shape_mask_effect
-            .filter(
-                |_| matches!(node, DrawTreeNode::CachedShape(shape) if shape.has_fill_geometry()),
-            )
+            .filter(|_| matches!(node, DrawTreeNode::CachedShape(shape) if shape.has_geometry()))
             .map(|effect| effect.bounds);
         Self {
             effect_id: effect.effect_id,
@@ -327,7 +325,7 @@ impl SceneState {
         let shape = self.shape(node_id)?;
         validate_shape_mask_effect_config(&config)?;
         let bounds = ShapeMaskEffectBounds::new(
-            shape.cached_shape.fill_local_bounds(),
+            shape.local_bounds(),
             config,
             shape.transform,
             self.viewport.scale_factor,
@@ -365,7 +363,7 @@ impl SceneState {
                 return Err(SceneError::UnsupportedNodeOperation(node_id, "effects"));
             };
             effect.bounds = ShapeMaskEffectBounds::new(
-                shape.instance.cached_shape.fill_local_bounds(),
+                shape.instance.local_bounds(),
                 effect.config,
                 shape.instance.transform,
                 scale_factor,

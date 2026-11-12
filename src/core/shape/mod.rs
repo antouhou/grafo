@@ -31,6 +31,16 @@ pub(crate) enum ShapeTessellationError {
     StrokeGeometry(#[from] StrokeGeometryError),
 }
 
+/// Geometry selected for a shape draw.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum DrawMode {
+    /// Draws the shape's filled interior.
+    #[default]
+    Fill,
+    /// Draws the shape's stroke. Stroke draws must be leaf nodes.
+    Stroke,
+}
+
 /// Shared tessellated geometry for a shape, independent of its paint and transform.
 #[derive(Debug, Clone)]
 pub struct CachedShapeHandle {
@@ -111,6 +121,7 @@ impl CachedShapeHandle {
 #[derive(Debug)]
 pub struct ShapeInstance {
     pub cached_shape: CachedShapeHandle,
+    pub draw_mode: DrawMode,
     /// Optional per-shape transform applied in pixel space before clip-space normalization.
     pub transform: Option<InstanceTransform>,
     /// Texture sources associated with this cached shape.
@@ -121,14 +132,13 @@ pub struct ShapeInstance {
     pub fill: Option<Fill>,
     /// Maps shape-local positions to the local gradient's paint coordinates.
     pub paint_transform: Transform3D<f32>,
-    /// Stroke paint supplied with the draw command.
-    pub stroke_fill: Option<Fill>,
 }
 
 impl ShapeInstance {
     pub fn new(cached_shape: CachedShapeHandle, options: ShapeDrawOptions) -> Self {
         Self {
             cached_shape,
+            draw_mode: options.draw_mode,
             transform: options.transform,
             textures: [options.background_texture, options.foreground_texture],
             color_override: match options.fill.as_ref() {
@@ -137,8 +147,29 @@ impl ShapeInstance {
             },
             fill: options.fill,
             paint_transform: Transform3D::identity(),
-            stroke_fill: options.stroke_fill,
         }
+    }
+
+    pub fn tessellation(&self) -> Option<&Arc<CachedTessellation>> {
+        match self.draw_mode {
+            DrawMode::Fill => Some(&self.cached_shape.fill_tessellation),
+            DrawMode::Stroke => self.cached_shape.stroke_tessellation.as_ref(),
+        }
+    }
+
+    /// Returns the vertices and triangle indices for the selected draw mode.
+    pub fn vertex_buffers(&self) -> Option<&Arc<VertexBuffers<CustomVertex, u32>>> {
+        self.tessellation().map(|geometry| &geometry.vertex_buffers)
+    }
+
+    pub fn local_bounds(&self) -> [(f32, f32); 2] {
+        self.tessellation()
+            .map_or([(0.0, 0.0); 2], |geometry| geometry.local_bounds)
+    }
+
+    pub fn texture_mapping_size(&self) -> [f32; 2] {
+        self.tessellation()
+            .map_or([0.0; 2], |geometry| geometry.texture_mapping_size)
     }
 
     pub fn has_gradient_fill(&self) -> bool {
@@ -244,7 +275,7 @@ impl Shape {
 
     /// Stores the stroke geometry.
     ///
-    /// Set the stroke paint with [`ShapeDrawOptions::stroke_fill`].
+    /// Draw it with [`DrawMode::Stroke`] and set its paint with [`ShapeDrawOptions::fill`].
     pub fn with_stroke(mut self, stroke: StrokeGeometryOptions) -> Self {
         self.stroke = Some(stroke);
         self
@@ -615,26 +646,28 @@ impl StrokeGeometryOptions {
 
 #[derive(Clone, Debug)]
 pub struct ShapeDrawOptions {
+    /// Selects fill or stroke geometry. Defaults to [`DrawMode::Fill`].
+    /// Stroke mode draws nothing when the shape has no stroke geometry.
+    pub draw_mode: DrawMode,
     pub transform: Option<InstanceTransform>,
     pub clips_children: bool,
     pub background_texture: ShapeTextureOptions,
     pub foreground_texture: ShapeTextureOptions,
-    /// `None` inherits the nearest group fill, or is transparent if no group supplies one.
+    /// Paint for the selected geometry. `None` inherits the nearest group fill,
+    /// or is transparent if no group supplies one.
     /// An explicit fill, including transparent, overrides the group and uses shape coordinates.
     pub fill: Option<Fill>,
-    /// Stored stroke paint
-    pub stroke_fill: Option<Fill>,
 }
 
 impl Default for ShapeDrawOptions {
     fn default() -> Self {
         Self {
+            draw_mode: DrawMode::default(),
             transform: None,
             clips_children: true,
             background_texture: ShapeTextureOptions::default(),
             foreground_texture: ShapeTextureOptions::default(),
             fill: None,
-            stroke_fill: None,
         }
     }
 }
@@ -642,6 +675,11 @@ impl Default for ShapeDrawOptions {
 impl ShapeDrawOptions {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn draw_mode(mut self, draw_mode: DrawMode) -> Self {
+        self.draw_mode = draw_mode;
+        self
     }
 
     pub fn transform(mut self, transform: InstanceTransform) -> Self {
@@ -703,12 +741,6 @@ impl ShapeDrawOptions {
 
     pub fn color(mut self, color: Color) -> Self {
         self.fill = Some(Fill::Solid(color));
-        self
-    }
-
-    /// Stores a solid color or gradient for the stroke
-    pub fn stroke_fill(mut self, fill: impl Into<Fill>) -> Self {
-        self.stroke_fill = Some(fill.into());
         self
     }
 }
