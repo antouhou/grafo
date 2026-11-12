@@ -654,8 +654,7 @@ pub struct ShapeDrawOptions {
     pub clips_children: bool,
     pub background_texture: ShapeTextureOptions,
     pub foreground_texture: ShapeTextureOptions,
-    /// Paint for the selected geometry. `None` inherits the nearest group fill,
-    /// or is transparent if no group supplies one.
+    /// `None` inherits the nearest group fill, or is transparent if no group supplies one.
     /// An explicit fill, including transparent, overrides the group and uses shape coordinates.
     pub fill: Option<Fill>,
 }
