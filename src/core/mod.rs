@@ -1,5 +1,6 @@
 //! CPU geometry, colors, fills, effects, and transforms.
 
+pub use blend::BlendMode;
 pub use cache::CachedTessellation;
 pub(crate) use color::linear_to_srgb_u8;
 pub use color::{premultiply_rgba8_srgb_inplace, Color};
@@ -23,6 +24,7 @@ pub use text::*;
 pub use vertex::InstanceTransform as TransformInstance;
 pub use vertex::{CustomVertex, TextureUvTransform};
 
+mod blend;
 pub(crate) mod cache;
 mod color;
 pub(crate) mod effect;

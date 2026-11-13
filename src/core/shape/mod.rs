@@ -6,7 +6,7 @@ use crate::core::cache::CachedTessellation;
 use crate::core::gradient::types::Fill;
 use crate::core::shape::boundary::RoundedRectBoundary;
 use crate::core::vertex::{CustomVertex, InstanceTransform, TextureUvTransform};
-use crate::core::Color;
+use crate::core::{BlendMode, Color};
 use lyon::geom::euclid::default::Transform3D;
 use lyon::path::{Builder, Path, PathEvent, Winding};
 pub use lyon::path::{FillRule, LineCap};
@@ -650,6 +650,10 @@ pub struct ShapeDrawOptions {
     /// Selects fill or stroke geometry. Defaults to [`DrawMode::Fill`].
     /// Stroke mode draws nothing when the shape has no stroke geometry.
     pub draw_mode: DrawMode,
+    /// Blend mode, defaulting to [`BlendMode::SourceOver`]. The default is the same as the CSS'
+    /// normal mode. Setting it to something other than the default will make the element into a
+    /// separate internal rendering target, the same way as content effect does.
+    pub blend_mode: BlendMode,
     pub transform: Option<InstanceTransform>,
     pub clips_children: bool,
     pub background_texture: ShapeTextureOptions,
@@ -663,6 +667,7 @@ impl Default for ShapeDrawOptions {
     fn default() -> Self {
         Self {
             draw_mode: DrawMode::default(),
+            blend_mode: BlendMode::default(),
             transform: None,
             clips_children: true,
             background_texture: ShapeTextureOptions::default(),
@@ -679,6 +684,11 @@ impl ShapeDrawOptions {
 
     pub fn draw_mode(mut self, draw_mode: DrawMode) -> Self {
         self.draw_mode = draw_mode;
+        self
+    }
+
+    pub fn blend_mode(mut self, blend_mode: BlendMode) -> Self {
+        self.blend_mode = blend_mode;
         self
     }
 
