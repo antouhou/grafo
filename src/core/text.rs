@@ -1,4 +1,4 @@
-use super::{Fill, MathRect, TransformInstance};
+use super::{BlendMode, Fill, MathRect, TransformInstance};
 use lyon::path::{FillRule, PathEvent};
 use std::{hash::Hash, ops::Range};
 
@@ -17,38 +17,6 @@ pub enum GlyphPaint {
     Intrinsic(Fill),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CompositeMode {
-    Clear,
-    Source,
-    Destination,
-    SourceOver,
-    DestinationOver,
-    SourceIn,
-    DestinationIn,
-    SourceOut,
-    DestinationOut,
-    SourceAtop,
-    DestinationAtop,
-    Xor,
-    Plus,
-    Screen,
-    Overlay,
-    Darken,
-    Lighten,
-    ColorDodge,
-    ColorBurn,
-    HardLight,
-    SoftLight,
-    Difference,
-    Exclusion,
-    Multiply,
-    HslHue,
-    HslSaturation,
-    HslColor,
-    HslLuminosity,
-}
-
 // Keep paints inline to avoid a heap allocation per drawing operation.
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
@@ -65,7 +33,7 @@ pub enum GlyphPaintCommand {
     /// Paints the current clip using the current transform.
     Fill(GlyphPaint),
     /// Starts a transparent layer, composited onto its parent on `PopLayer`.
-    PushLayer(CompositeMode),
+    PushLayer(BlendMode),
     PopLayer,
 }
 
