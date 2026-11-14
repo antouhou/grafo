@@ -217,7 +217,12 @@ impl SceneState {
     }
 
     /// The parent must be validated before insertion.
-    pub(crate) fn insert_node(&mut self, node: DrawTreeNode, parent: Option<usize>) -> usize {
+    pub(crate) fn insert_node(
+        &mut self,
+        node: DrawTreeNode,
+        parent: Option<usize>,
+        maximum_texture_dimension: u32,
+    ) -> usize {
         self.has_pending_fill_changes = true;
         self.refresh_tessellation_cache(&node);
         self.texture_index.replace(self.next_node_id(), &node);
@@ -232,6 +237,7 @@ impl SceneState {
             self.draw_tree.add_child(parent.unwrap_or(0), node)
         };
         self.refresh_node_group_effect_sources(node_id);
+        self.refresh_content_group_bounds(node_id, maximum_texture_dimension);
         node_id
     }
 

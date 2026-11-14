@@ -172,9 +172,11 @@ impl<B: RenderBackend> Scene<B> {
             fill: GroupFill::new(options)?,
             ..Default::default()
         };
-        Ok(self
-            .state
-            .insert_node(DrawTreeNode::Group(group), parent_node_id))
+        Ok(self.state.insert_node(
+            DrawTreeNode::Group(group),
+            parent_node_id,
+            self.backend.maximum_texture_dimension(),
+        ))
     }
 
     /// Queues a shape without retaining it in the loaded-shape cache.

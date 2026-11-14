@@ -119,22 +119,24 @@ impl SceneState {
         node_id: usize,
         maximum_texture_dimension: u32,
     ) {
-        let Some(group) = self.content_groups.get(&node_id) else {
-            return;
-        };
         let Some(node) = self.draw_tree.get(node_id) else {
             return;
         };
-        if !requires_content_group(node, group.effect) {
-            self.content_groups.remove(&node_id);
-            self.effect_damage
-                .remove(EffectDamageKind::Content, node_id);
+        let effect = self
+            .content_groups
+            .get(&node_id)
+            .and_then(|group| group.effect);
+        if !requires_content_group(node, effect) {
+            if self.content_groups.remove(&node_id).is_some() {
+                self.effect_damage
+                    .remove(EffectDamageKind::Content, node_id);
+            }
             return;
         }
         let (updated, entry) = resolve_content_group(
             node_id,
             node,
-            group.effect,
+            effect,
             self.shape_mask_effects.get(&node_id),
             self.viewport,
             maximum_texture_dimension,

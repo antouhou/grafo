@@ -66,6 +66,7 @@ fn add_shape(scene: &mut SceneState, parent: Option<usize>) -> usize {
             ShapeDrawOptions::new().color(Color::WHITE),
         )),
         parent,
+        4096,
     )
 }
 
@@ -101,6 +102,7 @@ fn add_rectangle(
                 .clips_children(clips_children),
         )),
         parent,
+        4096,
     )
 }
 
@@ -262,7 +264,7 @@ fn partially_consumed_effects_do_not_survive_planning_another_scene() {
 #[test]
 fn damage_filters_draws_without_skipping_overflowing_children() {
     let mut scene = scene();
-    scene.insert_node(DrawTreeNode::Group(Default::default()), None);
+    scene.insert_node(DrawTreeNode::Group(Default::default()), None, 4096);
     let visible = add_rectangle(&mut scene, None, [(2.0, 2.0), (8.0, 8.0)], true);
     add_rectangle(&mut scene, None, [(20.0, 20.0), (28.0, 28.0)], true);
     let parent = add_rectangle(&mut scene, None, [(22.0, 22.0), (28.0, 28.0)], false);
@@ -283,7 +285,7 @@ fn damage_filters_draws_without_skipping_overflowing_children() {
 #[test]
 fn damage_excludes_disjoint_shapes_and_all_their_effect_commands() {
     let mut scene = scene();
-    scene.insert_node(DrawTreeNode::Group(Default::default()), None);
+    scene.insert_node(DrawTreeNode::Group(Default::default()), None, 4096);
     let visible = add_rectangle(&mut scene, None, [(2.0, 2.0), (8.0, 8.0)], true);
     let outside = add_rectangle(&mut scene, None, [(22.0, 22.0), (28.0, 28.0)], true);
     attach_effects(&mut scene, outside, &[1; 4]);
@@ -302,7 +304,7 @@ fn damage_excludes_disjoint_shapes_and_all_their_effect_commands() {
 fn damage_in_effect_padding_retains_mask_and_content_outputs() {
     for is_content_effect in [false, true] {
         let mut scene = scene();
-        scene.insert_node(DrawTreeNode::Group(Default::default()), None);
+        scene.insert_node(DrawTreeNode::Group(Default::default()), None, 4096);
         let node = add_rectangle(&mut scene, None, [(12.0, 12.0), (16.0, 16.0)], true);
         let child = if is_content_effect {
             scene
@@ -461,7 +463,7 @@ fn scaled_damage_keeps_fractional_edge_pixels_and_excludes_touching_bounds() {
             scale_factor: 1.25,
         },
     );
-    scene.insert_node(DrawTreeNode::Group(Default::default()), None);
+    scene.insert_node(DrawTreeNode::Group(Default::default()), None, 4096);
     let fractional = add_rectangle(&mut scene, None, [(8.1, 6.5), (9.7, 7.1)], true);
     add_rectangle(&mut scene, None, [(6.0, 6.5), (8.0, 7.1)], true);
     let mut planner = Planner::default();

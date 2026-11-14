@@ -225,7 +225,9 @@ impl<B: RenderBackend> Scene<B> {
                     DrawTreeNode::CachedShape(shape) => Some(shape.logical_screen_bounds),
                     DrawTreeNode::Group(_) | DrawTreeNode::ClipRect(_) => None,
                 };
-                let inserted_id = self.state.insert_node(node, parent);
+                let inserted_id =
+                    self.state
+                        .insert_node(node, parent, self.backend.maximum_texture_dimension());
                 debug_assert_eq!(inserted_id, node_id);
                 if let Some(bounds) = shape_bounds {
                     mark_dirty(&mut self.dirty_bounds, bounds, self.state.viewport());

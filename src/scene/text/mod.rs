@@ -135,9 +135,11 @@ impl<B: RenderBackend> Scene<B> {
             ..Default::default()
         };
         let group_id = match target {
-            NodeTarget::Insert { parent } => self
-                .state
-                .insert_node(DrawTreeNode::Group(mem::take(&mut group)), parent),
+            NodeTarget::Insert { parent } => self.state.insert_node(
+                DrawTreeNode::Group(mem::take(&mut group)),
+                parent,
+                self.backend.maximum_texture_dimension(),
+            ),
             NodeTarget::Replace { node_id } => node_id,
         };
         let mut effects = self.state.node_effects(group_id);
