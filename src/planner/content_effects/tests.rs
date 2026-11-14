@@ -123,6 +123,7 @@ struct Scene {
     groups: HashMap<usize, ContentEffectInstance>,
     backdrops: HashMap<usize, BackdropEffectInstance>,
     shapes: HashMap<usize, TextureComposite>,
+    scale_factor: f64,
 }
 
 impl Scene {
@@ -133,6 +134,7 @@ impl Scene {
             groups: HashMap::new(),
             backdrops: HashMap::new(),
             shapes: HashMap::new(),
+            scale_factor: 1.0,
         }
     }
 
@@ -168,7 +170,7 @@ impl Scene {
                 None,
                 Viewport {
                     physical_size: (100, 100),
-                    scale_factor: 1.0,
+                    scale_factor: self.scale_factor,
                 },
                 4096,
             ),
@@ -197,7 +199,7 @@ impl Scene {
                 self.tree.get(node).unwrap().logical_screen_bounds(),
                 Viewport {
                     physical_size: (100, 100),
-                    scale_factor: 1.0,
+                    scale_factor: self.scale_factor,
                 },
                 1024,
             ),
@@ -218,9 +220,12 @@ impl Scene {
             content_effects: &self.groups,
             backdrop_effects: &self.backdrops,
             shape_mask_effects: &self.shapes,
-            scale_factor: 1.0,
+            scale_factor: self.scale_factor,
             physical_size: Size::new(100, 100),
-            damaged_region: Some(UnsignedPhysicalRect::from_size(Size::new(100, 100)).to_f32()),
+            damaged_region: Some(
+                UnsignedPhysicalRect::from_size(Size::new(100, 100)).to_f32()
+                    / self.scale_factor as f32,
+            ),
         };
         planner.start(&input);
         let mut commands = TraversalCommands::default();

@@ -1,6 +1,5 @@
 use super::{DrawPlanner, DrawPlanningInput, DrawTargetState};
 use crate::commands::{CaptureConfig, CaptureSource, RenderOperation};
-use crate::core::effect::CaptureRegion;
 use crate::core::geometry;
 use crate::planner::commands::TraversalCommands;
 use crate::planner::content_effects::ContentCapture;
@@ -17,7 +16,7 @@ impl DrawPlanner {
         let effect = input
             .content_effects
             .get(&node_id)
-            .filter(|effect| effect.bounds.is_some())?;
+            .filter(|effect| effect.output_bounds.is_some())?;
         let source = self.current.backdrop_source;
         let backdrop_region = self.subtree_backdrop_regions.get(&node_id).copied();
         let backdrop_source = match backdrop_region {
@@ -25,10 +24,8 @@ impl DrawPlanner {
                 let base = texture_ids.allocate();
                 output.push(RenderOperation::Capture(CaptureConfig {
                     source,
-                    region: CaptureRegion {
-                        bounds: region.to_i32(),
-                        source_rect: Some(region),
-                    },
+                    source_rect: Some(region),
+                    destination_bounds: region.to_i32(),
                     output: base,
                     sampling_size: region.size(),
                 }));
@@ -39,10 +36,11 @@ impl DrawPlanner {
             }
             None => CaptureSource::Target,
         };
-        let capture = ContentCapture::new(*effect, backdrop_region, texture_ids)?;
+        let capture =
+            ContentCapture::new(*effect, input.scale_factor, backdrop_region, texture_ids)?;
         capture.append_begin(output);
         self.current = DrawTargetState::for_viewport(input.physical_size, backdrop_source);
-        self.current.damaged_region = capture.source_region().map(|region| {
+        self.current.damaged_region = capture.draw_region().map(|region| {
             geometry::physical_bounds_to_logical_screen_rect(region, input.scale_factor)
         });
         self.current.is_content_capture = true;

@@ -149,10 +149,11 @@ impl DrawPlanner {
         let intersects_damage = self.current.damaged_region.is_some_and(|damage| {
             node.logical_screen_bounds().intersects(&damage)
                 || input.shape_mask_effects.contains_key(&node_id)
-                || content_intersects_damage(content_effect, damage)
+                || content_intersects_damage(content_effect, damage, input.scale_factor)
         });
         if !intersects_damage {
-            let has_content_capture = content_effect.is_some_and(|effect| effect.bounds.is_some());
+            let has_content_capture =
+                content_effect.is_some_and(|effect| effect.output_bounds.is_some());
             if !node.has_child_clip()
                 && !has_content_capture
                 && !input.tree.children(node_id).is_empty()

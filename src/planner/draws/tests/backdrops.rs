@@ -126,7 +126,7 @@ fn capture_and_effect_precede_backdrop_draws_and_restore_clips() {
         let TextureSampling::TargetPixels(bounds) = layer.sampling else {
             panic!("physical sampling")
         };
-        assert_eq!(bounds, capture.region.bounds);
+        assert_eq!(bounds, capture.destination_bounds);
         let viewport = rect((0, 0), (100, 100));
         let inherited = rect((10, 10), (60, 60));
         let mut expected = vec![
@@ -182,7 +182,7 @@ fn consecutive_captures_follow_preceding_draws_and_keep_separate_outputs() {
     };
     assert_eq!(first_capture.sampling_size, Size::new(44, 44));
     assert_eq!(
-        first_capture.region.bounds.size().to_u32(),
+        first_capture.destination_bounds.size().to_u32(),
         Size::new(88, 88)
     );
     assert_eq!(first_effect.input, first_capture.output);

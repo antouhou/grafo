@@ -1,13 +1,13 @@
 use super::{EffectInstance, SceneError};
-use crate::core::effect::{backdrops, BackdropCaptureArea, BackdropEffectConfig, CaptureRegion};
-use crate::core::{MathRect, Viewport};
+use crate::core::effect::{backdrops, BackdropCaptureArea, BackdropEffectConfig};
+use crate::core::{MathRect, PhysicalRect, Viewport};
 
-/// A backdrop attachment with its resolved capture region.
+/// A backdrop attachment with its validated capture bounds.
 #[derive(Clone, Copy)]
 pub(crate) struct BackdropEffectInstance {
     pub effect: EffectInstance,
     pub config: BackdropEffectConfig,
-    pub capture_region: Option<CaptureRegion>,
+    pub capture_bounds: Option<PhysicalRect>,
 }
 
 impl BackdropEffectInstance {
@@ -21,7 +21,7 @@ impl BackdropEffectInstance {
         Self {
             effect,
             config,
-            capture_region: backdrops::compute_backdrop_capture_region(
+            capture_bounds: backdrops::compute_backdrop_capture_bounds(
                 logical_screen_bounds,
                 config,
                 viewport.scale_factor,

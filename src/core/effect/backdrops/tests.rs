@@ -1,12 +1,12 @@
-use super::compute_backdrop_capture_region;
-use crate::core::effect::{BackdropCaptureArea, BackdropEffectConfig, CaptureRegion};
+use super::compute_backdrop_capture_bounds;
+use crate::core::effect::{BackdropCaptureArea, BackdropEffectConfig};
 use crate::core::geometry::compute_downsampled_dimensions;
-use crate::{MathRect, PhysicalRect, Size, UnsignedPhysicalRect};
+use crate::{MathRect, PhysicalRect, Size};
 use lyon::geom::Point;
 
 #[test]
 fn padded_capture_preserves_full_resolution_bounds() {
-    let capture_region = compute_backdrop_capture_region(
+    let capture_bounds = compute_backdrop_capture_bounds(
         MathRect::new(Point::new(100.0, 100.0), Point::new(200.0, 200.0)),
         BackdropEffectConfig::new().padding(20.0),
         1.0,
@@ -15,13 +15,13 @@ fn padded_capture_preserves_full_resolution_bounds() {
     )
     .unwrap();
 
-    assert_eq!(capture_region.bounds.min, Point::new(80, 80));
-    assert_eq!(capture_region.bounds.size(), Size::new(140, 140).to_i32());
+    assert_eq!(capture_bounds.min, Point::new(80, 80));
+    assert_eq!(capture_bounds.size(), Size::new(140, 140).to_i32());
 }
 
 #[test]
 fn node_capture_applies_padding_and_scale_before_viewport_overlap() {
-    let capture_region = compute_backdrop_capture_region(
+    let capture_bounds = compute_backdrop_capture_bounds(
         MathRect::new(Point::new(-2.0, -4.0), Point::new(18.0, 11.0)),
         BackdropEffectConfig::new().padding(1.25),
         1.5,
@@ -31,14 +31,8 @@ fn node_capture_applies_padding_and_scale_before_viewport_overlap() {
     .unwrap();
 
     assert_eq!(
-        capture_region,
-        CaptureRegion {
-            bounds: PhysicalRect::new(Point::new(-5, -8), Point::new(29, 19)),
-            source_rect: Some(UnsignedPhysicalRect::new(
-                Point::new(0, 0),
-                Point::new(24, 16)
-            )),
-        }
+        capture_bounds,
+        PhysicalRect::new(Point::new(-5, -8), Point::new(29, 19))
     );
 }
 
@@ -51,7 +45,7 @@ fn screen_capture_keeps_physical_mapping_when_downsampled() {
             (-2.25, -1.75),
         ]))
         .padding(0.5);
-    let full_resolution = compute_backdrop_capture_region(
+    let full_resolution = compute_backdrop_capture_bounds(
         logical_screen_bounds,
         config,
         2.0,
@@ -62,17 +56,11 @@ fn screen_capture_keeps_physical_mapping_when_downsampled() {
 
     assert_eq!(
         full_resolution,
-        CaptureRegion {
-            bounds: PhysicalRect::new(Point::new(-6, -5), Point::new(9, 8)),
-            source_rect: Some(UnsignedPhysicalRect::new(
-                Point::new(0, 0),
-                Point::new(9, 8)
-            )),
-        }
+        PhysicalRect::new(Point::new(-6, -5), Point::new(9, 8))
     );
     for (downsample, expected_texture_size) in [(0.5, Size::new(8, 7)), (0.01, Size::new(1, 1))] {
         let downsampled_config = config.downsample(downsample);
-        let capture_region = compute_backdrop_capture_region(
+        let capture_bounds = compute_backdrop_capture_bounds(
             logical_screen_bounds,
             downsampled_config,
             2.0,
@@ -81,9 +69,9 @@ fn screen_capture_keeps_physical_mapping_when_downsampled() {
         )
         .unwrap();
 
-        assert_eq!(capture_region, full_resolution);
+        assert_eq!(capture_bounds, full_resolution);
         assert_eq!(
-            compute_downsampled_dimensions(capture_region.bounds.size().to_u32(), downsample),
+            compute_downsampled_dimensions(capture_bounds.size().to_u32(), downsample),
             expected_texture_size
         );
     }
@@ -92,31 +80,19 @@ fn screen_capture_keeps_physical_mapping_when_downsampled() {
 #[test]
 fn full_scene_capture_preserves_viewport_mapping_across_scales_and_padding() {
     let logical_screen_bounds = MathRect::new(Point::new(60.0, 80.0), Point::new(80.0, 100.0));
-    for (scale_factor, padding, expected_region) in [
+    for (scale_factor, padding, expected_bounds) in [
         (
             2.0,
             1.25,
-            CaptureRegion {
-                bounds: PhysicalRect::new(Point::new(-3, -3), Point::new(104, 82)),
-                source_rect: Some(UnsignedPhysicalRect::new(
-                    Point::new(0, 0),
-                    Point::new(101, 79),
-                )),
-            },
+            PhysicalRect::new(Point::new(-3, -3), Point::new(104, 82)),
         ),
         (
             1.1,
             0.0,
-            CaptureRegion {
-                bounds: PhysicalRect::new(Point::new(0, 0), Point::new(101, 80)),
-                source_rect: Some(UnsignedPhysicalRect::new(
-                    Point::new(0, 0),
-                    Point::new(101, 79),
-                )),
-            },
+            PhysicalRect::new(Point::new(0, 0), Point::new(101, 80)),
         ),
     ] {
-        let capture_region = compute_backdrop_capture_region(
+        let capture_bounds = compute_backdrop_capture_bounds(
             logical_screen_bounds,
             BackdropEffectConfig::new()
                 .capture_area(BackdropCaptureArea::FullScene)
@@ -127,7 +103,7 @@ fn full_scene_capture_preserves_viewport_mapping_across_scales_and_padding() {
         )
         .unwrap();
 
-        assert_eq!(capture_region, expected_region);
+        assert_eq!(capture_bounds, expected_bounds);
     }
 }
 
@@ -137,7 +113,7 @@ fn capture_rejects_invalid_bounds_and_full_resolution_allocation_excesses() {
     let config = BackdropEffectConfig::new().downsample(0.01);
     let accepted_config =
         config.capture_area(BackdropCaptureArea::ScreenRect([(0.0, 0.0), (64.0, 64.0)]));
-    assert!(compute_backdrop_capture_region(
+    assert!(compute_backdrop_capture_bounds(
         logical_screen_bounds,
         accepted_config,
         1.0,
@@ -156,7 +132,7 @@ fn capture_rejects_invalid_bounds_and_full_resolution_allocation_excesses() {
     ] {
         let rejected_config = config.capture_area(BackdropCaptureArea::ScreenRect(rejected_bounds));
         assert!(
-            compute_backdrop_capture_region(
+            compute_backdrop_capture_bounds(
                 logical_screen_bounds,
                 rejected_config,
                 1.0,

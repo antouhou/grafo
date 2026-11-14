@@ -1,5 +1,5 @@
 use super::draws::{DrawPlanner, DrawPlanningInput};
-use crate::core::MathRect;
+use crate::core::{MathRect, UnsignedPhysicalRect};
 use crate::scene_state::effects::ContentEffectInstance;
 pub(crate) use capture::ContentCapture;
 
@@ -8,16 +8,11 @@ mod capture;
 pub(super) fn content_intersects_damage(
     effect: Option<&ContentEffectInstance>,
     damage: MathRect,
+    scale_factor: f64,
 ) -> bool {
     effect
-        .and_then(|effect| effect.bounds)
-        .is_some_and(|bounds| {
-            MathRect::new(
-                bounds.logical_output_bounds[0].into(),
-                bounds.logical_output_bounds[1].into(),
-            )
-            .intersects(&damage)
-        })
+        .and_then(|effect| effect.output_bounds)
+        .is_some_and(|bounds| (bounds.to_f32() / scale_factor as f32).intersects(&damage))
 }
 
 impl DrawPlanner {
@@ -41,8 +36,15 @@ impl DrawPlanner {
             let mut region = input
                 .backdrop_effects
                 .get(&node_id)
-                .and_then(|effect| effect.capture_region)
-                .and_then(|capture| capture.source_rect);
+                .and_then(|effect| effect.capture_bounds)
+                .and_then(|bounds| {
+                    bounds
+                        .to_i64()
+                        .intersection(
+                            &UnsignedPhysicalRect::from_size(input.physical_size).to_i64(),
+                        )
+                        .map(|bounds| bounds.to_u32())
+                });
             for child_id in input.tree.children(node_id) {
                 if let Some(child_region) = self.subtree_backdrop_regions.get(child_id) {
                     region =

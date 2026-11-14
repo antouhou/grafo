@@ -3,8 +3,7 @@ use super::instructions::ExecutionResources;
 use super::targets::SurfaceTarget;
 use super::textures::IntermediateTextureResources;
 use crate::commands::{CaptureConfig, CaptureSource, Target};
-use crate::core::effect::CaptureRegion;
-use crate::core::{PhysicalRect, Size};
+use crate::core::{geometry, PhysicalRect, Size, UnsignedPhysicalRect};
 use crate::wgpu_backend::types::{BackdropContext, BackdropSource};
 use wgpu::{
     BindGroup, Color, CommandEncoder, Extent3d, LoadOp, Operations, Origin3d,
@@ -59,11 +58,12 @@ fn capture_backdrop(
     encoder: &mut CommandEncoder,
     context: &BackdropContext<'_>,
     source: BackdropSource<'_>,
-    region: CaptureRegion,
+    source_rect: Option<UnsignedPhysicalRect>,
+    destination_bounds: PhysicalRect,
     resources: &mut EffectExecutionResources,
     texture_pool: &mut OffscreenTexturePool,
 ) -> PooledTexture {
-    let capture_size = region.bounds.size().to_u32();
+    let capture_size = destination_bounds.size().to_u32();
     let capture_texture = texture_pool.acquire_color_only(
         context.effects.device,
         capture_size.width,
@@ -72,11 +72,11 @@ fn capture_backdrop(
         1,
     );
     let (base_texture, base_bounds) = source.base();
-    let copy = region.copy_from(base_bounds);
+    let copy = geometry::texture_copy_coordinates(source_rect, base_bounds, destination_bounds);
     if copy.map(|(rect, _)| rect.size()) != Some(capture_size) {
         clear_capture(encoder, &capture_texture.color_view);
     }
-    if let Some((source_rect, destination)) = copy {
+    if let Some((source_rect, destination_origin)) = copy {
         encoder.copy_texture_to_texture(
             TexelCopyTextureInfo {
                 texture: base_texture,
@@ -92,8 +92,8 @@ fn capture_backdrop(
                 texture: &capture_texture.color_texture,
                 mip_level: 0,
                 origin: Origin3d {
-                    x: destination.x,
-                    y: destination.y,
+                    x: destination_origin.x,
+                    y: destination_origin.y,
                     z: 0,
                 },
                 aspect: TextureAspect::All,
@@ -108,7 +108,7 @@ fn capture_backdrop(
 
     if let Some((foreground_view, foreground_bounds)) = source.foreground() {
         let layer_params = effects::backdrop_layer_params(
-            (region.bounds.min - foreground_bounds.min).to_tuple(),
+            (destination_bounds.min - foreground_bounds.min).to_tuple(),
             foreground_bounds.size().to_u32().to_tuple(),
         );
         let bind_group = resources.backdrop_composites.prepare(
@@ -176,11 +176,12 @@ fn execute_capture(
         encoder,
         context,
         source,
-        command.region,
+        command.source_rect,
+        command.destination_bounds,
         resources,
         &mut textures.pool,
     );
-    if command.sampling_size != command.region.bounds.size().to_u32() {
+    if command.sampling_size != command.destination_bounds.size().to_u32() {
         let downsampled = downsample_capture(
             encoder,
             context,
@@ -213,9 +214,22 @@ impl ExecutionResources<'_> {
             .expect("capture requires an open target");
         target.attachments(surface).clear_if_needed(encoder);
         target.needs_clear = false;
-        if matches!(capture.source, CaptureSource::Target)
-            && matches!(target.target, Target::Texture { region, .. } if region == capture.region)
-        {
+        let is_target_capture = matches!(capture.source, CaptureSource::Target);
+        let can_downsample_target_directly = match target.target {
+            Target::Texture {
+                bounds: texture_bounds,
+                draw_scissor,
+                ..
+            } => {
+                let has_matching_bounds = texture_bounds == capture.destination_bounds;
+                let target_source_rect = (!draw_scissor.is_empty()).then_some(draw_scissor);
+                let capture_source_rect = capture.source_rect.filter(|rect| !rect.is_empty());
+                let has_matching_source_rect = target_source_rect == capture_source_rect;
+                is_target_capture && has_matching_bounds && has_matching_source_rect
+            }
+            _ => false,
+        };
+        if can_downsample_target_directly {
             let mut output = downsample_capture(
                 encoder,
                 &self.context.backdrops,
@@ -233,7 +247,7 @@ impl ExecutionResources<'_> {
         }
         let foreground = target.attachments(surface).resolved_view().clone();
         let target_bounds = match target.target {
-            Target::Texture { region, .. } => region.bounds,
+            Target::Texture { bounds, .. } => bounds,
             _ => {
                 let texture = surface
                     .capture_texture

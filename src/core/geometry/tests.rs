@@ -1,6 +1,7 @@
 use super::{
     logical_bounds_to_viewport_rect, logical_rect_to_physical_rect, logical_rect_to_scissor_rect,
-    transformed_bounds_to_logical_screen_rect, unit_quad_transform,
+    target_scissor, texture_copy_coordinates, transformed_bounds_to_logical_screen_rect,
+    unit_quad_transform,
 };
 use crate::core::{
     MathRect, PhysicalRect, Size, TransformInstance, UnsignedPhysicalRect, Viewport,
@@ -227,4 +228,112 @@ fn unit_quad_transform_maps_unit_quad_before_source_transform() {
     assert_eq!(transform.col0, [14.0, 0.0, 0.0, 0.0]);
     assert_eq!(transform.col1, [0.0, 19.0, 0.0, 0.0]);
     assert_eq!(transform.col3, [2.0, 3.0, 0.0, 1.0]);
+}
+
+#[test]
+fn texture_copy_coordinates_preserve_padding_and_source_origins() {
+    let source_rect = Some(UnsignedPhysicalRect::new((0, 5).into(), (50, 45).into()));
+    let destination_bounds = PhysicalRect::new((-10, 5).into(), (50, 45).into());
+    let source_bounds = PhysicalRect::new((12, 10).into(), (36, 30).into());
+    assert_eq!(
+        texture_copy_coordinates(source_rect, source_bounds, destination_bounds),
+        Some((
+            UnsignedPhysicalRect::from_size(Size::new(24, 20)),
+            (22, 5).into(),
+        )),
+    );
+    assert_eq!(
+        texture_copy_coordinates(
+            source_rect,
+            PhysicalRect::new((-20, -10).into(), (60, 60).into()),
+            destination_bounds,
+        ),
+        Some((
+            UnsignedPhysicalRect::new((20, 15).into(), (70, 55).into()),
+            (10, 0).into(),
+        )),
+    );
+    assert_eq!(
+        texture_copy_coordinates(
+            source_rect,
+            source_bounds,
+            PhysicalRect::new((15, 12).into(), (28, 22).into()),
+        ),
+        Some((
+            UnsignedPhysicalRect::new((3, 2).into(), (16, 12).into()),
+            (0, 0).into(),
+        )),
+    );
+    assert_eq!(
+        texture_copy_coordinates(None, source_bounds, destination_bounds),
+        None,
+    );
+    assert_eq!(
+        texture_copy_coordinates(
+            source_rect,
+            PhysicalRect::new((60, 10).into(), (80, 30).into()),
+            destination_bounds,
+        ),
+        None,
+    );
+}
+
+#[test]
+fn target_scissor_clips_input_and_preserves_transparent_outsets() {
+    let target_bounds = PhysicalRect::new((-15, 10).into(), (50, 70).into());
+    let draw_scissor = UnsignedPhysicalRect::new((0, 20).into(), (40, 60).into());
+    assert_eq!(
+        target_scissor(
+            UnsignedPhysicalRect::from_size(Size::new(100, 100)),
+            target_bounds,
+            draw_scissor,
+        ),
+        UnsignedPhysicalRect::new((15, 10).into(), (55, 50).into()),
+    );
+    assert_eq!(
+        target_scissor(
+            UnsignedPhysicalRect::new((10, 30).into(), (80, 80).into()),
+            target_bounds,
+            draw_scissor,
+        ),
+        UnsignedPhysicalRect::new((25, 20).into(), (55, 50).into()),
+    );
+    for screen_scissor in [
+        UnsignedPhysicalRect::new((60, 30).into(), (80, 80).into()),
+        UnsignedPhysicalRect::zero(),
+    ] {
+        assert_eq!(
+            target_scissor(screen_scissor, target_bounds, draw_scissor),
+            UnsignedPhysicalRect::zero(),
+        );
+    }
+    assert_eq!(
+        target_scissor(
+            UnsignedPhysicalRect::new((20, 5).into(), (50, 25).into()),
+            PhysicalRect::new((10, 10).into(), (30, 30).into()),
+            UnsignedPhysicalRect::from_size(Size::new(100, 100)),
+        ),
+        UnsignedPhysicalRect::new((10, 0).into(), (20, 15).into()),
+    );
+}
+
+#[test]
+fn texture_coordinate_mapping_handles_wide_signed_origins() {
+    let source_rect = UnsignedPhysicalRect::new((0, 0).into(), (20, 10).into());
+    let bounds = PhysicalRect::new((i32::MIN, -20).into(), (i32::MAX, 30).into());
+    assert_eq!(
+        texture_copy_coordinates(
+            Some(source_rect),
+            bounds,
+            PhysicalRect::new((-10, -10).into(), (30, 20).into()),
+        ),
+        Some((
+            UnsignedPhysicalRect::new((2_147_483_648, 20).into(), (2_147_483_668, 30).into()),
+            (10, 10).into(),
+        )),
+    );
+    assert_eq!(
+        target_scissor(source_rect, bounds, source_rect),
+        UnsignedPhysicalRect::new((2_147_483_648, 20).into(), (2_147_483_668, 30).into()),
+    );
 }

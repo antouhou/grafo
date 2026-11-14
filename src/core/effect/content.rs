@@ -1,5 +1,5 @@
-use crate::core::effect::{self, CaptureRegion, ShapeMaskEffectBounds};
-use crate::core::{geometry, MathRect, Size, Viewport};
+use crate::core::effect::{self, ShapeMaskEffectBounds};
+use crate::core::{geometry, MathRect, PhysicalRect, Size, Viewport};
 use tracing::warn;
 
 /// Output padding around a content effect's input, in logical screen pixels.
@@ -83,7 +83,7 @@ fn padded_output_bounds(input_bounds: MathRect, config: ContentEffectConfig) -> 
     )
 }
 
-fn input_bounds(
+pub(crate) fn content_input_bounds(
     shape_bounds: MathRect,
     shape_mask_effect_bounds: Option<ShapeMaskEffectBounds>,
     viewport_size: Size,
@@ -102,59 +102,28 @@ fn input_bounds(
     shape_bounds.union(&bounds.logical_screen_bounds)
 }
 
-/// Input and padded output bounds for a content effect.
-#[derive(Clone, Copy)]
-pub(crate) struct ContentEffectBounds {
-    pub capture_region: CaptureRegion,
-    pub sampling_size: Size,
-    pub logical_output_bounds: [(f32, f32); 2],
-}
-
-impl ContentEffectBounds {
-    pub(crate) fn new(
-        shape_bounds: MathRect,
-        shape_mask_effect_bounds: Option<ShapeMaskEffectBounds>,
-        config: ContentEffectConfig,
-        viewport: Viewport,
-        maximum_texture_dimension: u32,
-    ) -> Option<Self> {
-        if !config.is_valid() {
-            return None;
-        }
-        let viewport_size = viewport.physical_size.into();
-        let logical_input_bounds = input_bounds(
-            shape_bounds,
-            shape_mask_effect_bounds,
-            viewport_size,
-            maximum_texture_dimension,
-        );
-        let input_bounds =
-            geometry::logical_rect_to_physical_rect(logical_input_bounds, viewport.scale_factor)?;
-        let padded_bounds = padded_output_bounds(logical_input_bounds, config);
-        let output_bounds =
-            geometry::logical_rect_to_physical_rect(padded_bounds, viewport.scale_factor)?;
-        let capture_size = output_bounds.size().to_u32();
-        if effect::validate_texture_size(capture_size, viewport_size, maximum_texture_dimension)
-            .is_err()
-        {
-            warn!("skipping oversized content effect texture");
-            return None;
-        }
-        let logical_output_bounds = output_bounds.to_f32() / viewport.scale_factor as f32;
-        Some(Self {
-            capture_region: effect::resolve_capture_region_to_viewport(
-                input_bounds,
-                output_bounds,
-                viewport_size,
-            ),
-            sampling_size: geometry::compute_downsampled_dimensions(
-                capture_size,
-                config.downsample,
-            ),
-            logical_output_bounds: [
-                logical_output_bounds.min.to_tuple(),
-                logical_output_bounds.max.to_tuple(),
-            ],
-        })
+pub(crate) fn content_effect_output_bounds(
+    logical_input_bounds: MathRect,
+    config: ContentEffectConfig,
+    viewport: Viewport,
+    maximum_texture_dimension: u32,
+) -> Option<PhysicalRect> {
+    if !config.is_valid() {
+        return None;
     }
+    geometry::logical_rect_to_physical_rect(logical_input_bounds, viewport.scale_factor)?;
+    let padded_bounds = padded_output_bounds(logical_input_bounds, config);
+    let output_bounds =
+        geometry::logical_rect_to_physical_rect(padded_bounds, viewport.scale_factor)?;
+    if effect::validate_texture_size(
+        output_bounds.size().to_u32(),
+        viewport.physical_size.into(),
+        maximum_texture_dimension,
+    )
+    .is_err()
+    {
+        warn!("skipping oversized content effect texture");
+        return None;
+    }
+    Some(output_bounds)
 }

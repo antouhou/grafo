@@ -86,9 +86,11 @@ impl ExecutionResources<'_> {
                 );
                 None
             }
-            Target::Texture { texture, region } => {
+            Target::Texture {
+                texture, bounds, ..
+            } => {
                 self.textures.reserve_planned(texture);
-                let size = region.bounds.size().to_u32();
+                let size = bounds.size().to_u32();
                 Some(self.textures.pool.acquire_with_depth(
                     self.context.device,
                     size.width,
@@ -107,14 +109,13 @@ impl ExecutionResources<'_> {
         } else {
             let pipelines = &self.context.pipelines.shapes;
             let mut uniforms = pipelines.and_uniforms;
-            if let Target::Texture { region, .. } = target {
-                uniforms.canvas_size = region
-                    .bounds
+            if let Target::Texture { bounds, .. } = target {
+                uniforms.canvas_size = bounds
                     .size()
                     .to_f32()
                     .to_array()
                     .map(|value| value / uniforms.scale_factor);
-                uniforms.target_origin = region.bounds.min.to_f32().to_array();
+                uniforms.target_origin = bounds.min.to_f32().to_array();
             }
             let index = self.textures.target_uniforms.prepare(
                 self.context.device,
@@ -260,15 +261,19 @@ fn execute_draw_pass<'scene>(
         .expect("draw requires an open target");
     let mut attachments = target.attachments(surface);
     let root_scissor = matches!(target.target, Target::Surface).then_some(surface.root_scissor);
-    let target_region = match target.target {
-        Target::Texture { region, .. } => Some(region),
+    let target_clip = match target.target {
+        Target::Texture {
+            bounds,
+            draw_scissor,
+            ..
+        } => Some((bounds, draw_scissor)),
         _ => None,
     };
     let mut render_pass = RenderPass::new(attachments.begin_pass(encoder, "command_draws"));
     target.needs_clear = false;
     let mut pass = DrawPass {
         root_scissor,
-        target_region,
+        target_clip,
         render_pass: &mut render_pass,
         pipelines: resources.context.pipelines,
         buffers: resources.buffers,

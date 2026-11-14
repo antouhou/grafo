@@ -2,10 +2,10 @@ use super::effect_damage::{EffectDamageEntry, EffectDamageKind};
 use super::types::DrawTreeNode;
 use super::{SceneError, SceneState};
 use crate::core::effect::{
-    BackdropEffectConfig, ContentEffectBounds, ContentEffectConfig, ShapeMaskEffectBounds,
-    ShapeMaskEffectConfig,
+    content_effect_output_bounds, content_input_bounds, BackdropEffectConfig, ContentEffectConfig,
+    ShapeMaskEffectBounds, ShapeMaskEffectConfig,
 };
-use crate::core::{geometry, Viewport};
+use crate::core::{geometry, MathRect, PhysicalRect, UnsignedPhysicalRect, Viewport};
 pub(crate) use attachments::{
     EffectAttachment, EffectAttachmentKind, EffectAttachments, EffectConfig, EffectInstance,
     RemovedEffectAttachment,
@@ -58,13 +58,32 @@ pub(crate) fn validate_shape_mask_effect_config(
     Ok(())
 }
 
-/// A content attachment with its resolved input and output bounds.
+fn content_input_bounds_for_node(
+    node: &DrawTreeNode,
+    shape_mask_effect: Option<&ShapeMaskEffectInstance>,
+    viewport: Viewport,
+    maximum_texture_dimension: u32,
+) -> MathRect {
+    let shape_mask_effect_bounds = shape_mask_effect
+        .filter(|_| matches!(node, DrawTreeNode::CachedShape(shape) if shape.has_geometry()))
+        .map(|effect| effect.bounds);
+    content_input_bounds(
+        node.logical_screen_bounds(),
+        shape_mask_effect_bounds,
+        viewport.physical_size.into(),
+        maximum_texture_dimension,
+    )
+}
+
+/// A content attachment with cached physical input and output bounds.
 #[derive(Clone, Copy)]
 pub(crate) struct ContentEffectInstance {
     pub effect_id: u64,
     pub parameters: EffectParametersHandle,
     pub config: ContentEffectConfig,
-    pub bounds: Option<ContentEffectBounds>,
+    /// Viewport-clipped input pixels, or `None` when the input is offscreen or invalid.
+    pub input_bounds: Option<UnsignedPhysicalRect>,
+    pub output_bounds: Option<PhysicalRect>,
 }
 
 impl ContentEffectInstance {
@@ -76,16 +95,30 @@ impl ContentEffectInstance {
         viewport: Viewport,
         maximum_texture_dimension: u32,
     ) -> Self {
-        let shape_mask_effect_bounds = shape_mask_effect
-            .filter(|_| matches!(node, DrawTreeNode::CachedShape(shape) if shape.has_geometry()))
-            .map(|effect| effect.bounds);
+        let logical_input_bounds = content_input_bounds_for_node(
+            node,
+            shape_mask_effect,
+            viewport,
+            maximum_texture_dimension,
+        );
+        let input_bounds =
+            geometry::logical_rect_to_physical_rect(logical_input_bounds, viewport.scale_factor)
+                .and_then(|bounds| {
+                    bounds
+                        .to_i64()
+                        .intersection(
+                            &UnsignedPhysicalRect::from_size(viewport.physical_size.into())
+                                .to_i64(),
+                        )
+                        .map(|bounds| bounds.to_u32())
+                });
         Self {
             effect_id: effect.effect_id,
             parameters: effect.parameters,
             config,
-            bounds: ContentEffectBounds::new(
-                node.logical_screen_bounds(),
-                shape_mask_effect_bounds,
+            input_bounds,
+            output_bounds: content_effect_output_bounds(
+                logical_input_bounds,
                 config,
                 viewport,
                 maximum_texture_dimension,
@@ -111,7 +144,12 @@ fn resolve_content_effect(
         viewport,
         maximum_texture_dimension,
     );
-    let entry = EffectDamageEntry::content(node_id, instance.bounds, viewport.physical_size.into());
+    let entry = EffectDamageEntry::content(
+        node_id,
+        instance.input_bounds,
+        instance.output_bounds,
+        viewport.physical_size.into(),
+    );
     (instance, entry)
 }
 
@@ -130,7 +168,7 @@ pub(super) fn resolve_backdrop_effect(
         viewport,
         maximum_texture_dimension,
     );
-    let entry = EffectDamageEntry::backdrop(node_id, node, instance.capture_region, viewport);
+    let entry = EffectDamageEntry::backdrop(node_id, node, instance.capture_bounds, viewport);
     (instance, entry)
 }
 
@@ -281,7 +319,7 @@ impl SceneState {
     }
 
     /// Refreshes capture bounds, viewport overlap and allocation limits after viewport changes.
-    pub(super) fn refresh_backdrop_capture_regions(&mut self, maximum_texture_dimension: u32) {
+    pub(super) fn refresh_backdrop_capture_bounds(&mut self, maximum_texture_dimension: u32) {
         let entries = self
             .backdrop_effects
             .iter_mut()

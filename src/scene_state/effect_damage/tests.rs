@@ -1,8 +1,9 @@
 use super::{envelope, EffectDamage, EffectDamageEntry, EffectDamageKind};
 use crate::core::effect::backdrops;
-use crate::core::effect::ContentEffectBounds;
+use crate::core::effect::content_effect_output_bounds;
+use crate::core::geometry;
 use crate::core::{
-    BackdropCaptureArea, BackdropEffectConfig, CaptureRegion, ContentEffectConfig, MathRect, Shape,
+    BackdropCaptureArea, BackdropEffectConfig, ContentEffectConfig, MathRect, PhysicalRect, Shape,
     ShapeDrawOptions, Size, UnsignedPhysicalRect, Viewport,
 };
 use crate::scene_state::types::{CachedShapeDrawData, DrawTreeNode};
@@ -50,8 +51,8 @@ fn shape_node(bounds: [(f32, f32); 2]) -> DrawTreeNode {
     DrawTreeNode::CachedShape(CachedShapeDrawData::new(shape, ShapeDrawOptions::new()))
 }
 
-fn capture(bounds: [(f32, f32); 2], viewport: Viewport) -> Option<CaptureRegion> {
-    backdrops::compute_backdrop_capture_region(
+fn capture(bounds: [(f32, f32); 2], viewport: Viewport) -> Option<PhysicalRect> {
+    backdrops::compute_backdrop_capture_bounds(
         MathRect::zero(),
         BackdropEffectConfig::new().capture_area(BackdropCaptureArea::ScreenRect(bounds)),
         viewport.scale_factor,
@@ -371,16 +372,24 @@ fn group_rectangles_clip_full_resolution_input_and_output_independently() {
     };
     let mut damage = EffectDamage::default();
     for downsample in [1.0, 0.25] {
-        let bounds = ContentEffectBounds::new(
-            MathRect::new((-2.0, 4.0).into(), (10.0, 14.0).into()),
-            None,
+        let logical_input_bounds = MathRect::new((-2.0, 4.0).into(), (10.0, 14.0).into());
+        let input_bounds =
+            geometry::logical_bounds_to_viewport_rect(logical_input_bounds, viewport);
+        let output_bounds = content_effect_output_bounds(
+            logical_input_bounds,
             ContentEffectConfig::new()
                 .outset(3.0)
                 .downsample(downsample),
             viewport,
             4096,
         );
-        let group = EffectDamageEntry::content(1, bounds, viewport.physical_size.into()).unwrap();
+        let group = EffectDamageEntry::content(
+            1,
+            input_bounds,
+            output_bounds,
+            viewport.physical_size.into(),
+        )
+        .unwrap();
         assert_eq!(group.capture_region, Some(rect((0, 8), (20, 28))));
         assert_eq!(group.target_region, Some(rect((0, 2), (26, 32))));
         damage.replace(EffectDamageKind::Content, 1, Some(group));
@@ -389,14 +398,21 @@ fn group_rectangles_clip_full_resolution_input_and_output_independently() {
             group.target_region
         );
     }
-    let bounds = ContentEffectBounds::new(
-        MathRect::new((-12.0, 4.0).into(), (-8.0, 14.0).into()),
-        None,
+    let logical_input_bounds = MathRect::new((-12.0, 4.0).into(), (-8.0, 14.0).into());
+    let input_bounds = geometry::logical_bounds_to_viewport_rect(logical_input_bounds, viewport);
+    let output_bounds = content_effect_output_bounds(
+        logical_input_bounds,
         ContentEffectConfig::new().outset(10.0),
         viewport,
         4096,
     );
-    let group = EffectDamageEntry::content(1, bounds, viewport.physical_size.into()).unwrap();
+    let group = EffectDamageEntry::content(
+        1,
+        input_bounds,
+        output_bounds,
+        viewport.physical_size.into(),
+    )
+    .unwrap();
     assert_eq!(group.capture_region, None);
     assert_eq!(group.target_region, Some(rect((0, 0), (4, 32))));
     damage.replace(EffectDamageKind::Content, 1, Some(group));
@@ -405,5 +421,7 @@ fn group_rectangles_clip_full_resolution_input_and_output_independently() {
         damage.expand(viewport.physical_size.into(), initial),
         initial
     );
-    assert!(EffectDamageEntry::content(1, None, viewport.physical_size.into()).is_none());
+    assert!(
+        EffectDamageEntry::content(1, input_bounds, None, viewport.physical_size.into()).is_none()
+    );
 }

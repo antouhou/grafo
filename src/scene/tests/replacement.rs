@@ -451,7 +451,7 @@ fn replacements_preserve_topology_and_refresh_or_remove_only_the_nodes_effects()
         .set_backdrop_effect(parent, 7, &[1, 2, 3, 4], BackdropEffectConfig::default())
         .unwrap();
     let old_effect = *scene.state.shape_mask_effect(parent).unwrap();
-    let old_capture = scene.state.backdrop_effects[&parent].capture_region;
+    let old_capture = scene.state.backdrop_effects[&parent].capture_bounds;
     let replacement = Shape::rect([(4.0, 5.0), (12.0, 13.0)]);
     scene
         .replace_with_shape(parent, &replacement, None, ShapeDrawOptions::new())
@@ -472,7 +472,7 @@ fn replacements_preserve_topology_and_refresh_or_remove_only_the_nodes_effects()
     assert_ne!(effect.bounds, old_effect.bounds);
     assert_eq!(effect.parameters.hash, old_effect.parameters.hash);
     assert_ne!(
-        scene.state.backdrop_effects[&parent].capture_region,
+        scene.state.backdrop_effects[&parent].capture_bounds,
         old_capture
     );
     let mut surface = surface();
