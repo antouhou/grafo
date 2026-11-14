@@ -3,7 +3,15 @@ use super::effects::{ContentEffectInstance, ShapeMaskEffectInstance};
 use super::types::DrawTreeNode;
 use super::SceneState;
 use crate::core::effect::{content_effect_output_bounds, content_input_bounds};
-use crate::core::{geometry, MathRect, PhysicalRect, UnsignedPhysicalRect, Viewport};
+use crate::core::{geometry, BlendMode, MathRect, PhysicalRect, UnsignedPhysicalRect, Viewport};
+
+pub(super) fn requires_content_group(
+    node: &DrawTreeNode,
+    effect: Option<ContentEffectInstance>,
+) -> bool {
+    effect.is_some()
+        || matches!(node, DrawTreeNode::CachedShape(shape) if shape.blend_mode != BlendMode::SourceOver)
+}
 
 fn content_input_bounds_for_node(
     node: &DrawTreeNode,
@@ -117,6 +125,12 @@ impl SceneState {
         let Some(node) = self.draw_tree.get(node_id) else {
             return;
         };
+        if !requires_content_group(node, group.effect) {
+            self.content_groups.remove(&node_id);
+            self.effect_damage
+                .remove(EffectDamageKind::Content, node_id);
+            return;
+        }
         let (updated, entry) = resolve_content_group(
             node_id,
             node,
@@ -129,10 +143,17 @@ impl SceneState {
     }
 
     pub(super) fn refresh_all_content_group_bounds(&mut self, maximum_texture_dimension: u32) {
-        for (&node_id, group) in &mut self.content_groups {
+        self.content_groups.retain(|&node_id, group| {
             let Some(node) = self.draw_tree.get(node_id) else {
-                continue;
+                self.effect_damage
+                    .remove(EffectDamageKind::Content, node_id);
+                return false;
             };
+            if !requires_content_group(node, group.effect) {
+                self.effect_damage
+                    .remove(EffectDamageKind::Content, node_id);
+                return false;
+            }
             let (updated, entry) = resolve_content_group(
                 node_id,
                 node,
@@ -144,7 +165,8 @@ impl SceneState {
             *group = updated;
             self.effect_damage
                 .replace(EffectDamageKind::Content, node_id, entry);
-        }
+            true
+        });
     }
 }
 

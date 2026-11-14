@@ -15,6 +15,7 @@ use lyon::path::Path;
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
 
+mod content_effects;
 mod damage;
 mod groups;
 mod removal;

@@ -435,6 +435,7 @@ impl<B: RenderBackend> Scene<B> {
         self.backend
             .validate_effect_params(effect_id, params)
             .map_err(EffectError::Backend)?;
+        let had_capture = self.has_content_effect_capture(node_id);
         let previous_output = self.state.content_group_output(node_id);
         self.state.set_content_effect(
             node_id,
@@ -449,10 +450,11 @@ impl<B: RenderBackend> Scene<B> {
             self.state.content_group_output(node_id),
         );
         self.mark_shape_dirty(node_id);
+        self.mark_content_capture_transition(node_id, had_capture);
         Ok(())
     }
 
-    /// Removes the content effect, restoring the node's ordinary rendering.
+    /// Removes the node's content effect without changing its blend mode.
     pub fn remove_content_effect(&mut self, node_id: usize) {
         if matches!(
             self.state.draw_tree.get(node_id),
@@ -461,10 +463,19 @@ impl<B: RenderBackend> Scene<B> {
             self.remove_group_effect(node_id, EffectAttachmentKind::Content);
             return;
         }
+        let had_capture = self.has_content_effect_capture(node_id);
         let previous_output = self.state.content_group_output(node_id);
-        if self.state.remove_content_effect(node_id) {
+        if self
+            .state
+            .remove_content_effect(node_id, self.backend.maximum_texture_dimension())
+        {
             mark_physical_dirty(&mut self.dirty_bounds, previous_output);
+            mark_physical_dirty(
+                &mut self.dirty_bounds,
+                self.state.content_group_output(node_id),
+            );
             self.mark_shape_dirty(node_id);
+            self.mark_content_capture_transition(node_id, had_capture);
         }
     }
 
@@ -682,6 +693,20 @@ impl<B: RenderBackend> Scene<B> {
 }
 
 impl<B: RenderBackend> Scene<B> {
+    fn has_content_effect_capture(&self, node_id: usize) -> bool {
+        self.state
+            .content_groups
+            .get(&node_id)
+            .is_some_and(|group| group.effect.is_some() && group.output_bounds.is_some())
+    }
+
+    fn mark_content_capture_transition(&mut self, node_id: usize, had_capture: bool) {
+        if had_capture != self.has_content_effect_capture(node_id) {
+            self.pending_damage
+                .insert_if_unclipped(node_id, &self.state);
+        }
+    }
+
     fn update_backend_viewport(&mut self) {
         let viewport = self.state.viewport();
         self.dirty_bounds = Some(UnsignedPhysicalRect::from_size(
@@ -779,6 +804,12 @@ impl<B: RenderBackend> Scene<B> {
                 }
             },
         );
+        for &(node_id, kind) in &self.group_effect_scratch.removed_effects {
+            if matches!(kind, EffectAttachmentKind::Content) {
+                self.pending_damage
+                    .insert_if_unclipped(node_id, &self.state);
+            }
+        }
         self.restore_inherited_effects_after_detachment();
         self.backend.invalidate_effect(effect_id);
     }

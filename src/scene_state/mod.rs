@@ -266,7 +266,7 @@ impl SceneState {
                     .bounds = bounds;
             }
         } else {
-            self.remove_content_effect(node_id);
+            self.remove_content_effect(node_id, maximum_texture_dimension);
             if self.shape_mask_effects.remove(&node_id).is_some() {
                 self.effect_parameters.request_compaction();
             }

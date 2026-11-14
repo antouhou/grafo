@@ -31,7 +31,6 @@ impl GroupEffectSources {
 #[derive(Debug)]
 pub(crate) struct CachedShapeDrawData {
     pub(crate) instance: ShapeInstance,
-    #[expect(dead_code, reason = "Blend mode execution is not implemented yet.")]
     pub(crate) blend_mode: BlendMode,
     pub(crate) clips_children: bool,
     pub(crate) logical_screen_bounds: MathRect,

@@ -1,4 +1,4 @@
-use super::content_groups::resolve_content_group;
+use super::content_groups::{requires_content_group, resolve_content_group};
 use super::effect_damage::{EffectDamageEntry, EffectDamageKind};
 use super::types::DrawTreeNode;
 use super::{SceneError, SceneState};
@@ -141,43 +141,45 @@ impl SceneState {
             ));
         }
         let parameters = self.effect_parameters.store(parameters);
-        if self
-            .content_groups
-            .get(&node_id)
-            .is_some_and(|group| group.effect.is_some())
-        {
-            self.effect_parameters.request_compaction();
+        let effect = ContentEffectInstance {
+            effect_id,
+            parameters,
+            config,
+        };
+        if let Some(group) = self.content_groups.get_mut(&node_id) {
+            if group.effect.replace(effect).is_some() {
+                self.effect_parameters.request_compaction();
+            }
+            self.refresh_content_group_bounds(node_id, maximum_texture_dimension);
+        } else {
+            let (group, entry) = resolve_content_group(
+                node_id,
+                self.draw_tree.get_unchecked(node_id),
+                Some(effect),
+                self.shape_mask_effects.get(&node_id),
+                self.viewport,
+                maximum_texture_dimension,
+            );
+            self.replace_content_group(node_id, group, entry);
         }
-        let (group, entry) = resolve_content_group(
-            node_id,
-            self.draw_tree.get_unchecked(node_id),
-            Some(ContentEffectInstance {
-                effect_id,
-                parameters,
-                config,
-            }),
-            self.shape_mask_effects.get(&node_id),
-            self.viewport,
-            maximum_texture_dimension,
-        );
-        self.replace_content_group(node_id, group, entry);
         self.set_shape_effect_source(node_id, EffectAttachmentKind::Content, None);
         Ok(())
     }
 
-    pub(crate) fn remove_content_effect(&mut self, node_id: usize) -> bool {
-        if !self
-            .content_groups
-            .get(&node_id)
-            .is_some_and(|group| group.effect.is_some())
-        {
+    pub(crate) fn remove_content_effect(
+        &mut self,
+        node_id: usize,
+        maximum_texture_dimension: u32,
+    ) -> bool {
+        let Some(group) = self.content_groups.get_mut(&node_id) else {
+            return false;
+        };
+        if group.effect.take().is_none() {
             return false;
         }
-        self.content_groups.remove(&node_id);
         self.set_shape_effect_source(node_id, EffectAttachmentKind::Content, None);
         self.effect_parameters.request_compaction();
-        self.effect_damage
-            .remove(EffectDamageKind::Content, node_id);
+        self.refresh_content_group_bounds(node_id, maximum_texture_dimension);
         true
     }
 
@@ -348,21 +350,45 @@ impl SceneState {
             {
                 return true;
             }
+            group.effect = None;
             if let Some(DrawTreeNode::CachedShape(shape)) = self.draw_tree.get_mut(*node_id) {
                 shape.inherited_effect_sources.content = None;
             }
-            let damage_bounds = self
+            let mut damage_bounds = self
                 .effect_damage
                 .output_region(EffectDamageKind::Content, *node_id);
-            self.effect_damage
-                .remove(EffectDamageKind::Content, *node_id);
+            let should_keep_group = match self.draw_tree.get(*node_id) {
+                Some(node) if requires_content_group(node, None) => {
+                    let (updated, entry) = resolve_content_group(
+                        *node_id,
+                        node,
+                        None,
+                        self.shape_mask_effects.get(node_id),
+                        self.viewport,
+                        maximum_texture_dimension,
+                    );
+                    *group = updated;
+                    if let Some(output) = entry.and_then(|entry| entry.target_region) {
+                        damage_bounds =
+                            Some(damage_bounds.map_or(output, |bounds| bounds.union(&output)));
+                    }
+                    self.effect_damage
+                        .replace(EffectDamageKind::Content, *node_id, entry);
+                    true
+                }
+                _ => {
+                    self.effect_damage
+                        .remove(EffectDamageKind::Content, *node_id);
+                    false
+                }
+            };
             self.effect_parameters.request_compaction();
             removed(RemovedEffectAttachment {
                 node_id: *node_id,
                 kind: EffectAttachmentKind::Content,
                 damage_bounds,
             });
-            false
+            should_keep_group
         });
         self.backdrop_effects.retain(|node_id, instance| {
             if instance.effect.effect_id != effect_id {

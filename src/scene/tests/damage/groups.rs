@@ -178,7 +178,7 @@ fn removing_group_nodes_clears_outputs_and_removes_dependencies_before_id_reuse(
 }
 
 #[test]
-fn group_attachment_changes_damage_only_the_resolved_output() {
+fn content_capture_transitions_damage_overflowing_descendant_outputs() {
     let (mut scene, mut surface) = scene();
     let parent = shape(&mut scene, 0, [(20.0, 20.0), (40.0, 40.0)]);
     let child = shape(&mut scene, parent, [(90.0, 90.0), (100.0, 100.0)]);
@@ -186,17 +186,17 @@ fn group_attachment_changes_damage_only_the_resolved_output() {
     scene.render(&mut surface).unwrap();
     group(&mut scene, parent, 10.0);
     scene.render(&mut surface).unwrap();
-    assert_eq!(scene.backend.root_scissor, rect((10, 10), (50, 50)));
+    assert_eq!(scene.backend.root_scissor, rect((10, 10), (110, 110)));
     group(&mut scene, parent, 5_000.0);
     assert!(scene.state.content_groups[&parent].output_bounds.is_none());
     scene.render(&mut surface).unwrap();
-    assert_eq!(scene.backend.root_scissor, rect((10, 10), (50, 50)));
+    assert_eq!(scene.backend.root_scissor, rect((10, 10), (110, 110)));
     group(&mut scene, parent, 10.0);
     scene.render(&mut surface).unwrap();
-    assert_eq!(scene.backend.root_scissor, rect((10, 10), (50, 50)));
+    assert_eq!(scene.backend.root_scissor, rect((10, 10), (110, 110)));
     scene.remove_content_effect(parent);
     scene.render(&mut surface).unwrap();
-    assert_eq!(scene.backend.root_scissor, rect((10, 10), (50, 50)));
+    assert_eq!(scene.backend.root_scissor, rect((10, 10), (110, 110)));
 }
 
 #[test]
@@ -226,7 +226,8 @@ fn replacing_a_group_marks_old_new_and_removed_group_outputs() {
         )
         .unwrap();
     scene.render(&mut surface).unwrap();
-    assert_eq!(scene.backend.root_scissor, rect((50, 50), (90, 90)));
+    assert_eq!(scene.backend.root_scissor, rect((50, 50), (118, 118)));
+    assert!(surface.resource().draws.contains(&child));
 }
 
 #[test]

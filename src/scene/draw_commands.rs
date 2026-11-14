@@ -142,6 +142,7 @@ impl<B: RenderBackend> Scene<B> {
         node: DrawTreeNode,
         shape_mask_effect_bounds: Option<ShapeMaskEffectBounds>,
     ) {
+        let had_capture = self.has_content_effect_capture(node_id);
         let previous_group_output = self.state.content_group_output(node_id);
         let old_effect_bounds = self
             .state
@@ -175,6 +176,7 @@ impl<B: RenderBackend> Scene<B> {
         {
             self.pending_damage.insert(node_id);
         }
+        self.mark_content_capture_transition(node_id, had_capture);
     }
 
     pub(super) fn queue_draw_command(

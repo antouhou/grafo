@@ -1,4 +1,4 @@
-use super::{mark_dirty, mark_shape_mask_effect_dirty};
+use super::{mark_dirty, mark_physical_dirty, mark_shape_mask_effect_dirty};
 use crate::core::UnsignedPhysicalRect;
 use crate::scene_state::types::DrawTreeNode;
 use crate::scene_state::SceneState;
@@ -14,6 +14,16 @@ pub(in crate::scene) struct PendingDamage {
 impl PendingDamage {
     pub(in crate::scene) fn insert(&mut self, node_id: usize) {
         self.roots.insert(node_id);
+    }
+
+    pub(in crate::scene) fn insert_if_unclipped(&mut self, node_id: usize, state: &SceneState) {
+        if state
+            .draw_tree
+            .get(node_id)
+            .is_some_and(|node| !node.has_child_clip())
+        {
+            self.insert(node_id);
+        }
     }
 
     pub(in crate::scene) fn apply(
@@ -40,6 +50,7 @@ impl PendingDamage {
             if let Some(effect) = state.shape_mask_effects.get(&node_id) {
                 mark_shape_mask_effect_dirty(dirty_bounds, effect.bounds, state.viewport());
             }
+            mark_physical_dirty(dirty_bounds, state.content_group_output(node_id));
             self.stack
                 .extend_from_slice(state.draw_tree.children(node_id));
         }
