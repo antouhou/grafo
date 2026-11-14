@@ -118,13 +118,13 @@ fn backdrop_mutations_damage_shape_and_reconstruct_current_capture() {
     scene.render(&mut surface).unwrap();
     assert_eq!(scene.backend.root_scissor, rect((16, 128), (800, 160)));
 
-    let previous_capture = scene.state.backdrop_effects[&node].capture_region;
+    let previous_capture = scene.state.backdrop_effects[&node].capture_bounds;
     assert!(scene
         .set_backdrop_effect(node, 7, &[1, 2, 3, 4], config.padding(-1.0))
         .is_err());
     let attachment = scene.state.backdrop_effects[&node];
     assert_eq!(attachment.config, moved);
-    assert_eq!(attachment.capture_region, previous_capture);
+    assert_eq!(attachment.capture_bounds, previous_capture);
     scene.render(&mut surface).unwrap();
     assert_eq!(scene.backend.root_scissor, None);
 

@@ -3,7 +3,7 @@ use crate::commands::{
     CaptureConfig, EffectApplication, RenderOperation, ShapeTextureBinding, ShapeTextureLayer,
     TextureSampling,
 };
-use crate::core::geometry;
+use crate::core::{geometry, UnsignedPhysicalRect};
 use crate::planner::commands::TraversalCommands;
 use crate::planner::TextureIdAllocator;
 
@@ -18,15 +18,20 @@ impl DrawPlanner {
     ) -> Option<ShapeTextureLayer> {
         let source = self.current.backdrop_source;
         let effect = input.backdrop_effects.get(&node_id)?;
-        let region = effect.capture_region?;
+        let bounds = effect.capture_bounds?;
+        let source_rect = bounds
+            .to_i64()
+            .intersection(&UnsignedPhysicalRect::from_size(input.physical_size).to_i64())
+            .map(|bounds| bounds.to_u32());
         let capture = texture_ids.allocate();
         let filtered = texture_ids.allocate();
         output.push(RenderOperation::Capture(CaptureConfig {
             source,
-            region,
+            source_rect,
+            destination_bounds: bounds,
             output: capture,
             sampling_size: geometry::compute_downsampled_dimensions(
-                region.bounds.size().to_u32(),
+                bounds.size().to_u32(),
                 effect.config.downsample,
             ),
         }));
@@ -39,7 +44,7 @@ impl DrawPlanner {
         }));
         Some(ShapeTextureLayer {
             texture: ShapeTextureBinding::Intermediate(filtered),
-            sampling: TextureSampling::TargetPixels(region.bounds),
+            sampling: TextureSampling::TargetPixels(bounds),
         })
     }
 }

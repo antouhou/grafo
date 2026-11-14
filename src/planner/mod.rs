@@ -143,6 +143,7 @@ impl<'state> CommandIterator<'state, '_> {
             effect,
             &self.state.content_effects,
             damage,
+            self.state.viewport().scale_factor,
         ) {
             return false;
         }
@@ -174,6 +175,7 @@ impl<'state> Iterator for CommandIterator<'state, '_> {
                                 effect,
                                 &self.state.content_effects,
                                 damage,
+                                self.state.viewport().scale_factor,
                             )
                         }) {
                             self.append_shape_mask_effect(node_id, effect, &mut commands);

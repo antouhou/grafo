@@ -43,11 +43,7 @@ fn stroke_to_text_replacement_commits_glyphs_or_preserves_the_stroke() {
             .get(stroke)
             .unwrap()
             .logical_screen_bounds();
-        let effect_bounds = scene.state.content_effects[&stroke]
-            .bounds
-            .unwrap()
-            .capture_region
-            .bounds;
+        let effect_bounds = scene.state.content_effects[&stroke].output_bounds.unwrap();
         if should_fail {
             scene.backend.registration_failure = Some(scene.state.next_node_id() + 1);
         }
@@ -72,11 +68,7 @@ fn stroke_to_text_replacement_commits_glyphs_or_preserves_the_stroke() {
                 bounds
             );
             assert_eq!(
-                scene.state.content_effects[&stroke]
-                    .bounds
-                    .unwrap()
-                    .capture_region
-                    .bounds,
+                scene.state.content_effects[&stroke].output_bounds.unwrap(),
                 effect_bounds,
             );
             assert!(scene.dirty_bounds.is_none());

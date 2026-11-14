@@ -34,6 +34,41 @@ pub struct Viewport {
     pub scale_factor: f64,
 }
 
+/// Maps permitted screen pixels into the source and destination textures.
+pub(crate) fn texture_copy_coordinates(
+    source_rect: Option<UnsignedPhysicalRect>,
+    source_bounds: PhysicalRect,
+    destination_bounds: PhysicalRect,
+) -> Option<(UnsignedPhysicalRect, UnsignedPhysicalPoint)> {
+    let overlap = source_rect?
+        .to_i64()
+        .intersection(&source_bounds.to_i64())?
+        .intersection(&destination_bounds.to_i64())?;
+    let source = overlap
+        .translate(-source_bounds.min.to_i64().to_vector())
+        .to_u32();
+    let destination_origin = (overlap.min - destination_bounds.min.to_i64())
+        .to_u32()
+        .to_point();
+    Some((source, destination_origin))
+}
+
+/// Clips screen pixels to the target's drawing area and converts them to texture coordinates.
+pub(crate) fn target_scissor(
+    screen_scissor: UnsignedPhysicalRect,
+    target_bounds: PhysicalRect,
+    draw_scissor: UnsignedPhysicalRect,
+) -> UnsignedPhysicalRect {
+    screen_scissor
+        .intersection(&draw_scissor)
+        .and_then(|scissor| scissor.to_i64().intersection(&target_bounds.to_i64()))
+        .map_or_else(UnsignedPhysicalRect::zero, |scissor| {
+            scissor
+                .translate(-target_bounds.min.to_i64().to_vector())
+                .to_u32()
+        })
+}
+
 /// Embeds a shape plane's projected x/y/w coordinates in a Euclid transform.
 pub(crate) fn project_transform(transform: InstanceTransform) -> Transform3D<f64> {
     let mut columns = [

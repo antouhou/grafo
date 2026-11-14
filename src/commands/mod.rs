@@ -2,9 +2,8 @@
 //!
 //! Commands carry resource IDs, borrowed parameters, and resolved clips.
 
-use crate::core::effect::CaptureRegion;
 use crate::core::vertex::{InstanceTransform, TextureUvTransform};
-use crate::core::{Size, UnsignedPhysicalRect};
+use crate::core::{PhysicalRect, Size, UnsignedPhysicalRect};
 pub use material::{ShapeDrawMaterial, ShapeTextureBinding, ShapeTextureLayer, TextureSampling};
 pub use textures::IntermediateTextureId;
 
@@ -61,7 +60,10 @@ pub enum CaptureSource {
 #[derive(Clone, Copy, Debug)]
 pub struct CaptureConfig {
     pub source: CaptureSource,
-    pub region: CaptureRegion,
+    /// Base-texture pixels to copy in physical screen coordinates. `None` skips the copy.
+    pub source_rect: Option<UnsignedPhysicalRect>,
+    /// Physical screen rectangle represented by the full-resolution destination, including padding.
+    pub destination_bounds: PhysicalRect,
     pub output: IntermediateTextureId,
     pub sampling_size: Size,
 }
@@ -110,9 +112,10 @@ pub enum Target {
     Surface,
     Texture {
         texture: IntermediateTextureId,
-        /// Full-resolution physical screen bounds and the input region allowed to draw into them.
-        /// Pixels outside the input stay transparent, including output padding.
-        region: CaptureRegion,
+        /// Full-resolution physical screen rectangle represented by the target texture.
+        bounds: PhysicalRect,
+        /// Permitted drawing area in physical screen coordinates. Padding stays transparent.
+        draw_scissor: UnsignedPhysicalRect,
     },
     Mask(MaskTarget),
 }

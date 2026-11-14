@@ -111,7 +111,7 @@ impl SceneState {
             return Err(error);
         }
         self.viewport.scale_factor = scale_factor;
-        self.refresh_backdrop_capture_regions(maximum_texture_dimension);
+        self.refresh_backdrop_capture_bounds(maximum_texture_dimension);
         self.refresh_all_content_effect_bounds(maximum_texture_dimension);
         Ok(())
     }
@@ -119,7 +119,7 @@ impl SceneState {
     /// Updates output dimensions and refreshes backdrop captures.
     pub(crate) fn resize(&mut self, physical_size: (u32, u32), maximum_texture_dimension: u32) {
         self.viewport.physical_size = physical_size;
-        self.refresh_backdrop_capture_regions(maximum_texture_dimension);
+        self.refresh_backdrop_capture_bounds(maximum_texture_dimension);
         self.refresh_all_content_effect_bounds(maximum_texture_dimension);
     }
 

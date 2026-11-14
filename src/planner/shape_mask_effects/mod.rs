@@ -25,9 +25,10 @@ pub(super) fn should_prepare_shape_mask_effect(
     effect: &ShapeMaskEffectInstance,
     content_effects: &HashMap<usize, ContentEffectInstance>,
     damage: MathRect,
+    scale_factor: f64,
 ) -> bool {
     effect.bounds.logical_screen_bounds.intersects(&damage)
-        || content_intersects_damage(content_effects.get(&node_id), damage)
+        || content_intersects_damage(content_effects.get(&node_id), damage, scale_factor)
 }
 
 #[allow(clippy::too_many_arguments)]

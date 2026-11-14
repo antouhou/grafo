@@ -1,8 +1,7 @@
 use super::types::DrawTreeNode;
 use super::SceneState;
-use crate::core::effect::{CaptureRegion, ContentEffectBounds};
 use crate::core::geometry;
-use crate::core::{Size, UnsignedPhysicalRect, Viewport};
+use crate::core::{PhysicalRect, Size, UnsignedPhysicalRect, Viewport};
 use ahash::{HashMap, HashSet};
 use rstar::{RTree, RTreeObject, AABB};
 use std::ops::ControlFlow;
@@ -57,10 +56,13 @@ impl EffectDamageEntry {
     pub(super) fn backdrop(
         node_id: usize,
         node: &DrawTreeNode,
-        capture_region: Option<CaptureRegion>,
+        capture_bounds: Option<PhysicalRect>,
         viewport: Viewport,
     ) -> Option<Self> {
-        let capture_region = capture_region?.source_rect;
+        let capture_region = capture_bounds?
+            .to_i64()
+            .intersection(&UnsignedPhysicalRect::from_size(viewport.physical_size.into()).to_i64())
+            .map(|bounds| bounds.to_u32());
         let DrawTreeNode::CachedShape(shape) = node else {
             return None;
         };
@@ -82,16 +84,15 @@ impl EffectDamageEntry {
 
     pub(super) fn content(
         node_id: usize,
-        bounds: Option<ContentEffectBounds>,
+        input_bounds: Option<UnsignedPhysicalRect>,
+        output_bounds: Option<PhysicalRect>,
         physical_size: Size,
     ) -> Option<Self> {
-        let bounds = bounds?;
-        let capture_region = bounds.capture_region.source_rect;
-        let target_region = bounds
-            .capture_region
-            .bounds
+        let viewport = UnsignedPhysicalRect::from_size(physical_size).to_i64();
+        let capture_region = input_bounds;
+        let target_region = output_bounds?
             .to_i64()
-            .intersection(&UnsignedPhysicalRect::from_size(physical_size).to_i64())
+            .intersection(&viewport)
             .map(|bounds| bounds.to_u32());
         if capture_region.is_none() && target_region.is_none() {
             return None;

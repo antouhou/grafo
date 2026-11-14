@@ -287,7 +287,7 @@ fn retained_node_bounds_follow_viewport_changes_and_removal() {
             )
             .collect();
         let capture = commands.iter().find_map(|command| match command.operation {
-            RenderOperation::Capture(capture) => Some(capture.region.bounds),
+            RenderOperation::Capture(capture) => Some(capture.destination_bounds),
             _ => None,
         });
         assert_eq!(capture, Some(expected_capture));

@@ -2,9 +2,8 @@ use super::render_pass::RenderPass;
 use super::shapes::{ShapeDrawResources, ShapeGeometryType, ShapeShaderType, StencilAction};
 use super::textures::IntermediateTextureResources;
 use crate::commands::{IntermediateTextureId, ShapeDrawMaterial};
-use crate::core::effect::CaptureRegion;
 use crate::core::vertex::InstanceTransform;
-use crate::core::UnsignedPhysicalRect;
+use crate::core::{geometry, PhysicalRect, UnsignedPhysicalRect};
 use crate::wgpu_backend::resources::{Buffers, RendererPipelineResources, ShapePipelines};
 use crate::wgpu_backend::vertex::{GeometryBufferRange, InstanceColor, InstanceMetadata};
 use wgpu::{BindGroup, IndexFormat, RenderPipeline};
@@ -66,7 +65,7 @@ fn bind_decrement_pipeline(render_pass: &mut RenderPass<'_>, pipelines: &ShapePi
 
 pub(super) struct DrawPass<'pass, 'encoder> {
     pub(super) root_scissor: Option<UnsignedPhysicalRect>,
-    pub(super) target_region: Option<CaptureRegion>,
+    pub(super) target_clip: Option<(PhysicalRect, UnsignedPhysicalRect)>,
     pub(super) render_pass: &'pass mut RenderPass<'encoder>,
     pub(super) pipelines: &'pass RendererPipelineResources,
     pub(super) buffers: &'pass Buffers,
@@ -79,9 +78,9 @@ impl DrawPass<'_, '_> {
             root.intersection(&scissor)
                 .unwrap_or_else(UnsignedPhysicalRect::zero)
         });
-        let scissor = self
-            .target_region
-            .map_or(scissor, |region| region.scissor(scissor));
+        let scissor = self.target_clip.map_or(scissor, |(bounds, draw_scissor)| {
+            geometry::target_scissor(scissor, bounds, draw_scissor)
+        });
         self.render_pass.set_scissor(scissor);
     }
 

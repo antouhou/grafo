@@ -1,18 +1,16 @@
-use crate::core::effect::{
-    self, BackdropCaptureArea, BackdropEffectConfig, CaptureRegion, TextureSizeError,
-};
+use crate::core::effect::{self, BackdropCaptureArea, BackdropEffectConfig, TextureSizeError};
 use crate::core::geometry;
-use crate::core::{MathRect, Size};
+use crate::core::{MathRect, PhysicalRect, Size};
 use tracing::warn;
 
-/// Resolves capture bounds and viewport overlap
-pub(crate) fn compute_backdrop_capture_region(
+/// Resolves full-resolution capture bounds and validates their allocation.
+pub(crate) fn compute_backdrop_capture_bounds(
     logical_screen_bounds: MathRect,
     backdrop_config: BackdropEffectConfig,
     scale_factor: f64,
     physical_size: Size,
     max_capture_dimension: u32,
-) -> Option<CaptureRegion> {
+) -> Option<PhysicalRect> {
     let logical_rect = match backdrop_config.capture_area {
         BackdropCaptureArea::NodeBounds => logical_screen_bounds,
         BackdropCaptureArea::FullScene => {
@@ -55,11 +53,7 @@ pub(crate) fn compute_backdrop_capture_region(
             }
         }
 
-        Some(effect::resolve_capture_region_to_viewport(
-            requested_rect,
-            requested_rect,
-            physical_size,
-        ))
+        Some(requested_rect)
     })
 }
 
