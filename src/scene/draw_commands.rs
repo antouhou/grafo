@@ -142,7 +142,8 @@ impl<B: RenderBackend> Scene<B> {
         node: DrawTreeNode,
         shape_mask_effect_bounds: Option<ShapeMaskEffectBounds>,
     ) {
-        let previous_group_output = self.state.content_effect_output(node_id);
+        let had_capture = self.has_content_effect_capture(node_id);
+        let previous_group_output = self.state.content_group_output(node_id);
         let old_effect_bounds = self
             .state
             .shape_mask_effects
@@ -168,13 +169,14 @@ impl<B: RenderBackend> Scene<B> {
         mark_physical_dirty(&mut self.dirty_bounds, previous_group_output);
         mark_physical_dirty(
             &mut self.dirty_bounds,
-            self.state.content_effect_output(node_id),
+            self.state.content_group_output(node_id),
         );
         if previous.has_child_clip() != has_child_clip
             && !self.state.draw_tree.children(node_id).is_empty()
         {
             self.pending_damage.insert(node_id);
         }
+        self.mark_content_capture_transition(node_id, had_capture);
     }
 
     pub(super) fn queue_draw_command(
@@ -223,7 +225,9 @@ impl<B: RenderBackend> Scene<B> {
                     DrawTreeNode::CachedShape(shape) => Some(shape.logical_screen_bounds),
                     DrawTreeNode::Group(_) | DrawTreeNode::ClipRect(_) => None,
                 };
-                let inserted_id = self.state.insert_node(node, parent);
+                let inserted_id =
+                    self.state
+                        .insert_node(node, parent, self.backend.maximum_texture_dimension());
                 debug_assert_eq!(inserted_id, node_id);
                 if let Some(bounds) = shape_bounds {
                     mark_dirty(&mut self.dirty_bounds, bounds, self.state.viewport());

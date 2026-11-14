@@ -322,7 +322,7 @@ fn groups_validate_parents_and_effect_configs_without_changing_the_scene() {
     }
     assert!(scene.state.draw_tree.children(group).is_empty());
     assert!(scene.state.effect_parameters.bytes.is_empty());
-    assert!(scene.state.content_effects.is_empty());
+    assert!(scene.state.content_groups.is_empty());
     assert!(scene.state.backdrop_effects.is_empty());
     assert!(scene.state.shape_mask_effects.is_empty());
     assert!(scene.dirty_bounds.is_none());
@@ -360,7 +360,7 @@ fn group_effects_apply_to_existing_and_new_members() {
     let mut surface = surface();
     scene.render(&mut surface).unwrap();
     for id in [first, second] {
-        assert!(scene.state.content_effects.contains_key(&id));
+        assert!(scene.state.content_groups.contains_key(&id));
         assert!(scene.state.shape_mask_effects.contains_key(&id));
     }
     assert_eq!(surface.resource().shape_masks, 2);
@@ -369,7 +369,7 @@ fn group_effects_apply_to_existing_and_new_members() {
     scene.render(&mut surface).unwrap();
     assert!(surface.resource().effects.is_empty());
     assert!(scene.state.shape_mask_effects.is_empty());
-    assert!(scene.state.content_effects.is_empty());
+    assert!(scene.state.content_groups.is_empty());
     scene.clear();
     assert!(scene.state.effect_parameters.bytes.is_empty());
 }
@@ -398,15 +398,24 @@ fn group_effects_survive_replacement_and_nested_overrides() {
     scene
         .set_content_effect(root, 10, &[1, 2, 3, 4], ContentEffectConfig::default())
         .unwrap();
-    assert_eq!(scene.state.content_effects[&shape].effect_id, 9);
+    assert_eq!(
+        scene.state.content_groups[&shape].effect.unwrap().effect_id,
+        9
+    );
     scene.remove_content_effect(nested);
-    assert_eq!(scene.state.content_effects[&shape].effect_id, 10);
+    assert_eq!(
+        scene.state.content_groups[&shape].effect.unwrap().effect_id,
+        10
+    );
     scene.render(&mut surface).unwrap();
     scene
         .set_content_effect(nested, 9, &[1, 2, 3, 4], ContentEffectConfig::default())
         .unwrap();
     scene.unload_effect(9);
-    assert_eq!(scene.state.content_effects[&shape].effect_id, 10);
+    assert_eq!(
+        scene.state.content_groups[&shape].effect.unwrap().effect_id,
+        10
+    );
     let replacement = scene.add_group(Some(root), Default::default()).unwrap();
     scene
         .replace_with_shape(
@@ -416,7 +425,13 @@ fn group_effects_survive_replacement_and_nested_overrides() {
             ShapeDrawOptions::new().color(Color::WHITE),
         )
         .unwrap();
-    assert_eq!(scene.state.content_effects[&replacement].effect_id, 10);
+    assert_eq!(
+        scene.state.content_groups[&replacement]
+            .effect
+            .unwrap()
+            .effect_id,
+        10
+    );
     scene
         .replace_with_shape(
             root,
@@ -425,7 +440,10 @@ fn group_effects_survive_replacement_and_nested_overrides() {
             ShapeDrawOptions::new().color(Color::WHITE),
         )
         .unwrap();
-    assert_eq!(scene.state.content_effects[&root].effect_id, 10);
+    assert_eq!(
+        scene.state.content_groups[&root].effect.unwrap().effect_id,
+        10
+    );
     scene.render(&mut surface).unwrap();
     scene.unload_effect(10);
     scene.render(&mut surface).unwrap();

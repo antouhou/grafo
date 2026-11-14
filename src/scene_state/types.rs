@@ -2,7 +2,7 @@ use super::effects::{EffectAttachmentKind, EffectAttachments};
 use super::paint::GroupFill;
 use crate::core::shape::{CachedShapeHandle, DrawMode, ShapeDrawOptions, ShapeInstance};
 use crate::core::vertex::InstanceTransform;
-use crate::core::{geometry, MathRect};
+use crate::core::{geometry, BlendMode, MathRect};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct GroupEffectSources {
@@ -31,6 +31,7 @@ impl GroupEffectSources {
 #[derive(Debug)]
 pub(crate) struct CachedShapeDrawData {
     pub(crate) instance: ShapeInstance,
+    pub(crate) blend_mode: BlendMode,
     pub(crate) clips_children: bool,
     pub(crate) logical_screen_bounds: MathRect,
     pub(crate) inherited_effect_sources: GroupEffectSources,
@@ -39,6 +40,7 @@ pub(crate) struct CachedShapeDrawData {
 
 impl CachedShapeDrawData {
     pub(crate) fn new(cached_shape: CachedShapeHandle, options: ShapeDrawOptions) -> Self {
+        let blend_mode = options.blend_mode;
         let clips_children = options.clips_children;
         let inherits_fill = options.fill.is_none();
         let instance = ShapeInstance::new(cached_shape, options);
@@ -49,6 +51,7 @@ impl CachedShapeDrawData {
         );
         Self {
             instance,
+            blend_mode,
             clips_children,
             logical_screen_bounds,
             inherited_effect_sources: GroupEffectSources::default(),

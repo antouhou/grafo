@@ -105,7 +105,14 @@ fn group_updates_clear_old_outputs_and_rejected_updates_preserve_damage() {
         (&[1, 2, 3, 4][..], ContentEffectConfig::new().outset(-1.0)),
     ] {
         assert!(scene.set_content_effect(node, 8, params, config).is_err());
-        assert_eq!(scene.state.content_effects[&node].config.left_outset, 2.0);
+        assert_eq!(
+            scene.state.content_groups[&node]
+                .effect
+                .unwrap()
+                .config
+                .left_outset,
+            2.0
+        );
         scene.render(&mut surface).unwrap();
         assert_eq!(scene.backend.root_scissor, None);
     }
@@ -171,7 +178,7 @@ fn removing_group_nodes_clears_outputs_and_removes_dependencies_before_id_reuse(
 }
 
 #[test]
-fn group_attachment_changes_damage_only_the_resolved_output() {
+fn content_capture_transitions_damage_overflowing_descendant_outputs() {
     let (mut scene, mut surface) = scene();
     let parent = shape(&mut scene, 0, [(20.0, 20.0), (40.0, 40.0)]);
     let child = shape(&mut scene, parent, [(90.0, 90.0), (100.0, 100.0)]);
@@ -179,17 +186,17 @@ fn group_attachment_changes_damage_only_the_resolved_output() {
     scene.render(&mut surface).unwrap();
     group(&mut scene, parent, 10.0);
     scene.render(&mut surface).unwrap();
-    assert_eq!(scene.backend.root_scissor, rect((10, 10), (50, 50)));
+    assert_eq!(scene.backend.root_scissor, rect((10, 10), (110, 110)));
     group(&mut scene, parent, 5_000.0);
-    assert!(scene.state.content_effects[&parent].output_bounds.is_none());
+    assert!(scene.state.content_groups[&parent].output_bounds.is_none());
     scene.render(&mut surface).unwrap();
-    assert_eq!(scene.backend.root_scissor, rect((10, 10), (50, 50)));
+    assert_eq!(scene.backend.root_scissor, rect((10, 10), (110, 110)));
     group(&mut scene, parent, 10.0);
     scene.render(&mut surface).unwrap();
-    assert_eq!(scene.backend.root_scissor, rect((10, 10), (50, 50)));
+    assert_eq!(scene.backend.root_scissor, rect((10, 10), (110, 110)));
     scene.remove_content_effect(parent);
     scene.render(&mut surface).unwrap();
-    assert_eq!(scene.backend.root_scissor, rect((10, 10), (50, 50)));
+    assert_eq!(scene.backend.root_scissor, rect((10, 10), (110, 110)));
 }
 
 #[test]
@@ -219,7 +226,8 @@ fn replacing_a_group_marks_old_new_and_removed_group_outputs() {
         )
         .unwrap();
     scene.render(&mut surface).unwrap();
-    assert_eq!(scene.backend.root_scissor, rect((50, 50), (90, 90)));
+    assert_eq!(scene.backend.root_scissor, rect((50, 50), (118, 118)));
+    assert!(surface.resource().draws.contains(&child));
 }
 
 #[test]
@@ -263,13 +271,13 @@ fn viewport_changes_refresh_group_input_and_full_resolution_output() {
         )
         .unwrap();
     assert_eq!(
-        scene.state.content_effects[&node].input_bounds,
+        scene.state.content_groups[&node].input_bounds,
         rect((20, 20), (40, 40))
     );
     scene.render(&mut surface).unwrap();
     scene.change_scale_factor(1.5).unwrap();
     assert_eq!(
-        scene.state.content_effects[&node].input_bounds,
+        scene.state.content_groups[&node].input_bounds,
         rect((30, 30), (60, 60))
     );
     surface.resize((192, 192));
@@ -296,7 +304,7 @@ fn cached_content_inputs_follow_masks_replacements_and_viewport_clipping() {
         )
         .unwrap();
     assert_eq!(
-        scene.state.content_effects[&node].input_bounds,
+        scene.state.content_groups[&node].input_bounds,
         rect((15, 15), (45, 45))
     );
     scene.render(&mut surface).unwrap();
@@ -309,26 +317,26 @@ fn cached_content_inputs_follow_masks_replacements_and_viewport_clipping() {
         )
         .unwrap();
     assert_eq!(
-        scene.state.content_effects[&node].input_bounds,
+        scene.state.content_groups[&node].input_bounds,
         rect((25, 25), (55, 55))
     );
     scene.resize((40, 40));
     assert_eq!(
-        scene.state.content_effects[&node].input_bounds,
+        scene.state.content_groups[&node].input_bounds,
         rect((25, 25), (40, 40))
     );
     scene.change_scale_factor(2.0).unwrap();
-    assert!(scene.state.content_effects[&node].input_bounds.is_none());
-    assert!(scene.state.content_effects[&node].output_bounds.is_some());
+    assert!(scene.state.content_groups[&node].input_bounds.is_none());
+    assert!(scene.state.content_groups[&node].output_bounds.is_some());
     scene.resize((128, 128));
     assert_eq!(
-        scene.state.content_effects[&node].input_bounds,
+        scene.state.content_groups[&node].input_bounds,
         rect((51, 51), (109, 109))
     );
     scene.render(&mut surface).unwrap();
     scene.remove_shape_mask_effect(node);
     assert_eq!(
-        scene.state.content_effects[&node].input_bounds,
+        scene.state.content_groups[&node].input_bounds,
         rect((60, 60), (100, 100))
     );
     scene.render(&mut surface).unwrap();
@@ -340,8 +348,8 @@ fn offscreen_input_keeps_visible_group_output_without_a_damage_dependency() {
     let node = shape(&mut scene, 0, [(-8.0, 20.0), (-2.0, 30.0)]);
     scene.render(&mut surface).unwrap();
     group(&mut scene, node, 6.0);
-    assert!(scene.state.content_effects[&node].input_bounds.is_none());
-    assert!(scene.state.content_effects[&node].output_bounds.is_some());
+    assert!(scene.state.content_groups[&node].input_bounds.is_none());
+    assert!(scene.state.content_groups[&node].output_bounds.is_some());
     scene.render(&mut surface).unwrap();
     assert_eq!(scene.backend.root_scissor, rect((0, 14), (4, 36)));
     shape(&mut scene, 0, [(1.0, 24.0), (2.0, 25.0)]);
@@ -373,17 +381,17 @@ fn shape_mask_effect_changes_refresh_group_damage_when_allocation_is_skipped_or_
             ShapeMaskEffectConfig::new().outset(71.0),
         )
         .unwrap();
-    assert!(scene.state.content_effects[&node].output_bounds.is_none());
+    assert!(scene.state.content_groups[&node].output_bounds.is_none());
     assert_eq!(
-        scene.state.content_effects[&node].input_bounds,
+        scene.state.content_groups[&node].input_bounds,
         rect((0, 0), (112, 112))
     );
     scene.render(&mut surface).unwrap();
     assert_eq!(scene.backend.root_scissor, rect((0, 0), (128, 112)));
     scene.unload_effect(7);
-    assert!(scene.state.content_effects[&node].output_bounds.is_some());
+    assert!(scene.state.content_groups[&node].output_bounds.is_some());
     assert_eq!(
-        scene.state.content_effects[&node].input_bounds,
+        scene.state.content_groups[&node].input_bounds,
         rect((20, 20), (40, 40))
     );
     scene.render(&mut surface).unwrap();

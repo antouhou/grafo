@@ -16,15 +16,15 @@ fn nested_targets_reset_clips_and_restore_each_parent_before_compositing() {
     for node in [outer, inner] {
         scene.groups.insert(
             node,
-            ContentEffectInstance::new(
-                EffectInstance {
+            ContentGroup::new(
+                Some(ContentEffectInstance {
                     effect_id: 1,
                     parameters: EffectParametersHandle {
                         range: EffectParameterRange { start: 0, end: 0 },
                         hash: 0,
                     },
-                },
-                ContentEffectConfig::default(),
+                    config: ContentEffectConfig::default(),
+                }),
                 scene.tree.get(node).unwrap(),
                 None,
                 Viewport {

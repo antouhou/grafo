@@ -141,8 +141,9 @@ impl SceneState {
         };
         EffectAttachments {
             content: self
-                .content_effects
+                .content_groups
                 .get(&node_id)
+                .and_then(|group| group.effect)
                 .map(|effect| EffectAttachment {
                     instance: EffectInstance {
                         effect_id: effect.effect_id,

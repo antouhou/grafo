@@ -76,7 +76,7 @@ impl Planner {
         self.traversal.start(&DrawPlanningInput {
             tree: &state.draw_tree,
             parameters: &state.effect_parameters,
-            content_effects: &state.content_effects,
+            content_groups: &state.content_groups,
             backdrop_effects: &state.backdrop_effects,
             shape_mask_effects: &self.shape_composites,
             scale_factor: state.viewport().scale_factor,
@@ -138,10 +138,10 @@ impl<'state> CommandIterator<'state, '_> {
         let Some(effect) = self.state.shape_mask_effects.get(&node_id) else {
             return false;
         };
-        if !shape_mask_effects::should_prepare_shape_mask_effect(
+        if !should_prepare_shape_mask_effect(
             node_id,
             effect,
-            &self.state.content_effects,
+            &self.state.content_groups,
             damage,
             self.state.viewport().scale_factor,
         ) {
@@ -173,14 +173,14 @@ impl<'state> Iterator for CommandIterator<'state, '_> {
                             should_prepare_shape_mask_effect(
                                 node_id,
                                 effect,
-                                &self.state.content_effects,
+                                &self.state.content_groups,
                                 damage,
                                 self.state.viewport().scale_factor,
                             )
                         }) {
                             self.append_shape_mask_effect(node_id, effect, &mut commands);
                         } else {
-                            self.has_deferred_shape_masks = !self.state.content_effects.is_empty();
+                            self.has_deferred_shape_masks = !self.state.content_groups.is_empty();
                         }
                     } else {
                         self.phase = PlanningPhase::PlanningMainContent;
@@ -197,7 +197,7 @@ impl<'state> Iterator for CommandIterator<'state, '_> {
                         &DrawPlanningInput {
                             tree: &self.state.draw_tree,
                             parameters: &self.state.effect_parameters,
-                            content_effects: &self.state.content_effects,
+                            content_groups: &self.state.content_groups,
                             backdrop_effects: &self.state.backdrop_effects,
                             shape_mask_effects: &self.planner.shape_composites,
                             scale_factor: self.state.viewport().scale_factor,

@@ -5,12 +5,13 @@ use crate::core::vertex::InstanceTransform;
 use crate::core::{geometry, UnsignedPhysicalRect, Viewport};
 use crate::render_backend::texture_manager::{TextureUpdatePublisher, TextureUpdateSubscription};
 use ahash::{HashMap, HashMapExt, HashSet, RandomState};
+use content_groups::ContentGroup;
 use easy_tree::Tree;
 use effect_damage::{EffectDamage, EffectDamageKind};
 use effects::parameters::EffectParameterStorage;
 use effects::{
-    resolve_backdrop_effect, BackdropEffectInstance, ContentEffectInstance, EffectAttachments,
-    GroupEffectIndex, ShapeMaskEffectInstance,
+    resolve_backdrop_effect, BackdropEffectInstance, EffectAttachments, GroupEffectIndex,
+    ShapeMaskEffectInstance,
 };
 pub use errors::SceneError;
 use std::sync::{Arc, RwLock};
@@ -18,6 +19,7 @@ use text::GlyphUsage;
 use texture_index::TextureIndex;
 use types::{CachedShapeDrawData, ClipRectDrawData, DrawTreeNode};
 
+pub(crate) mod content_groups;
 mod effect_damage;
 pub(crate) mod effects;
 mod errors;
@@ -55,7 +57,7 @@ pub(crate) struct SceneState {
     viewport: Viewport,
     shape_resources: ShapeResources,
     pub(crate) effect_parameters: EffectParameterStorage,
-    pub(crate) content_effects: HashMap<usize, ContentEffectInstance>,
+    pub(crate) content_groups: HashMap<usize, ContentGroup>,
     pub(crate) backdrop_effects: HashMap<usize, BackdropEffectInstance>,
     effect_damage: EffectDamage,
     pub(crate) shape_mask_effects: HashMap<usize, ShapeMaskEffectInstance>,
@@ -79,7 +81,7 @@ impl SceneState {
             texture_index: TextureIndex::default(),
             shape_resources: ShapeResources::new(),
             effect_parameters: EffectParameterStorage::default(),
-            content_effects: HashMap::new(),
+            content_groups: HashMap::new(),
             backdrop_effects: HashMap::new(),
             effect_damage: EffectDamage::default(),
             shape_mask_effects: HashMap::new(),
@@ -112,7 +114,7 @@ impl SceneState {
         }
         self.viewport.scale_factor = scale_factor;
         self.refresh_backdrop_capture_bounds(maximum_texture_dimension);
-        self.refresh_all_content_effect_bounds(maximum_texture_dimension);
+        self.refresh_all_content_group_bounds(maximum_texture_dimension);
         Ok(())
     }
 
@@ -120,7 +122,7 @@ impl SceneState {
     pub(crate) fn resize(&mut self, physical_size: (u32, u32), maximum_texture_dimension: u32) {
         self.viewport.physical_size = physical_size;
         self.refresh_backdrop_capture_bounds(maximum_texture_dimension);
-        self.refresh_all_content_effect_bounds(maximum_texture_dimension);
+        self.refresh_all_content_group_bounds(maximum_texture_dimension);
     }
 
     pub(crate) fn load_shape(
@@ -215,7 +217,12 @@ impl SceneState {
     }
 
     /// The parent must be validated before insertion.
-    pub(crate) fn insert_node(&mut self, node: DrawTreeNode, parent: Option<usize>) -> usize {
+    pub(crate) fn insert_node(
+        &mut self,
+        node: DrawTreeNode,
+        parent: Option<usize>,
+        maximum_texture_dimension: u32,
+    ) -> usize {
         self.has_pending_fill_changes = true;
         self.refresh_tessellation_cache(&node);
         self.texture_index.replace(self.next_node_id(), &node);
@@ -230,6 +237,7 @@ impl SceneState {
             self.draw_tree.add_child(parent.unwrap_or(0), node)
         };
         self.refresh_node_group_effect_sources(node_id);
+        self.refresh_content_group_bounds(node_id, maximum_texture_dimension);
         node_id
     }
 
@@ -264,7 +272,7 @@ impl SceneState {
                     .bounds = bounds;
             }
         } else {
-            self.remove_content_effect(node_id);
+            self.remove_content_effect(node_id, maximum_texture_dimension);
             if self.shape_mask_effects.remove(&node_id).is_some() {
                 self.effect_parameters.request_compaction();
             }
@@ -302,7 +310,7 @@ impl SceneState {
         if let Some((instance, entry)) = refreshed_backdrop {
             self.replace_backdrop_effect(node_id, instance, entry);
         }
-        self.refresh_content_effect_bounds(node_id, maximum_texture_dimension);
+        self.refresh_content_group_bounds(node_id, maximum_texture_dimension);
         previous
     }
 
@@ -355,7 +363,12 @@ impl SceneState {
             }
             self.texture_index.remove(id);
             let group_output = effect_removals.remove(EffectDamageKind::Content, id);
-            if self.content_effects.remove(&id).is_some() {
+            if self
+                .content_groups
+                .remove(&id)
+                .and_then(|group| group.effect)
+                .is_some()
+            {
                 self.effect_parameters.request_compaction();
             }
             if self.backdrop_effects.remove(&id).is_some() {

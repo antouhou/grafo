@@ -84,7 +84,7 @@ fn overlapping_subtree_removals_keep_sibling_effects() {
     assert_eq!(scene.backend.registered_shapes, [root, survivor]);
     for node in expected_removed_ids {
         assert!(scene.state.draw_tree.get(node).is_none());
-        assert!(!scene.state.content_effects.contains_key(&node));
+        assert!(!scene.state.content_groups.contains_key(&node));
         assert!(!scene.state.backdrop_effects.contains_key(&node));
         assert!(!scene.state.shape_mask_effects.contains_key(&node));
     }
@@ -108,7 +108,7 @@ fn overlapping_subtree_removals_keep_sibling_effects() {
     scene.backend.should_fail = false;
     let replacement = queue_shape(&mut scene, false);
     assert!(expected_removed_ids.contains(&replacement));
-    assert!(!scene.state.content_effects.contains_key(&replacement));
+    assert!(!scene.state.content_groups.contains_key(&replacement));
     assert!(!scene.state.backdrop_effects.contains_key(&replacement));
     assert!(!scene.state.shape_mask_effects.contains_key(&replacement));
     scene.render(&mut surface).unwrap();
@@ -259,7 +259,10 @@ fn replacements_and_subtree_removals_defer_compaction_and_preserve_surviving_par
         scene
             .set_shape_mask_effect(survivor, 7, &[7; 4], ShapeMaskEffectConfig::default())
             .unwrap();
-        let group_parameters = scene.state.content_effects[&survivor].parameters;
+        let group_parameters = scene.state.content_groups[&survivor]
+            .effect
+            .unwrap()
+            .parameters;
         let backdrop_parameters = scene.state.backdrop_effects[&survivor].effect.parameters;
         let shape_parameters = scene.state.shape_mask_effect(survivor).unwrap().parameters;
         scene.remove_subtrees([branch], |_| {});

@@ -10,6 +10,7 @@ use crate::core::Viewport;
 use crate::planner::commands::TraversalCommands;
 use crate::planner::tests::RecordedCommands;
 use crate::planner::TextureIdAllocator;
+use crate::scene_state::content_groups::ContentGroup;
 use crate::scene_state::effects::parameters::EffectParameterStorage;
 use crate::scene_state::effects::{BackdropEffectInstance, ContentEffectInstance, EffectInstance};
 use crate::scene_state::types::CachedShapeDrawData;
@@ -81,7 +82,7 @@ fn clip(min: (f32, f32), max: (f32, f32)) -> DrawTreeNode {
 struct Scene {
     tree: Tree<DrawTreeNode>,
     shape_mask_effects: HashMap<usize, TextureComposite>,
-    groups: HashMap<usize, ContentEffectInstance>,
+    groups: HashMap<usize, ContentGroup>,
     backdrops: HashMap<usize, BackdropEffectInstance>,
     backdrop_source: CaptureSource,
     parameters: EffectParameterStorage,
@@ -117,7 +118,7 @@ impl Scene {
             tree: &self.tree,
             parameters: &self.parameters,
             shape_mask_effects: &self.shape_mask_effects,
-            content_effects: &self.groups,
+            content_groups: &self.groups,
             backdrop_effects: &self.backdrops,
             scale_factor: 1.0,
             physical_size: Size::new(100, 100),
