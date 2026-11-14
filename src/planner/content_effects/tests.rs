@@ -9,6 +9,7 @@ use crate::planner::commands::TraversalCommands;
 use crate::planner::draws::{DrawPlanner, DrawPlanningInput};
 use crate::planner::tests::RecordedCommands;
 use crate::planner::TextureIdAllocator;
+use crate::scene_state::content_groups::ContentGroup;
 use crate::scene_state::effects::parameters::EffectParameterStorage;
 use crate::scene_state::effects::{BackdropEffectInstance, ContentEffectInstance, EffectInstance};
 use crate::scene_state::types::CachedShapeDrawData;
@@ -120,7 +121,7 @@ fn snapshot(plan: &RecordedCommands) -> Vec<Command> {
 struct Scene {
     parameters: EffectParameterStorage,
     tree: Tree<DrawTreeNode>,
-    groups: HashMap<usize, ContentEffectInstance>,
+    groups: HashMap<usize, ContentGroup>,
     backdrops: HashMap<usize, BackdropEffectInstance>,
     shapes: HashMap<usize, TextureComposite>,
     scale_factor: f64,
@@ -160,12 +161,12 @@ impl Scene {
     fn attach_content(&mut self, node: usize, effect_id: u64, config: ContentEffectConfig) {
         self.groups.insert(
             node,
-            ContentEffectInstance::new(
-                EffectInstance {
+            ContentGroup::new(
+                Some(ContentEffectInstance {
                     effect_id,
                     parameters: self.parameters.store(&effect_id.to_le_bytes()),
-                },
-                config,
+                    config,
+                }),
                 self.tree.get(node).unwrap(),
                 None,
                 Viewport {
@@ -217,7 +218,7 @@ impl Scene {
         let input = DrawPlanningInput {
             tree: &self.tree,
             parameters: &self.parameters,
-            content_effects: &self.groups,
+            content_groups: &self.groups,
             backdrop_effects: &self.backdrops,
             shape_mask_effects: &self.shapes,
             scale_factor: self.scale_factor,

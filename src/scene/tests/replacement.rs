@@ -484,8 +484,8 @@ fn replacements_preserve_topology_and_refresh_or_remove_only_the_nodes_effects()
     assert!(!scene.backend.registered_shapes.contains(&parent));
     assert!(!scene.state.shape_mask_effects.contains_key(&parent));
     assert!(!scene.state.backdrop_effects.contains_key(&parent));
-    assert!(!scene.state.content_effects.contains_key(&parent));
-    assert!(scene.state.content_effects.contains_key(&first));
+    assert!(!scene.state.content_groups.contains_key(&parent));
+    assert!(scene.state.content_groups.contains_key(&first));
     assert_eq!(scene.state.effect_parameters.bytes.len(), 16);
     scene
         .replace_with_cached_shape(parent, 1, ShapeDrawOptions::new())

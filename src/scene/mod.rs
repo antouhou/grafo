@@ -435,7 +435,7 @@ impl<B: RenderBackend> Scene<B> {
         self.backend
             .validate_effect_params(effect_id, params)
             .map_err(EffectError::Backend)?;
-        let previous_output = self.state.content_effect_output(node_id);
+        let previous_output = self.state.content_group_output(node_id);
         self.state.set_content_effect(
             node_id,
             effect_id,
@@ -446,7 +446,7 @@ impl<B: RenderBackend> Scene<B> {
         mark_physical_dirty(&mut self.dirty_bounds, previous_output);
         mark_physical_dirty(
             &mut self.dirty_bounds,
-            self.state.content_effect_output(node_id),
+            self.state.content_group_output(node_id),
         );
         self.mark_shape_dirty(node_id);
         Ok(())
@@ -461,7 +461,7 @@ impl<B: RenderBackend> Scene<B> {
             self.remove_group_effect(node_id, EffectAttachmentKind::Content);
             return;
         }
-        let previous_output = self.state.content_effect_output(node_id);
+        let previous_output = self.state.content_group_output(node_id);
         if self.state.remove_content_effect(node_id) {
             mark_physical_dirty(&mut self.dirty_bounds, previous_output);
             self.mark_shape_dirty(node_id);
@@ -554,7 +554,7 @@ impl<B: RenderBackend> Scene<B> {
             .shape_mask_effects
             .get(&node_id)
             .map(|effect| effect.bounds);
-        let previous_content_output = self.state.content_effect_output(node_id);
+        let previous_content_output = self.state.content_group_output(node_id);
         self.state.set_shape_mask_effect(
             node_id,
             effect_id,
@@ -571,7 +571,7 @@ impl<B: RenderBackend> Scene<B> {
         mark_physical_dirty(&mut self.dirty_bounds, previous_content_output);
         mark_physical_dirty(
             &mut self.dirty_bounds,
-            self.state.content_effect_output(node_id),
+            self.state.content_group_output(node_id),
         );
         Ok(())
     }
@@ -585,7 +585,7 @@ impl<B: RenderBackend> Scene<B> {
             self.remove_group_effect(node_id, EffectAttachmentKind::ShapeMask);
             return;
         }
-        let previous_content_output = self.state.content_effect_output(node_id);
+        let previous_content_output = self.state.content_group_output(node_id);
         let bounds = self
             .state
             .shape_mask_effects
@@ -601,7 +601,7 @@ impl<B: RenderBackend> Scene<B> {
             mark_physical_dirty(&mut self.dirty_bounds, previous_content_output);
             mark_physical_dirty(
                 &mut self.dirty_bounds,
-                self.state.content_effect_output(node_id),
+                self.state.content_group_output(node_id),
             );
         }
     }

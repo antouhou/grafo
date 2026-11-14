@@ -347,7 +347,7 @@ fn ordinary_replacement_removes_only_text_owned_glyphs() {
         for &glyph in &glyphs {
             assert!(scene.state.draw_tree.get(glyph).is_none());
             assert!(!scene.state.is_text_glyph(glyph));
-            assert!(!scene.state.content_effects.contains_key(&glyph));
+            assert!(!scene.state.content_groups.contains_key(&glyph));
             assert!(!scene.state.shape_mask_effects.contains_key(&glyph));
             assert!(!scene.state.backdrop_effects.contains_key(&glyph));
             assert!(!scene.backend.registered_shapes.contains(&glyph));
@@ -435,7 +435,7 @@ fn text_effects_apply_to_each_glyph_and_survive_empty_replacements() {
     scene.remove_backdrop_effect(text);
     scene.remove_shape_mask_effect(text);
     for id in glyphs {
-        assert!(!scene.state.content_effects.contains_key(&id));
+        assert!(!scene.state.content_groups.contains_key(&id));
         assert!(!scene.state.backdrop_effects.contains_key(&id));
         assert!(!scene.state.shape_mask_effects.contains_key(&id));
     }

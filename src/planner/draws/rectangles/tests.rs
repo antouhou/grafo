@@ -9,8 +9,9 @@ use crate::core::gradient::types::{
 };
 use crate::core::shape::ShapeResources;
 use crate::planner::draws::shape_material;
+use crate::scene_state::content_groups::ContentGroup;
 use crate::scene_state::effects::parameters::{EffectParameterRange, EffectParametersHandle};
-use crate::scene_state::effects::{ContentEffectInstance, EffectInstance};
+use crate::scene_state::effects::ContentEffectInstance;
 use crate::scene_state::types::CachedShapeDrawData;
 use crate::scene_state::types::DrawTreeNode;
 use crate::{CachedShapeHandle, Color, Shape, ShapeDrawOptions, Size, TransformInstance, Viewport};
@@ -54,11 +55,7 @@ fn rect_draw_tree_node() -> DrawTreeNode {
     rect_draw_tree_node_with_options(ShapeDrawOptions::new())
 }
 
-fn should_skip(
-    node_id: usize,
-    node: &DrawTreeNode,
-    groups: &HashMap<usize, ContentEffectInstance>,
-) -> bool {
+fn should_skip(node_id: usize, node: &DrawTreeNode, groups: &HashMap<usize, ContentGroup>) -> bool {
     let material = match node {
         DrawTreeNode::CachedShape(description) => Some(shape_material(&description.instance)),
         _ => None,
@@ -81,18 +78,18 @@ fn skip_visible_rect_draw_rejects_content_effect_nodes() {
     let draw_tree_node = rect_draw_tree_node();
     let node_id = 7usize;
 
-    let mut content_effects = HashMap::new();
-    content_effects.insert(
+    let mut content_groups = HashMap::new();
+    content_groups.insert(
         node_id,
-        ContentEffectInstance::new(
-            EffectInstance {
+        ContentGroup::new(
+            Some(ContentEffectInstance {
                 effect_id: 1,
                 parameters: EffectParametersHandle {
                     range: EffectParameterRange { start: 0, end: 0 },
                     hash: 0,
                 },
-            },
-            ContentEffectConfig::default(),
+                config: ContentEffectConfig::default(),
+            }),
             &draw_tree_node,
             None,
             Viewport {
@@ -103,7 +100,7 @@ fn skip_visible_rect_draw_rejects_content_effect_nodes() {
         ),
     );
 
-    assert!(!should_skip(node_id, &draw_tree_node, &content_effects,));
+    assert!(!should_skip(node_id, &draw_tree_node, &content_groups,));
 }
 
 #[test]

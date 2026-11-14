@@ -232,7 +232,7 @@ impl EffectDamage {
 }
 
 impl SceneState {
-    pub(crate) fn content_effect_output(&self, node_id: usize) -> Option<UnsignedPhysicalRect> {
+    pub(crate) fn content_group_output(&self, node_id: usize) -> Option<UnsignedPhysicalRect> {
         self.effect_damage
             .output_region(EffectDamageKind::Content, node_id)
     }

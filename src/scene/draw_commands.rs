@@ -142,7 +142,7 @@ impl<B: RenderBackend> Scene<B> {
         node: DrawTreeNode,
         shape_mask_effect_bounds: Option<ShapeMaskEffectBounds>,
     ) {
-        let previous_group_output = self.state.content_effect_output(node_id);
+        let previous_group_output = self.state.content_group_output(node_id);
         let old_effect_bounds = self
             .state
             .shape_mask_effects
@@ -168,7 +168,7 @@ impl<B: RenderBackend> Scene<B> {
         mark_physical_dirty(&mut self.dirty_bounds, previous_group_output);
         mark_physical_dirty(
             &mut self.dirty_bounds,
-            self.state.content_effect_output(node_id),
+            self.state.content_group_output(node_id),
         );
         if previous.has_child_clip() != has_child_clip
             && !self.state.draw_tree.children(node_id).is_empty()

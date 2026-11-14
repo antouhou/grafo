@@ -7,8 +7,9 @@ use crate::core::MathRect;
 use crate::planner::commands::TraversalCommands;
 use crate::planner::content_effects::{content_intersects_damage, ContentCapture};
 use crate::planner::TextureIdAllocator;
+use crate::scene_state::content_groups::ContentGroup;
 use crate::scene_state::effects::parameters::EffectParameterStorage;
-use crate::scene_state::effects::{BackdropEffectInstance, ContentEffectInstance};
+use crate::scene_state::effects::BackdropEffectInstance;
 use crate::scene_state::types::DrawTreeNode;
 use crate::{Size, UnsignedPhysicalRect};
 use ahash::HashMap;
@@ -77,7 +78,7 @@ pub(crate) struct DrawPlanningInput<'scene, 'planning> {
     pub(crate) tree: &'scene Tree<DrawTreeNode>,
     pub(crate) parameters: &'scene EffectParameterStorage,
     pub(crate) shape_mask_effects: &'planning HashMap<usize, TextureComposite>,
-    pub(crate) content_effects: &'scene HashMap<usize, ContentEffectInstance>,
+    pub(crate) content_groups: &'scene HashMap<usize, ContentGroup>,
     pub(crate) backdrop_effects: &'scene HashMap<usize, BackdropEffectInstance>,
     pub(crate) scale_factor: f64,
     pub(crate) physical_size: Size,
@@ -145,15 +146,15 @@ impl DrawPlanner {
         let Some(node) = input.tree.get(node_id) else {
             return;
         };
-        let content_effect = input.content_effects.get(&node_id);
+        let content_group = input.content_groups.get(&node_id);
         let intersects_damage = self.current.damaged_region.is_some_and(|damage| {
             node.logical_screen_bounds().intersects(&damage)
                 || input.shape_mask_effects.contains_key(&node_id)
-                || content_intersects_damage(content_effect, damage, input.scale_factor)
+                || content_intersects_damage(content_group, damage, input.scale_factor)
         });
         if !intersects_damage {
-            let has_content_capture =
-                content_effect.is_some_and(|effect| effect.output_bounds.is_some());
+            let has_content_capture = content_group
+                .is_some_and(|group| group.effect.is_some() && group.output_bounds.is_some());
             if !node.has_child_clip()
                 && !has_content_capture
                 && !input.tree.children(node_id).is_empty()
@@ -251,7 +252,7 @@ impl DrawPlanner {
             node_id,
             node,
             draw.map(|draw| draw.material),
-            input.content_effects,
+            input.content_groups,
         );
         let visible_draw = draw.filter(|_| should_draw);
         if input.tree.children(node_id).is_empty() {

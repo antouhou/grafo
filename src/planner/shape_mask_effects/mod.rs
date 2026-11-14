@@ -8,8 +8,9 @@ use crate::core::{MathRect, Size, UnsignedPhysicalRect, Viewport};
 use crate::planner::commands::TraversalCommands;
 use crate::planner::content_effects::content_intersects_damage;
 use crate::planner::TextureIdAllocator;
+use crate::scene_state::content_groups::ContentGroup;
 use crate::scene_state::effects::parameters::EffectParameterStorage;
-use crate::scene_state::effects::{ContentEffectInstance, ShapeMaskEffectInstance};
+use crate::scene_state::effects::ShapeMaskEffectInstance;
 use crate::scene_state::types::DrawTreeNode;
 use ahash::HashMap;
 use easy_tree::Tree;
@@ -23,12 +24,12 @@ use easy_tree::Tree;
 pub(super) fn should_prepare_shape_mask_effect(
     node_id: usize,
     effect: &ShapeMaskEffectInstance,
-    content_effects: &HashMap<usize, ContentEffectInstance>,
+    content_groups: &HashMap<usize, ContentGroup>,
     damage: MathRect,
     scale_factor: f64,
 ) -> bool {
     effect.bounds.logical_screen_bounds.intersects(&damage)
-        || content_intersects_damage(content_effects.get(&node_id), damage, scale_factor)
+        || content_intersects_damage(content_groups.get(&node_id), damage, scale_factor)
 }
 
 #[allow(clippy::too_many_arguments)]

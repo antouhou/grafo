@@ -13,10 +13,10 @@ impl DrawPlanner {
         output: &mut TraversalCommands<'scene>,
         texture_ids: &mut TextureIdAllocator,
     ) -> Option<ContentCapture> {
-        let effect = input
-            .content_effects
+        let group = input
+            .content_groups
             .get(&node_id)
-            .filter(|effect| effect.output_bounds.is_some())?;
+            .filter(|group| group.effect.is_some() && group.output_bounds.is_some())?;
         let source = self.current.backdrop_source;
         let backdrop_region = self.subtree_backdrop_regions.get(&node_id).copied();
         let backdrop_source = match backdrop_region {
@@ -37,7 +37,7 @@ impl DrawPlanner {
             None => CaptureSource::Target,
         };
         let capture =
-            ContentCapture::new(*effect, input.scale_factor, backdrop_region, texture_ids)?;
+            ContentCapture::new(*group, input.scale_factor, backdrop_region, texture_ids)?;
         capture.append_begin(output);
         self.current = DrawTargetState::for_viewport(input.physical_size, backdrop_source);
         self.current.damaged_region = capture.draw_region().map(|region| {

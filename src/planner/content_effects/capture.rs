@@ -7,8 +7,9 @@ use crate::core::vertex::TextureUvTransform;
 use crate::core::{PhysicalRect, Size, UnsignedPhysicalRect};
 use crate::planner::commands::TraversalCommands;
 use crate::planner::TextureIdAllocator;
+use crate::scene_state::content_groups::ContentGroup;
 use crate::scene_state::effects::parameters::EffectParameterStorage;
-use crate::scene_state::effects::{ContentEffectInstance, EffectInstance};
+use crate::scene_state::effects::EffectInstance;
 
 #[derive(Clone, Copy)]
 pub(crate) struct ContentCapture {
@@ -28,13 +29,14 @@ impl ContentCapture {
     }
 
     pub(crate) fn new(
-        effect: ContentEffectInstance,
+        group: ContentGroup,
         scale_factor: f64,
         backdrop_region: Option<UnsignedPhysicalRect>,
         texture_ids: &mut TextureIdAllocator,
     ) -> Option<Self> {
-        let output_bounds = effect.output_bounds?;
-        let source_rect = effect.input_bounds;
+        let effect = group.effect?;
+        let output_bounds = group.output_bounds?;
+        let source_rect = group.input_bounds;
         let mut render_bounds = output_bounds;
         let mut draw_scissor = source_rect.unwrap_or_else(UnsignedPhysicalRect::zero);
         if let Some(backdrop) = backdrop_region.filter(|backdrop| {

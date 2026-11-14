@@ -1,17 +1,17 @@
 use super::draws::{DrawPlanner, DrawPlanningInput};
 use crate::core::{MathRect, UnsignedPhysicalRect};
-use crate::scene_state::effects::ContentEffectInstance;
+use crate::scene_state::content_groups::ContentGroup;
 pub(crate) use capture::ContentCapture;
 
 mod capture;
 
 pub(super) fn content_intersects_damage(
-    effect: Option<&ContentEffectInstance>,
+    group: Option<&ContentGroup>,
     damage: MathRect,
     scale_factor: f64,
 ) -> bool {
-    effect
-        .and_then(|effect| effect.output_bounds)
+    group
+        .and_then(|group| group.output_bounds)
         .is_some_and(|bounds| (bounds.to_f32() / scale_factor as f32).intersects(&damage))
 }
 
@@ -19,7 +19,7 @@ impl DrawPlanner {
     pub(super) fn resolve_backdrop_regions(&mut self, input: &DrawPlanningInput<'_, '_>) {
         self.subtree_backdrop_regions.clear();
         self.node_order.clear();
-        if input.content_effects.is_empty()
+        if input.content_groups.is_empty()
             || input.backdrop_effects.is_empty()
             || input.tree.get(0).is_none()
         {
