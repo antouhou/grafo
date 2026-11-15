@@ -1,10 +1,10 @@
 use crate::commands::{
-    CaptureConfig, CaptureSource, EffectApplication, IntermediateTextureId, RenderOperation,
-    Target, TextureComposite, TexturePlacement,
+    BlendDestination, CaptureConfig, CaptureSource, EffectApplication, IntermediateTextureId,
+    RenderOperation, Target, TextureComposite, TexturePlacement,
 };
 use crate::core::geometry;
 use crate::core::vertex::TextureUvTransform;
-use crate::core::{PhysicalRect, Size, UnsignedPhysicalRect};
+use crate::core::{BlendMode, PhysicalRect, Size, UnsignedPhysicalRect};
 use crate::planner::commands::TraversalCommands;
 use crate::planner::TextureIdAllocator;
 use crate::scene_state::content_groups::ContentGroup;
@@ -119,7 +119,9 @@ impl ContentCapture {
             input_texture
         };
         TextureComposite {
-            texture,
+            source: texture,
+            blend_mode: BlendMode::SourceOver,
+            destination: BlendDestination::FinalTarget,
             placement: TexturePlacement::Local {
                 transform: geometry::unit_quad_transform(self.logical_output_bounds, None),
                 sampling: TextureUvTransform::IDENTITY,

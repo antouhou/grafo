@@ -73,7 +73,7 @@ fn validate_dependencies(plan: &RecordedCommands) {
             operation => {
                 assert!(!targets.is_empty());
                 let texture = match operation {
-                    RenderOperation::CompositeTexture(composite) => Some(composite.texture),
+                    RenderOperation::CompositeTexture(composite) => Some(composite.source),
                     RenderOperation::DrawShape(draw)
                     | RenderOperation::DrawShapeAndIncrementStencil(draw) => draw
                         .material
@@ -111,7 +111,7 @@ fn snapshot(plan: &RecordedCommands) -> Vec<Command> {
                 planned_index(effect.output),
             ),
             RenderOperation::CompositeTexture(composite) => {
-                Command::Composite(planned_index(composite.texture))
+                Command::Composite(planned_index(composite.source))
             }
             _ => panic!("unexpected command in clip-only scene"),
         })

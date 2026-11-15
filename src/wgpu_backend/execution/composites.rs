@@ -113,8 +113,8 @@ impl DrawPass<'_, '_> {
         );
         self.render_pass.set_texture_bind_group(
             0,
-            ShapeTextureBinding::Intermediate(command.texture),
-            self.textures.bind_group(command.texture),
+            ShapeTextureBinding::Intermediate(command.source),
+            self.textures.bind_group(command.source),
         );
         self.render_pass
             .set_vertex_buffer(0, quad.vertices.slice(..));

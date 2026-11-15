@@ -422,7 +422,7 @@ fn nested_backdrop_captures_expand_parent_rendering_before_crop() {
         };
         assert!(matches!(
             output.instructions[output.instructions.len() - 2].operation,
-            RenderOperation::CompositeTexture(composite) if composite.texture == composite_texture
+            RenderOperation::CompositeTexture(composite) if composite.source == composite_texture
         ));
     }
 }

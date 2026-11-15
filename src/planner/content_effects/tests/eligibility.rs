@@ -108,8 +108,8 @@ fn captures_without_effects_prepare_child_masks_outside_surface_damage() {
             assert_eq!(effects[0].effect_id, 17);
             assert_eq!(effects[0].parameters.bytes, &[1, 2, 3, 4]);
             assert_eq!(composites.len(), 2);
-            assert_eq!(composites[0].0.texture, effects[0].output);
-            assert_eq!(composites[1].0.texture, texture);
+            assert_eq!(composites[0].0.source, effects[0].output);
+            assert_eq!(composites[1].0.source, texture);
             assert_eq!(
                 composites[1].1.scissor,
                 UnsignedPhysicalRect::new((0, 0).into(), (32, 32).into())

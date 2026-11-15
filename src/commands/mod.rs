@@ -3,7 +3,7 @@
 //! Commands carry resource IDs, borrowed parameters, and resolved clips.
 
 use crate::core::vertex::{InstanceTransform, TextureUvTransform};
-use crate::core::{PhysicalRect, Size, UnsignedPhysicalRect};
+use crate::core::{BlendMode, PhysicalRect, Size, UnsignedPhysicalRect};
 pub use material::{ShapeDrawMaterial, ShapeTextureBinding, ShapeTextureLayer, TextureSampling};
 pub use textures::IntermediateTextureId;
 
@@ -92,10 +92,19 @@ pub enum TexturePlacement {
     },
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BlendDestination {
+    FinalTarget,
+    // Full-resolution destination pixels in the placement's original UV space.
+    Texture(IntermediateTextureId),
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct TextureComposite {
-    pub texture: IntermediateTextureId,
+    pub source: IntermediateTextureId,
     pub placement: TexturePlacement,
+    pub blend_mode: BlendMode,
+    pub destination: BlendDestination,
 }
 
 /// Transparent, linear premultiplied coverage mask at the requested sampling size.

@@ -217,7 +217,7 @@ fn execute_draw_command(
         RenderOperation::CompositeTexture(composite) => match composite.placement {
             TexturePlacement::Target => {
                 pass.set_scissor(command.clip.scissor);
-                pass.composite_texture(command.clip.stencil_reference, composite.texture);
+                pass.composite_texture(command.clip.stencil_reference, composite.source);
             }
             TexturePlacement::Local { .. } => {
                 pass.composite_local_texture(

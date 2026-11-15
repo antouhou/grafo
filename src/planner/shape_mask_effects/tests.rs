@@ -134,7 +134,7 @@ fn mask_scopes_resolve_geometry_and_borrow_the_parameter_storage() {
         let ShapeDrawId(node) = mask.shape;
         assert_eq!(effect.parameters.bytes, [node as u8, 2, 3, 4]);
         let composite = plan.composites[&node];
-        assert_eq!(composite.texture, effect.output);
+        assert_eq!(composite.source, effect.output);
         let TexturePlacement::Local {
             transform,
             sampling,

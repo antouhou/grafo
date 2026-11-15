@@ -1,10 +1,10 @@
 use crate::commands::{
-    DrawClip, EffectApplication, MaskTarget, RenderOperation, ShapeDrawId, ShapeMaskDraw, Target,
-    TextureComposite, TexturePlacement,
+    BlendDestination, DrawClip, EffectApplication, MaskTarget, RenderOperation, ShapeDrawId,
+    ShapeMaskDraw, Target, TextureComposite, TexturePlacement,
 };
 use crate::core::vertex::TextureUvTransform;
 use crate::core::{effect, geometry};
-use crate::core::{MathRect, Size, UnsignedPhysicalRect, Viewport};
+use crate::core::{BlendMode, MathRect, Size, UnsignedPhysicalRect, Viewport};
 use crate::planner::commands::TraversalCommands;
 use crate::planner::content_effects::content_intersects_damage;
 use crate::planner::TextureIdAllocator;
@@ -90,7 +90,9 @@ pub(super) fn append_shape_mask_effect<'scene>(
     composites.insert(
         node_id,
         TextureComposite {
-            texture: output,
+            source: output,
+            blend_mode: BlendMode::SourceOver,
+            destination: BlendDestination::FinalTarget,
             placement: TexturePlacement::Local {
                 transform: geometry::unit_quad_transform(
                     bounds.local_bounds,

@@ -87,7 +87,7 @@ fn blend_only_shapes_capture_without_running_an_effect() {
     let composites: Vec<_> = commands
         .iter()
         .filter_map(|command| match command.operation {
-            RenderOperation::CompositeTexture(composite) => Some(composite.texture),
+            RenderOperation::CompositeTexture(composite) => Some(composite.source),
             _ => None,
         })
         .collect();
