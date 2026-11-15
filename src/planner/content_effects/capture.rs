@@ -102,6 +102,7 @@ impl ContentCapture {
     pub(crate) fn prepare_composite<'scene>(
         self,
         input_texture: IntermediateTextureId,
+        blend_mode: BlendMode,
         parameters: &'scene EffectParameterStorage,
         output: &mut TraversalCommands<'scene>,
         texture_ids: &mut TextureIdAllocator,
@@ -120,7 +121,7 @@ impl ContentCapture {
         };
         TextureComposite {
             source: texture,
-            blend_mode: BlendMode::SourceOver,
+            blend_mode,
             destination: BlendDestination::FinalTarget,
             placement: TexturePlacement::Local {
                 transform: geometry::unit_quad_transform(self.logical_output_bounds, None),

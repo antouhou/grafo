@@ -4,7 +4,7 @@ use crate::commands::{
 };
 use crate::core::effect::{BackdropEffectConfig, ContentEffectConfig};
 use crate::core::shape::{CachedShapeHandle, ShapeResources};
-use crate::core::{UnsignedPhysicalRect, Viewport};
+use crate::core::{BlendMode, UnsignedPhysicalRect, Viewport};
 use crate::planner::commands::TraversalCommands;
 use crate::planner::draws::{DrawPlanner, DrawPlanningInput};
 use crate::planner::tests::RecordedCommands;
@@ -247,6 +247,15 @@ fn nested_groups_close_into_their_parent_targets() {
     scene.group(Some(inner), 3);
     scene.plan(&mut DrawPlanner::default(), &mut output);
     validate_dependencies(&output);
+    let blend_modes: Vec<_> = output
+        .instructions
+        .iter()
+        .filter_map(|command| match command.operation {
+            RenderOperation::CompositeTexture(composite) => Some(composite.blend_mode),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(blend_modes, [BlendMode::SourceOver; 3]);
     assert_eq!(
         snapshot(&output),
         [

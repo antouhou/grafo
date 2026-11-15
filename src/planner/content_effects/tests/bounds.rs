@@ -31,8 +31,13 @@ fn captures_without_effects_composite_full_resolution_content_after_any_crop() {
         commands.push(RenderOperation::BeginTarget(Target::Surface));
         capture.append_begin(&mut commands);
         let texture = capture.append_end(&mut commands, &mut texture_ids);
-        let composite =
-            capture.prepare_composite(texture, &parameters, &mut commands, &mut texture_ids);
+        let composite = capture.prepare_composite(
+            texture,
+            BlendMode::SourceOver,
+            &parameters,
+            &mut commands,
+            &mut texture_ids,
+        );
         commands.push_composite(composite, Default::default());
         commands.push(RenderOperation::EndTarget);
         let output = RecordedCommands {
