@@ -420,3 +420,4 @@ fn queue_rebuilds_reuse_scheduling_storage_and_empty_scenes_clear_the_surface() 
 }
 
 mod bounds;
+mod eligibility;

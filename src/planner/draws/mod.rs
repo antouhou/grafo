@@ -153,8 +153,8 @@ impl DrawPlanner {
                 || content_intersects_damage(content_group, damage, input.scale_factor)
         });
         if !intersects_damage {
-            let has_content_capture = content_group
-                .is_some_and(|group| group.effect.is_some() && group.output_bounds.is_some());
+            let has_content_capture =
+                content_group.is_some_and(|group| group.output_bounds.is_some());
             if !node.has_child_clip()
                 && !has_content_capture
                 && !input.tree.children(node_id).is_empty()
@@ -228,7 +228,7 @@ impl DrawPlanner {
             if let Some(capture) = parent.group_capture {
                 let input_texture = capture.append_end(output, texture_ids);
                 let composite =
-                    capture.append_effect(input_texture, input.parameters, output, texture_ids);
+                    capture.prepare_composite(input_texture, input.parameters, output, texture_ids);
                 output.push_composite(composite, self.current.clip);
             }
         }

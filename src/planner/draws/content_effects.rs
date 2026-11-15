@@ -16,7 +16,7 @@ impl DrawPlanner {
         let group = input
             .content_groups
             .get(&node_id)
-            .filter(|group| group.effect.is_some() && group.output_bounds.is_some())?;
+            .filter(|group| group.output_bounds.is_some())?;
         let source = self.current.backdrop_source;
         let backdrop_region = self.subtree_backdrop_regions.get(&node_id).copied();
         let backdrop_source = match backdrop_region {

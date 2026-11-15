@@ -1,4 +1,5 @@
 use super::{scene, surface, Scene, TestBackend};
+use crate::commands::{RenderOperation, Target};
 use crate::core::{
     BlendMode, Color, ContentEffectConfig, PhysicalRect, Shape, ShapeDrawOptions,
     ShapeMaskEffectConfig, TransformInstance, UnsignedPhysicalRect,
@@ -48,6 +49,97 @@ fn assert_blend_mode(scene: &Scene<TestBackend>, node_id: usize, expected: Blend
 
 fn rect(min: (u32, u32), max: (u32, u32)) -> Option<UnsignedPhysicalRect> {
     Some(UnsignedPhysicalRect::new(min.into(), max.into()))
+}
+
+#[test]
+fn blend_only_shapes_capture_without_running_an_effect() {
+    let mut scene = scene();
+    let root = scene.add_group(None, Default::default()).unwrap();
+    let parent = add_shape(
+        &mut scene,
+        root,
+        [(4.0, 4.0), (12.0, 12.0)],
+        BlendMode::Multiply,
+    );
+    let child = add_shape(
+        &mut scene,
+        parent,
+        [(20.0, 20.0), (24.0, 24.0)],
+        BlendMode::SourceOver,
+    );
+    let sibling = add_shape(
+        &mut scene,
+        root,
+        [(28.0, 28.0), (30.0, 30.0)],
+        BlendMode::SourceOver,
+    );
+    let commands: Vec<_> = scene
+        .planner
+        .plan(&scene.state, 4096, rect((0, 0), (32, 32)))
+        .collect();
+    let captures: Vec<_> = commands
+        .iter()
+        .filter_map(|command| match command.operation {
+            RenderOperation::BeginTarget(Target::Texture { texture, .. }) => Some(texture),
+            _ => None,
+        })
+        .collect();
+    let composites: Vec<_> = commands
+        .iter()
+        .filter_map(|command| match command.operation {
+            RenderOperation::CompositeTexture(composite) => Some(composite.texture),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(captures.len(), 1);
+    assert_eq!(composites, captures);
+    assert!(commands
+        .iter()
+        .all(|command| !matches!(command.operation, RenderOperation::ApplyEffect(_))));
+    for node_id in [parent, sibling] {
+        assert!(commands.iter().any(|command| matches!(
+            command.operation,
+            RenderOperation::DrawShape(draw) if draw.id.0 == node_id
+        )));
+    }
+    assert!(commands.iter().all(|command| !matches!(
+        command.operation,
+        RenderOperation::DrawShape(draw) if draw.id.0 == child
+    )));
+    assert!(scene.state.effect_parameters.bytes.is_empty());
+
+    let overflow_damage: Vec<_> = scene
+        .planner
+        .plan(&scene.state, 4096, rect((20, 20), (24, 24)))
+        .collect();
+    assert_eq!(overflow_damage.len(), 2);
+    assert!(matches!(
+        overflow_damage[0].operation,
+        RenderOperation::BeginTarget(Target::Surface)
+    ));
+    assert!(matches!(
+        overflow_damage[1].operation,
+        RenderOperation::EndTarget
+    ));
+
+    scene
+        .state
+        .content_groups
+        .get_mut(&parent)
+        .unwrap()
+        .output_bounds = None;
+    let fallback: Vec<_> = scene
+        .planner
+        .plan(&scene.state, 4096, rect((20, 20), (24, 24)))
+        .collect();
+    assert!(fallback.iter().any(|command| matches!(
+        command.operation,
+        RenderOperation::DrawShape(draw) if draw.id.0 == child
+    )));
+    assert!(fallback.iter().all(|command| !matches!(
+        command.operation,
+        RenderOperation::BeginTarget(Target::Texture { .. })
+    )));
 }
 
 #[test]
@@ -220,69 +312,81 @@ fn shared_effect_unload_and_replacement_refresh_retained_groups() {
 
 #[test]
 fn removing_effects_restores_mask_and_overflow_damage() {
-    for removal in [
-        EffectRemoval::Direct,
-        EffectRemoval::Unload,
-        EffectRemoval::Reload,
-    ] {
-        let mut scene = scene();
-        let mut surface = surface();
-        let root = scene.add_group(None, Default::default()).unwrap();
-        let node = add_shape(
-            &mut scene,
-            root,
-            [(4.0, 4.0), (8.0, 8.0)],
-            BlendMode::Multiply,
-        );
-        scene
-            .set_shape_mask_effect(
+    for mode in [BlendMode::SourceOver, BlendMode::Multiply] {
+        for removal in [
+            EffectRemoval::Direct,
+            EffectRemoval::Unload,
+            EffectRemoval::Reload,
+        ] {
+            let mut scene = scene();
+            let mut surface = surface();
+            let root = scene.add_group(None, Default::default()).unwrap();
+            let node = add_shape(&mut scene, root, [(4.0, 4.0), (8.0, 8.0)], mode);
+            scene
+                .set_shape_mask_effect(
+                    node,
+                    7,
+                    &[1, 2, 3, 4],
+                    ShapeMaskEffectConfig::new().outset(5.0),
+                )
+                .unwrap();
+            scene
+                .set_content_effect(
+                    node,
+                    8,
+                    &[1, 2, 3, 4],
+                    ContentEffectConfig::new().outsets(0.0, 0.0, 400.0, 0.0),
+                )
+                .unwrap();
+            assert!(scene.state.content_groups[&node].output_bounds.is_none());
+            scene.render(&mut surface).unwrap();
+
+            remove_effect(&mut scene, node, removal);
+            scene.render(&mut surface).unwrap();
+
+            if mode == BlendMode::Multiply {
+                assert_eq!(scene.backend.root_scissor, rect((0, 0), (14, 14)));
+                assert!(scene.state.content_groups[&node].effect.is_none());
+            } else {
+                assert!(!scene.state.content_groups.contains_key(&node));
+            }
+            let child = add_shape(
+                &mut scene,
                 node,
-                7,
-                &[1, 2, 3, 4],
-                ShapeMaskEffectConfig::new().outset(5.0),
-            )
-            .unwrap();
-        scene
-            .set_content_effect(
-                node,
-                8,
-                &[1, 2, 3, 4],
-                ContentEffectConfig::new().outsets(0.0, 0.0, 400.0, 0.0),
-            )
-            .unwrap();
-        assert!(scene.state.content_groups[&node].output_bounds.is_none());
-        scene.render(&mut surface).unwrap();
+                [(20.0, 20.0), (24.0, 24.0)],
+                BlendMode::SourceOver,
+            );
+            scene
+                .set_content_effect(
+                    child,
+                    9,
+                    &[1, 2, 3, 4],
+                    ContentEffectConfig::new().outset(2.0),
+                )
+                .unwrap();
+            scene.render(&mut surface).unwrap();
+            scene
+                .set_content_effect(node, 8, &[1, 2, 3, 4], ContentEffectConfig::default())
+                .unwrap();
+            scene.render(&mut surface).unwrap();
+            let expected_damage = if mode == BlendMode::Multiply {
+                rect((0, 0), (14, 14))
+            } else {
+                rect((0, 0), (26, 26))
+            };
+            assert_eq!(scene.backend.root_scissor, expected_damage);
 
-        remove_effect(&mut scene, node, removal);
-        scene.render(&mut surface).unwrap();
+            remove_effect(&mut scene, node, removal);
+            scene.render(&mut surface).unwrap();
 
-        assert_eq!(scene.backend.root_scissor, rect((0, 0), (14, 14)));
-        assert!(scene.state.content_groups[&node].effect.is_none());
-        let child = add_shape(
-            &mut scene,
-            node,
-            [(20.0, 20.0), (24.0, 24.0)],
-            BlendMode::SourceOver,
-        );
-        scene
-            .set_content_effect(
-                child,
-                9,
-                &[1, 2, 3, 4],
-                ContentEffectConfig::new().outset(2.0),
-            )
-            .unwrap();
-        scene.render(&mut surface).unwrap();
-        scene
-            .set_content_effect(node, 8, &[1, 2, 3, 4], ContentEffectConfig::default())
-            .unwrap();
-        scene.render(&mut surface).unwrap();
-        assert_eq!(scene.backend.root_scissor, rect((0, 0), (26, 26)));
-
-        remove_effect(&mut scene, node, removal);
-        scene.render(&mut surface).unwrap();
-
-        assert_eq!(scene.backend.root_scissor, rect((0, 0), (26, 26)));
-        assert!(surface.resource().draws.contains(&child));
+            if mode == BlendMode::SourceOver {
+                assert_eq!(scene.backend.root_scissor, rect((0, 0), (26, 26)));
+            }
+            assert_eq!(
+                surface.resource().draws.contains(&child),
+                mode == BlendMode::SourceOver
+            );
+            assert!(!surface.resource().effects.contains(&8));
+        }
     }
 }

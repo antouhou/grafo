@@ -142,7 +142,7 @@ impl<B: RenderBackend> Scene<B> {
         node: DrawTreeNode,
         shape_mask_effect_bounds: Option<ShapeMaskEffectBounds>,
     ) {
-        let had_capture = self.has_content_effect_capture(node_id);
+        let had_capture = self.has_content_capture(node_id);
         let previous_group_output = self.state.content_group_output(node_id);
         let old_effect_bounds = self
             .state
