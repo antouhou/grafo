@@ -234,6 +234,7 @@ impl DrawPlanner {
                 let composite = capture.prepare_composite(
                     input_texture,
                     blend_mode,
+                    input.physical_size,
                     input.parameters,
                     output,
                     texture_ids,

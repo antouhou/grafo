@@ -1,8 +1,10 @@
-use crate::commands::{RenderOperation, ShapeDrawId, Target};
+use super::validate_dependencies;
+use crate::commands::{BlendDestination, CaptureSource, RenderOperation, ShapeDrawId, Target};
 use crate::core::{
-    BlendMode, Color, ContentEffectConfig, Shape, ShapeDrawOptions, ShapeMaskEffectConfig,
-    UnsignedPhysicalRect, Viewport,
+    BackdropEffectConfig, BlendMode, Color, ContentEffectConfig, Shape, ShapeDrawOptions,
+    ShapeMaskEffectConfig, UnsignedPhysicalRect, Viewport,
 };
+use crate::planner::tests::RecordedCommands;
 use crate::planner::Planner;
 use crate::scene_state::types::{CachedShapeDrawData, DrawTreeNode};
 use crate::scene_state::{SceneState, SceneStateContext};
@@ -131,6 +133,49 @@ fn nested_captures_forward_each_shape_mode_without_changing_mask_composites() {
                 (BlendMode::Multiply, content_sources[1]),
             ]
         );
+        let outer_composite_index = commands
+            .iter()
+            .position(|command| matches!(
+                command.operation,
+                RenderOperation::CompositeTexture(composite) if composite.blend_mode == BlendMode::Multiply
+            ))
+            .unwrap();
+        let RenderOperation::CompositeTexture(outer_composite) =
+            commands[outer_composite_index].operation
+        else {
+            unreachable!();
+        };
+        let BlendDestination::Texture(destination) = outer_composite.destination else {
+            panic!("multiply samples the restored parent destination");
+        };
+        let RenderOperation::Capture(capture) = commands[outer_composite_index - 1].operation
+        else {
+            panic!("destination capture immediately precedes its composite");
+        };
+        assert_eq!(capture.source, CaptureSource::Target);
+        assert_eq!(capture.output, destination);
+        let output_bounds = scene.content_groups[&outer].output_bounds.unwrap();
+        assert_eq!(capture.destination_bounds, output_bounds);
+        assert_eq!(capture.source_rect, Some(output_bounds.to_u32()));
+        assert_eq!(capture.sampling_size, output_bounds.size().to_u32());
+        assert!(matches!(
+            commands[outer_composite_index - 2 - usize::from(outer_has_effect)].operation,
+            RenderOperation::EndTarget
+        ));
+        assert_eq!(
+            commands
+                .iter()
+                .filter(|command| matches!(command.operation, RenderOperation::Capture(_)))
+                .count(),
+            1
+        );
+        for command in &commands {
+            if let RenderOperation::CompositeTexture(composite) = command.operation {
+                if composite.blend_mode != BlendMode::Multiply {
+                    assert_eq!(composite.destination, BlendDestination::FinalTarget);
+                }
+            }
+        }
         assert_eq!(
             commands
                 .iter()
@@ -141,6 +186,129 @@ fn nested_captures_forward_each_shape_mode_without_changing_mask_composites() {
                 .filter(|command| matches!(command.operation, RenderOperation::EndTarget))
                 .count()
         );
+        validate_dependencies(&RecordedCommands {
+            instructions: commands,
+        });
+    }
+}
+
+#[test]
+fn nested_blend_destinations_capture_the_active_parent_instead_of_its_backdrop_base() {
+    for inner_has_effect in [false, true] {
+        let mut scene = SceneState::new(
+            SceneStateContext::default(),
+            Viewport {
+                physical_size: (32, 32),
+                scale_factor: 1.0,
+            },
+        );
+        let root = scene.insert_node(DrawTreeNode::Group(Default::default()), None, 4096);
+        let outer = add_shape(
+            &mut scene,
+            root,
+            [(2.0, 2.0), (28.0, 28.0)],
+            BlendMode::SourceOver,
+        );
+        scene
+            .set_content_effect(outer, 31, &[], ContentEffectConfig::default(), 4096)
+            .unwrap();
+        let inner = add_shape(
+            &mut scene,
+            outer,
+            [(6.0, 6.0), (20.0, 20.0)],
+            BlendMode::Overlay,
+        );
+        if inner_has_effect {
+            scene
+                .set_content_effect(inner, 37, &[], ContentEffectConfig::default(), 4096)
+                .unwrap();
+        }
+        scene
+            .set_backdrop_effect(inner, 41, &[], BackdropEffectConfig::default(), 4096)
+            .unwrap();
+        let mut planner = Planner::default();
+        let damage = UnsignedPhysicalRect::from_size((32, 32).into());
+        let commands: Vec<_> = planner.plan(&scene, 4096, Some(damage)).collect();
+        let capture_targets: Vec<_> = commands
+            .iter()
+            .filter_map(|command| match command.operation {
+                RenderOperation::BeginTarget(Target::Texture { texture, .. }) => Some(texture),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(capture_targets.len(), 2);
+        let composite_index = commands
+            .iter()
+            .position(|command| matches!(
+                command.operation,
+                RenderOperation::CompositeTexture(composite) if composite.blend_mode == BlendMode::Overlay
+            ))
+            .unwrap();
+        let RenderOperation::CompositeTexture(composite) = commands[composite_index].operation
+        else {
+            unreachable!();
+        };
+        let BlendDestination::Texture(destination) = composite.destination else {
+            panic!("overlay samples the parent destination");
+        };
+        let RenderOperation::Capture(capture) = commands[composite_index - 1].operation else {
+            panic!("the restored parent is captured immediately before blending");
+        };
+        assert_eq!(capture.output, destination);
+        assert_eq!(capture.source, CaptureSource::Target);
+        let output_bounds = scene.content_groups[&inner].output_bounds.unwrap();
+        assert_eq!(capture.destination_bounds, output_bounds);
+        assert_eq!(capture.source_rect, Some(output_bounds.to_u32()));
+        assert_eq!(capture.sampling_size, output_bounds.size().to_u32());
+        if inner_has_effect {
+            let RenderOperation::ApplyEffect(effect) = commands[composite_index - 2].operation
+            else {
+                panic!("the inner content effect finishes before destination capture");
+            };
+            assert_eq!(effect.effect_id, 37);
+            assert_eq!(effect.input, capture_targets[1]);
+            assert_eq!(composite.source, effect.output);
+        } else {
+            assert_eq!(composite.source, capture_targets[1]);
+        }
+        assert!(matches!(
+            commands[composite_index - 2 - usize::from(inner_has_effect)].operation,
+            RenderOperation::EndTarget
+        ));
+        let mut active_targets = Vec::new();
+        let mut parent_has_layered_backdrop = false;
+        for command in &commands {
+            match command.operation {
+                RenderOperation::BeginTarget(target) => active_targets.push(target),
+                RenderOperation::EndTarget => {
+                    active_targets.pop().unwrap();
+                }
+                RenderOperation::Capture(capture) => {
+                    let parent_is_active = matches!(
+                        active_targets.last(),
+                        Some(Target::Texture { texture, .. }) if *texture == capture_targets[0]
+                    );
+                    if matches!(capture.source, CaptureSource::Layered { .. }) && parent_is_active {
+                        parent_has_layered_backdrop = true;
+                    }
+                    if capture.output == destination {
+                        assert!(parent_has_layered_backdrop);
+                        assert!(parent_is_active);
+                        assert_eq!(active_targets.len(), 2);
+                    }
+                }
+                RenderOperation::CompositeTexture(composite)
+                    if composite.blend_mode == BlendMode::SourceOver =>
+                {
+                    assert_eq!(composite.destination, BlendDestination::FinalTarget);
+                }
+                _ => {}
+            }
+        }
+        assert!(active_targets.is_empty());
+        validate_dependencies(&RecordedCommands {
+            instructions: commands,
+        });
     }
 }
 

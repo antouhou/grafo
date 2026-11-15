@@ -103,6 +103,7 @@ impl ContentCapture {
         self,
         input_texture: IntermediateTextureId,
         blend_mode: BlendMode,
+        viewport_size: Size,
         parameters: &'scene EffectParameterStorage,
         output: &mut TraversalCommands<'scene>,
         texture_ids: &mut TextureIdAllocator,
@@ -119,7 +120,7 @@ impl ContentCapture {
         } else {
             input_texture
         };
-        TextureComposite {
+        let mut composite = TextureComposite {
             source: texture,
             blend_mode,
             destination: BlendDestination::FinalTarget,
@@ -127,6 +128,23 @@ impl ContentCapture {
                 transform: geometry::unit_quad_transform(self.logical_output_bounds, None),
                 sampling: TextureUvTransform::IDENTITY,
             },
+        };
+        if composite.requires_destination_texture() {
+            let destination = texture_ids.allocate();
+            let source_rect = self
+                .output_bounds
+                .to_i64()
+                .intersection(&UnsignedPhysicalRect::from_size(viewport_size).to_i64())
+                .map(|bounds| bounds.to_u32());
+            output.push(RenderOperation::Capture(CaptureConfig {
+                source: CaptureSource::Target,
+                source_rect,
+                destination_bounds: self.output_bounds,
+                output: destination,
+                sampling_size: self.output_bounds.size().to_u32(),
+            }));
+            composite.destination = BlendDestination::Texture(destination);
         }
+        composite
     }
 }

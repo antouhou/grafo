@@ -34,6 +34,7 @@ fn captures_without_effects_composite_full_resolution_content_after_any_crop() {
         let composite = capture.prepare_composite(
             texture,
             BlendMode::SourceOver,
+            Size::new(200, 200),
             &parameters,
             &mut commands,
             &mut texture_ids,
