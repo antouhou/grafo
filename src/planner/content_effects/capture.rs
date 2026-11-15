@@ -13,7 +13,7 @@ use crate::scene_state::effects::EffectInstance;
 
 #[derive(Clone, Copy)]
 pub(crate) struct ContentCapture {
-    effect: EffectInstance,
+    effect: Option<EffectInstance>,
     texture: IntermediateTextureId,
     render_bounds: PhysicalRect,
     draw_scissor: UnsignedPhysicalRect,
@@ -34,8 +34,8 @@ impl ContentCapture {
         backdrop_region: Option<UnsignedPhysicalRect>,
         texture_ids: &mut TextureIdAllocator,
     ) -> Option<Self> {
-        let effect = group.effect?;
         let output_bounds = group.output_bounds?;
+        let output_size = output_bounds.size().to_u32();
         let source_rect = group.input_bounds;
         let mut render_bounds = output_bounds;
         let mut draw_scissor = source_rect.unwrap_or_else(UnsignedPhysicalRect::zero);
@@ -49,19 +49,18 @@ impl ContentCapture {
         }
         let logical_output_bounds = output_bounds.to_f32() / scale_factor as f32;
         Some(Self {
-            effect: EffectInstance {
+            effect: group.effect.map(|effect| EffectInstance {
                 effect_id: effect.effect_id,
                 parameters: effect.parameters,
-            },
+            }),
             texture: texture_ids.allocate(),
             render_bounds,
             draw_scissor,
             source_rect,
             output_bounds,
-            sampling_size: geometry::compute_downsampled_dimensions(
-                output_bounds.size().to_u32(),
-                effect.config.downsample,
-            ),
+            sampling_size: group.effect.map_or(output_size, |effect| {
+                geometry::compute_downsampled_dimensions(output_size, effect.config.downsample)
+            }),
             logical_output_bounds: [
                 logical_output_bounds.min.to_tuple(),
                 logical_output_bounds.max.to_tuple(),
@@ -100,22 +99,27 @@ impl ContentCapture {
         texture
     }
 
-    pub(crate) fn append_effect<'scene>(
+    pub(crate) fn prepare_composite<'scene>(
         self,
         input_texture: IntermediateTextureId,
         parameters: &'scene EffectParameterStorage,
         output: &mut TraversalCommands<'scene>,
         texture_ids: &mut TextureIdAllocator,
     ) -> TextureComposite {
-        let output_texture = texture_ids.allocate();
-        output.push(RenderOperation::ApplyEffect(EffectApplication {
-            effect_id: self.effect.effect_id,
-            parameters: parameters.get(self.effect.parameters),
-            input: input_texture,
-            output: output_texture,
-        }));
+        let texture = if let Some(effect) = self.effect {
+            let output_texture = texture_ids.allocate();
+            output.push(RenderOperation::ApplyEffect(EffectApplication {
+                effect_id: effect.effect_id,
+                parameters: parameters.get(effect.parameters),
+                input: input_texture,
+                output: output_texture,
+            }));
+            output_texture
+        } else {
+            input_texture
+        };
         TextureComposite {
-            texture: output_texture,
+            texture,
             placement: TexturePlacement::Local {
                 transform: geometry::unit_quad_transform(self.logical_output_bounds, None),
                 sampling: TextureUvTransform::IDENTITY,

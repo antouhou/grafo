@@ -1,6 +1,100 @@
 use super::*;
 use crate::commands::TexturePlacement;
 use crate::core::effect::BackdropCaptureArea;
+use crate::planner::content_effects::ContentCapture;
+
+#[test]
+fn captures_without_effects_composite_full_resolution_content_after_any_crop() {
+    let node = DrawTreeNode::ClipRect(ClipRectDrawData::new(
+        [(30.0, 20.0), (50.0, 40.0)],
+        None,
+        false,
+    ));
+    let group = ContentGroup::new(
+        None,
+        &node,
+        None,
+        Viewport {
+            physical_size: (200, 200),
+            scale_factor: 2.0,
+        },
+        4096,
+    );
+    let expanded_region = UnsignedPhysicalRect::new((20, 10).into(), (120, 100).into());
+    let input_region = UnsignedPhysicalRect::new((60, 40).into(), (100, 80).into());
+    let parameters = EffectParameterStorage::default();
+    for backdrop_region in [None, Some(expanded_region)] {
+        let mut texture_ids = TextureIdAllocator::default();
+        let capture = ContentCapture::new(group, 2.0, backdrop_region, &mut texture_ids)
+            .expect("content capture does not require an effect");
+        let mut commands = TraversalCommands::default();
+        commands.push(RenderOperation::BeginTarget(Target::Surface));
+        capture.append_begin(&mut commands);
+        let texture = capture.append_end(&mut commands, &mut texture_ids);
+        let composite =
+            capture.prepare_composite(texture, &parameters, &mut commands, &mut texture_ids);
+        commands.push_composite(composite, Default::default());
+        commands.push(RenderOperation::EndTarget);
+        let output = RecordedCommands {
+            instructions: commands.into_iter().collect(),
+        };
+        validate_dependencies(&output);
+
+        let (render_region, expected_commands, next_texture) = if backdrop_region.is_some() {
+            let RenderOperation::Capture(crop) = output.instructions[2].operation else {
+                panic!("expanded content is cropped before closing its target");
+            };
+            assert_eq!(crop.source, CaptureSource::Target);
+            assert_eq!(crop.source_rect, Some(input_region));
+            assert_eq!(crop.destination_bounds, input_region.to_i32());
+            assert_eq!(crop.sampling_size, Size::new(40, 40));
+            (
+                expanded_region,
+                vec![
+                    Command::Begin(None),
+                    Command::Begin(Some(0)),
+                    Command::Capture(1),
+                    Command::End,
+                    Command::Composite(1),
+                    Command::End,
+                ],
+                2,
+            )
+        } else {
+            (
+                input_region,
+                vec![
+                    Command::Begin(None),
+                    Command::Begin(Some(0)),
+                    Command::End,
+                    Command::Composite(0),
+                    Command::End,
+                ],
+                1,
+            )
+        };
+        assert_eq!(snapshot(&output), expected_commands);
+        assert_eq!(
+            texture_ids.allocate(),
+            IntermediateTextureId::Planned(next_texture)
+        );
+        let RenderOperation::BeginTarget(Target::Texture {
+            bounds,
+            draw_scissor,
+            ..
+        }) = output.instructions[1].operation
+        else {
+            panic!("content starts a bounded target");
+        };
+        assert_eq!(bounds, render_region.to_i32());
+        assert_eq!(draw_scissor, render_region);
+        let TexturePlacement::Local { transform, .. } = composite.placement else {
+            panic!("captured content has local placement");
+        };
+        assert_eq!(transform.col3[0], 30.0);
+        assert_eq!(transform.col3[1], 20.0);
+    }
+}
 
 #[test]
 fn content_targets_use_the_padded_effect_bounds() {

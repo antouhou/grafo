@@ -228,7 +228,7 @@ impl DrawPlanner {
             if let Some(capture) = parent.group_capture {
                 let input_texture = capture.append_end(output, texture_ids);
                 let composite =
-                    capture.append_effect(input_texture, input.parameters, output, texture_ids);
+                    capture.prepare_composite(input_texture, input.parameters, output, texture_ids);
                 output.push_composite(composite, self.current.clip);
             }
         }
