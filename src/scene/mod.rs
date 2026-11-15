@@ -437,7 +437,7 @@ impl<B: RenderBackend> Scene<B> {
         self.backend
             .validate_effect_params(effect_id, params)
             .map_err(EffectError::Backend)?;
-        let had_capture = self.has_content_effect_capture(node_id);
+        let had_capture = self.has_content_capture(node_id);
         let previous_output = self.state.content_group_output(node_id);
         self.state.set_content_effect(
             node_id,
@@ -465,7 +465,7 @@ impl<B: RenderBackend> Scene<B> {
             self.remove_group_effect(node_id, EffectAttachmentKind::Content);
             return;
         }
-        let had_capture = self.has_content_effect_capture(node_id);
+        let had_capture = self.has_content_capture(node_id);
         let previous_output = self.state.content_group_output(node_id);
         if self
             .state
@@ -695,15 +695,15 @@ impl<B: RenderBackend> Scene<B> {
 }
 
 impl<B: RenderBackend> Scene<B> {
-    fn has_content_effect_capture(&self, node_id: usize) -> bool {
+    fn has_content_capture(&self, node_id: usize) -> bool {
         self.state
             .content_groups
             .get(&node_id)
-            .is_some_and(|group| group.effect.is_some() && group.output_bounds.is_some())
+            .is_some_and(|group| group.output_bounds.is_some())
     }
 
     fn mark_content_capture_transition(&mut self, node_id: usize, had_capture: bool) {
-        if had_capture != self.has_content_effect_capture(node_id) {
+        if had_capture != self.has_content_capture(node_id) {
             self.pending_damage
                 .insert_if_unclipped(node_id, &self.state);
         }
