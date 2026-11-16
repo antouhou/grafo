@@ -1,3 +1,4 @@
+use super::execution::blending::BlendPipelineResources;
 use super::execution::effects::{CompositePipelineResources, EffectExecutionResources};
 use super::execution::render_pass::RenderPass;
 use super::execution::shape_mask_effects::ShapeMaskEffectRendererResources;
@@ -97,6 +98,7 @@ pub(in crate::wgpu_backend) struct BackdropPipelineResources {
 /// Built-in shape and effect resources, borrowed separately from mutable draw state.
 pub(in crate::wgpu_backend) struct RendererPipelineResources {
     pub(in crate::wgpu_backend) shapes: ShapePipelines,
+    pub(in crate::wgpu_backend) blending: BlendPipelineResources,
     pub(in crate::wgpu_backend) shape_mask_effects: ShapeMaskEffectRendererResources,
     pub(in crate::wgpu_backend) effect_sampler: Sampler,
     pub(in crate::wgpu_backend) composite_resources: CompositePipelineResources,

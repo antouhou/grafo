@@ -11,6 +11,7 @@ use super::textures::{IntermediateTextureResources, PlannedTexture};
 use crate::commands::{
     IntermediateTextureId, RenderCommand, RenderOperation, Target, TexturePlacement,
 };
+use crate::core::BlendMode;
 #[cfg(feature = "render_metrics")]
 use crate::wgpu_backend::metrics::{PipelineSwitchCounts, ShapeMaskEffectCacheMetrics};
 use crate::wgpu_backend::resources::{Buffers, RendererPipelineResources};
@@ -214,10 +215,21 @@ fn execute_draw_command(
                 shapes.draw_resources(draw.id),
             );
         }
+        RenderOperation::CompositeTexture(composite)
+            if composite.blend_mode != BlendMode::SourceOver =>
+        {
+            pass.composite_blended_texture(
+                composite,
+                command.clip,
+                &mut shapes.composites,
+                context.device,
+                context.queue,
+            );
+        }
         RenderOperation::CompositeTexture(composite) => match composite.placement {
             TexturePlacement::Target => {
                 pass.set_scissor(command.clip.scissor);
-                pass.composite_texture(command.clip.stencil_reference, composite.texture);
+                pass.composite_texture(command.clip.stencil_reference, composite.source);
             }
             TexturePlacement::Local { .. } => {
                 pass.composite_local_texture(

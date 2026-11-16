@@ -47,14 +47,6 @@ struct GradientVertexOutput {
     @location(9) @interpolate(flat) coverage_origin: vec2<f32>,
 };
 
-// Target dimensions in logical pixels, its physical origin, and the scene scale.
-struct Uniforms {
-    canvas_size: vec2<f32>,
-    target_origin: vec2<f32>,
-    scale_factor: f32,
-    _padding: f32,
-};
-
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
 // Texture/sampler for optional shape texturing. A default white texture can be bound when unused.
 // Background texture at layer 0
@@ -221,35 +213,10 @@ fn evaluate_gradient(paint_position: vec2<f32>, screen_pos: vec2<f32>) -> vec4<f
     return textureSampleLevel(t_gradient_ramp, s_gradient_ramp, uv, 0.0);
 }
 
-struct VertexPosition {
-    clip_position: vec4<f32>,
-    screen_position: vec2<f32>,
-};
-
-fn compute_vertex_position(position: vec2<f32>, model: mat4x4<f32>) -> VertexPosition {
-    let p = model * vec4<f32>(position, 0.0, 1.0);
-
-    let w = p.w;
-    let invw = 1.0 / max(abs(w), 1e-6);
-    let px = p.x * invw;
-    let py = p.y * invw;
-
-    // Map screen coordinates to [-1, 1], with Y increasing upward.
-    let target_position = vec2<f32>(px, py) - uniforms.target_origin / uniforms.scale_factor;
-    let ndc_x = 2.0 * target_position.x / uniforms.canvas_size.x - 1.0;
-    let ndc_y = 1.0 - 2.0 * target_position.y / uniforms.canvas_size.y;
-
-    // Shapes composite in command order. Intersecting geometry is not depth-sorted yet
-    return VertexPosition(
-        vec4<f32>(ndc_x, ndc_y, 0.0, 1.0),
-        vec2<f32>(px, py),
-    );
-}
-
 @vertex
 fn vs_main(input: VertexInput) -> VertexOutput {
     var output: VertexOutput;
-    output.position = compute_vertex_position(input.position, mat4x4<f32>(input.t_col0, input.t_col1, input.t_col2, input.t_col3)).clip_position;
+    output.position = compute_vertex_position(input.position, mat4x4<f32>(input.t_col0, input.t_col1, input.t_col2, input.t_col3), uniforms).clip_position;
     output.color = input.color;
     output.layer0_uv_transform = input.texture_uv_transform_layer0;
     output.layer1_uv_transform = input.texture_uv_transform_layer1;
@@ -262,7 +229,7 @@ fn vs_main(input: VertexInput) -> VertexOutput {
 
 @vertex
 fn vs_main_gradient(input: VertexInput) -> GradientVertexOutput {
-    let position = compute_vertex_position(input.position, mat4x4<f32>(input.t_col0, input.t_col1, input.t_col2, input.t_col3));
+    let position = compute_vertex_position(input.position, mat4x4<f32>(input.t_col0, input.t_col1, input.t_col2, input.t_col3), uniforms);
     var output: GradientVertexOutput;
     output.position = position.clip_position;
     output.color = input.color;

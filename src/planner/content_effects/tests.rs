@@ -1,10 +1,10 @@
 use crate::commands::{
-    CaptureSource, IntermediateTextureId, RenderOperation, ShapeTextureBinding, Target,
-    TextureComposite,
+    BlendDestination, CaptureSource, IntermediateTextureId, RenderOperation, ShapeTextureBinding,
+    Target, TextureComposite,
 };
 use crate::core::effect::{BackdropEffectConfig, ContentEffectConfig};
 use crate::core::shape::{CachedShapeHandle, ShapeResources};
-use crate::core::{UnsignedPhysicalRect, Viewport};
+use crate::core::{BlendMode, UnsignedPhysicalRect, Viewport};
 use crate::planner::commands::TraversalCommands;
 use crate::planner::draws::{DrawPlanner, DrawPlanningInput};
 use crate::planner::tests::RecordedCommands;
@@ -35,6 +35,14 @@ fn planned_index(texture: IntermediateTextureId) -> usize {
     index
 }
 
+fn target_texture(target: Target) -> Option<IntermediateTextureId> {
+    match target {
+        Target::Surface => None,
+        Target::Texture { texture, .. } => Some(texture),
+        Target::Mask(mask) => Some(mask.texture),
+    }
+}
+
 /// Checks resource dependencies in the yielded command order.
 fn validate_dependencies(plan: &RecordedCommands) {
     let mut produced = Vec::new();
@@ -46,14 +54,14 @@ fn validate_dependencies(plan: &RecordedCommands) {
                 if matches!(target, Target::Surface) {
                     surface_count += 1;
                 }
-                if let Target::Texture { texture, .. } = target {
-                    assert_eq!(planned_index(*texture), produced.len());
+                if let Some(texture) = target_texture(*target) {
+                    assert_eq!(planned_index(texture), produced.len());
                     produced.push(false);
                 }
                 targets.push(*target);
             }
             RenderOperation::EndTarget => {
-                if let Target::Texture { texture, .. } = targets.pop().unwrap() {
+                if let Some(texture) = target_texture(targets.pop().unwrap()) {
                     produced[planned_index(texture)] = true;
                 }
             }
@@ -73,7 +81,14 @@ fn validate_dependencies(plan: &RecordedCommands) {
             operation => {
                 assert!(!targets.is_empty());
                 let texture = match operation {
-                    RenderOperation::CompositeTexture(composite) => Some(composite.texture),
+                    RenderOperation::CompositeTexture(composite) => {
+                        if let BlendDestination::Texture(IntermediateTextureId::Planned(index)) =
+                            composite.destination
+                        {
+                            assert!(produced[index]);
+                        }
+                        Some(composite.source)
+                    }
                     RenderOperation::DrawShape(draw)
                     | RenderOperation::DrawShapeAndIncrementStencil(draw) => draw
                         .material
@@ -111,7 +126,7 @@ fn snapshot(plan: &RecordedCommands) -> Vec<Command> {
                 planned_index(effect.output),
             ),
             RenderOperation::CompositeTexture(composite) => {
-                Command::Composite(planned_index(composite.texture))
+                Command::Composite(planned_index(composite.source))
             }
             _ => panic!("unexpected command in clip-only scene"),
         })
@@ -247,6 +262,15 @@ fn nested_groups_close_into_their_parent_targets() {
     scene.group(Some(inner), 3);
     scene.plan(&mut DrawPlanner::default(), &mut output);
     validate_dependencies(&output);
+    let blend_modes: Vec<_> = output
+        .instructions
+        .iter()
+        .filter_map(|command| match command.operation {
+            RenderOperation::CompositeTexture(composite) => Some(composite.blend_mode),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(blend_modes, [BlendMode::SourceOver; 3]);
     assert_eq!(
         snapshot(&output),
         [
@@ -420,4 +444,5 @@ fn queue_rebuilds_reuse_scheduling_storage_and_empty_scenes_clear_the_surface() 
 }
 
 mod bounds;
+mod destinations;
 mod eligibility;

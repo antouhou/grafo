@@ -1,4 +1,5 @@
 pub(in crate::wgpu_backend) mod backdrops;
+pub(in crate::wgpu_backend) mod blending;
 pub(in crate::wgpu_backend) mod composites;
 pub(in crate::wgpu_backend) mod draws;
 pub(in crate::wgpu_backend) mod effects;

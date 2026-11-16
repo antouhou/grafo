@@ -1,3 +1,4 @@
+use super::execution::blending::BlendPipelineResources;
 use super::execution::effects::{
     compile_composite_pipeline, EffectExecutionResources, EffectRegistry,
 };
@@ -109,6 +110,16 @@ impl WgpuBackend {
         self.resources.textures.clear_shape_mask_effects();
         self.pipeline_resources.composite_resources =
             compile_composite_pipeline(&self.device, self.format, self.msaa_sample_count);
+        self.pipeline_resources.blending = BlendPipelineResources::new(
+            &self.device,
+            self.format,
+            self.msaa_sample_count,
+            &self.pipeline_resources.shapes.layouts.uniform,
+            &self
+                .pipeline_resources
+                .composite_resources
+                .bind_group_layout,
+        );
         self.pipeline_resources
             .shape_mask_effects
             .recreate_pipeline(&self.device, self.format);

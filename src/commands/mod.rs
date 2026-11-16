@@ -3,7 +3,7 @@
 //! Commands carry resource IDs, borrowed parameters, and resolved clips.
 
 use crate::core::vertex::{InstanceTransform, TextureUvTransform};
-use crate::core::{PhysicalRect, Size, UnsignedPhysicalRect};
+use crate::core::{BlendMode, PhysicalRect, Size, UnsignedPhysicalRect};
 pub use material::{ShapeDrawMaterial, ShapeTextureBinding, ShapeTextureLayer, TextureSampling};
 pub use textures::IntermediateTextureId;
 
@@ -92,10 +92,54 @@ pub enum TexturePlacement {
     },
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BlendDestination {
+    CurrentTarget,
+    // Full-resolution destination pixels in the placement's original UV space.
+    Texture(IntermediateTextureId),
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct TextureComposite {
-    pub texture: IntermediateTextureId,
+    pub source: IntermediateTextureId,
     pub placement: TexturePlacement,
+    pub blend_mode: BlendMode,
+    pub destination: BlendDestination,
+}
+
+impl TextureComposite {
+    pub fn requires_destination_texture(&self) -> bool {
+        match self.blend_mode {
+            BlendMode::Overlay
+            | BlendMode::Darken
+            | BlendMode::Lighten
+            | BlendMode::ColorDodge
+            | BlendMode::ColorBurn
+            | BlendMode::HardLight
+            | BlendMode::SoftLight
+            | BlendMode::Difference
+            | BlendMode::Multiply
+            | BlendMode::Hue
+            | BlendMode::Saturation
+            | BlendMode::Color
+            | BlendMode::Luminosity => true,
+            BlendMode::Clear
+            | BlendMode::Source
+            | BlendMode::Destination
+            | BlendMode::SourceOver
+            | BlendMode::DestinationOver
+            | BlendMode::SourceIn
+            | BlendMode::DestinationIn
+            | BlendMode::SourceOut
+            | BlendMode::DestinationOut
+            | BlendMode::SourceAtop
+            | BlendMode::DestinationAtop
+            | BlendMode::Xor
+            | BlendMode::Plus
+            | BlendMode::Screen
+            | BlendMode::Exclusion => false,
+        }
+    }
 }
 
 /// Transparent, linear premultiplied coverage mask at the requested sampling size.

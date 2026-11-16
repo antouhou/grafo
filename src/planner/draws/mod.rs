@@ -3,7 +3,7 @@ use crate::commands::{
     ShapeDrawMaterial, ShapeTextureBinding, TextureComposite,
 };
 use crate::core::shape::ShapeInstance;
-use crate::core::MathRect;
+use crate::core::{BlendMode, MathRect};
 use crate::planner::commands::TraversalCommands;
 use crate::planner::content_effects::{content_intersects_damage, ContentCapture};
 use crate::planner::TextureIdAllocator;
@@ -226,9 +226,19 @@ impl DrawPlanner {
             let parent = self.parents.pop().expect("parent clip is balanced");
             self.current = parent.target_state;
             if let Some(capture) = parent.group_capture {
+                let blend_mode = match input.tree.get(node_id) {
+                    Some(DrawTreeNode::CachedShape(shape)) => shape.blend_mode,
+                    _ => BlendMode::SourceOver,
+                };
                 let input_texture = capture.append_end(output, texture_ids);
-                let composite =
-                    capture.prepare_composite(input_texture, input.parameters, output, texture_ids);
+                let composite = capture.prepare_composite(
+                    input_texture,
+                    blend_mode,
+                    input.physical_size,
+                    input.parameters,
+                    output,
+                    texture_ids,
+                );
                 output.push_composite(composite, self.current.clip);
             }
         }

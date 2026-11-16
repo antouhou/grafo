@@ -1,7 +1,7 @@
 use super::{DrawPlanner, DrawPlanningInput};
 use crate::commands::{
-    CaptureSource, IntermediateTextureId, RenderCommand, RenderOperation, ShapeDrawId,
-    TextureComposite, TexturePlacement,
+    BlendDestination, CaptureSource, IntermediateTextureId, RenderCommand, RenderOperation,
+    ShapeDrawId, TextureComposite, TexturePlacement,
 };
 use crate::core::effect::BackdropEffectConfig;
 use crate::core::shape::{CachedShapeHandle, ShapeResources};
@@ -15,7 +15,7 @@ use crate::scene_state::effects::parameters::EffectParameterStorage;
 use crate::scene_state::effects::{BackdropEffectInstance, ContentEffectInstance, EffectInstance};
 use crate::scene_state::types::CachedShapeDrawData;
 use crate::scene_state::types::{ClipRectDrawData, DrawTreeNode};
-use crate::{BorderRadii, Color, Shape, ShapeDrawOptions, Size, UnsignedPhysicalRect};
+use crate::{BlendMode, BorderRadii, Color, Shape, ShapeDrawOptions, Size, UnsignedPhysicalRect};
 use ahash::{HashMap, HashMapExt};
 use easy_tree::Tree;
 use std::mem;
@@ -38,7 +38,9 @@ fn snapshot(plan: &RecordedCommands) -> Vec<(Operation, u32, UnsignedPhysicalRec
                     Operation::DrawAndIncrement(draw.id)
                 }
                 RenderOperation::DecrementStencil(draw) => Operation::Decrement(draw.id),
-                RenderOperation::CompositeTexture(texture) => Operation::Composite(texture.texture),
+                RenderOperation::CompositeTexture(composite) => {
+                    Operation::Composite(composite.source)
+                }
                 _ => return None,
             };
             Some((
@@ -242,7 +244,9 @@ fn shape_mask_composites_preserve_geometry_and_clips() {
     scene.shape_mask_effects.insert(
         source,
         TextureComposite {
-            texture: leaf_texture,
+            source: leaf_texture,
+            blend_mode: BlendMode::SourceOver,
+            destination: BlendDestination::CurrentTarget,
             placement: TexturePlacement::Local {
                 transform: InstanceTransform::translation(10.0, 20.0),
                 sampling: TextureUvTransform::IDENTITY,
@@ -271,7 +275,7 @@ fn shape_mask_composites_preserve_geometry_and_clips() {
     let RenderOperation::CompositeTexture(composite) = output.instructions[1].operation else {
         panic!("expected effect composite")
     };
-    assert_eq!(composite.texture, leaf_texture);
+    assert_eq!(composite.source, leaf_texture);
     let TexturePlacement::Local {
         transform,
         sampling,

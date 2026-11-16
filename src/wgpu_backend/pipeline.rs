@@ -10,6 +10,8 @@ use wgpu::{
 };
 
 pub(crate) const SHAPE_SHADER: &str = concat!(
+    include_str!("../shaders/vertex_transform.wgsl"),
+    "\n",
     include_str!("../shaders/path_coverage.wgsl"),
     "\n",
     include_str!("../shaders/path_coverage_tiles.wgsl"),

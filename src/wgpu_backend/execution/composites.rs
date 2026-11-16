@@ -1,8 +1,11 @@
 use super::draws::DrawPass;
 use super::shapes::{ShapeGeometryType, ShapeShaderType, StencilAction};
-use crate::commands::{DrawClip, ShapeTextureBinding, TextureComposite, TexturePlacement};
+use crate::commands::{
+    BlendDestination, DrawClip, ShapeTextureBinding, TextureComposite, TexturePlacement,
+};
 use crate::core::slot_pool::SlotPool;
 use crate::core::vertex::{CustomVertex, InstanceTransform, TextureUvTransform};
+use crate::core::BlendMode;
 use crate::wgpu_backend::vertex::{InstanceColor, InstanceMetadata};
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
@@ -81,6 +84,64 @@ impl CompositeExecutionResources {
 }
 
 impl DrawPass<'_, '_> {
+    fn draw_composite_quad(&mut self, quad: &QuadBuffers, buffer: &Buffer) {
+        self.render_pass
+            .set_vertex_buffer(0, quad.vertices.slice(..));
+        self.render_pass
+            .set_index_buffer(quad.indices.slice(..), IndexFormat::Uint16);
+        let color_offset = InstanceTransform::STRIDE;
+        let metadata_offset = color_offset + InstanceColor::STRIDE;
+        self.render_pass
+            .set_vertex_buffer(1, buffer.slice(..color_offset));
+        self.render_pass
+            .set_vertex_buffer(2, buffer.slice(color_offset..metadata_offset));
+        self.render_pass
+            .set_vertex_buffer(3, buffer.slice(metadata_offset..));
+        self.render_pass.draw_indexed(0..6, 0, 0..1);
+    }
+
+    pub(super) fn composite_blended_texture(
+        &mut self,
+        command: TextureComposite,
+        clip: DrawClip,
+        resources: &mut CompositeExecutionResources,
+        device: &Device,
+        queue: &Queue,
+    ) {
+        if command.blend_mode == BlendMode::Destination {
+            return;
+        }
+        self.set_scissor(clip.scissor);
+        self.render_pass.set_pipeline(
+            self.pipelines
+                .blending
+                .get(command.blend_mode, command.placement),
+        );
+        self.render_pass
+            .set_bind_group(0, &self.pipelines.shapes.and_bind_group, &[]);
+        self.render_pass
+            .set_bind_group(1, self.textures.bind_group(command.source), &[]);
+        if command.requires_destination_texture() {
+            let BlendDestination::Texture(destination) = command.destination else {
+                unreachable!("sampled blending requires destination pixels");
+            };
+            self.render_pass
+                .set_bind_group(2, self.textures.bind_group(destination), &[]);
+        }
+        self.render_pass
+            .set_stencil_reference(clip.stencil_reference);
+        match command.placement {
+            TexturePlacement::Target => self.render_pass.draw(0..3, 0..1),
+            TexturePlacement::Local {
+                transform,
+                sampling,
+            } => {
+                let (quad, buffer) = resources.prepare(device, queue, transform, sampling);
+                self.draw_composite_quad(quad, buffer);
+            }
+        }
+    }
+
     pub(super) fn composite_local_texture(
         &mut self,
         command: TextureComposite,
@@ -113,23 +174,11 @@ impl DrawPass<'_, '_> {
         );
         self.render_pass.set_texture_bind_group(
             0,
-            ShapeTextureBinding::Intermediate(command.texture),
-            self.textures.bind_group(command.texture),
+            ShapeTextureBinding::Intermediate(command.source),
+            self.textures.bind_group(command.source),
         );
         self.render_pass
-            .set_vertex_buffer(0, quad.vertices.slice(..));
-        self.render_pass
-            .set_index_buffer(quad.indices.slice(..), IndexFormat::Uint16);
-        let color_offset = InstanceTransform::STRIDE;
-        let metadata_offset = color_offset + InstanceColor::STRIDE;
-        self.render_pass
-            .set_vertex_buffer(1, buffer.slice(..color_offset));
-        self.render_pass
-            .set_vertex_buffer(2, buffer.slice(color_offset..metadata_offset));
-        self.render_pass
-            .set_vertex_buffer(3, buffer.slice(metadata_offset..));
-        self.render_pass
             .set_stencil_reference(clip.stencil_reference);
-        self.render_pass.draw_indexed(0..6, 0, 0..1);
+        self.draw_composite_quad(quad, buffer);
     }
 }

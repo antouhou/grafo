@@ -1,10 +1,10 @@
 use crate::commands::{
-    CaptureConfig, CaptureSource, EffectApplication, IntermediateTextureId, RenderOperation,
-    Target, TextureComposite, TexturePlacement,
+    BlendDestination, CaptureConfig, CaptureSource, EffectApplication, IntermediateTextureId,
+    RenderOperation, Target, TextureComposite, TexturePlacement,
 };
 use crate::core::geometry;
 use crate::core::vertex::TextureUvTransform;
-use crate::core::{PhysicalRect, Size, UnsignedPhysicalRect};
+use crate::core::{BlendMode, PhysicalRect, Size, UnsignedPhysicalRect};
 use crate::planner::commands::TraversalCommands;
 use crate::planner::TextureIdAllocator;
 use crate::scene_state::content_groups::ContentGroup;
@@ -102,6 +102,8 @@ impl ContentCapture {
     pub(crate) fn prepare_composite<'scene>(
         self,
         input_texture: IntermediateTextureId,
+        blend_mode: BlendMode,
+        viewport_size: Size,
         parameters: &'scene EffectParameterStorage,
         output: &mut TraversalCommands<'scene>,
         texture_ids: &mut TextureIdAllocator,
@@ -118,12 +120,31 @@ impl ContentCapture {
         } else {
             input_texture
         };
-        TextureComposite {
-            texture,
+        let mut composite = TextureComposite {
+            source: texture,
+            blend_mode,
+            destination: BlendDestination::CurrentTarget,
             placement: TexturePlacement::Local {
                 transform: geometry::unit_quad_transform(self.logical_output_bounds, None),
                 sampling: TextureUvTransform::IDENTITY,
             },
+        };
+        if composite.requires_destination_texture() {
+            let destination = texture_ids.allocate();
+            let source_rect = self
+                .output_bounds
+                .to_i64()
+                .intersection(&UnsignedPhysicalRect::from_size(viewport_size).to_i64())
+                .map(|bounds| bounds.to_u32());
+            output.push(RenderOperation::Capture(CaptureConfig {
+                source: CaptureSource::Target,
+                source_rect,
+                destination_bounds: self.output_bounds,
+                output: destination,
+                sampling_size: self.output_bounds.size().to_u32(),
+            }));
+            composite.destination = BlendDestination::Texture(destination);
         }
+        composite
     }
 }

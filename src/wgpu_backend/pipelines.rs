@@ -1,3 +1,4 @@
+use super::execution::blending::BlendPipelineResources;
 use super::execution::effects;
 use super::execution::shape_mask_effects::ShapeMaskEffectRendererResources;
 use super::execution::shapes::coverage;
@@ -182,19 +183,28 @@ impl RendererPipelineResources {
         msaa_sample_count: u32,
     ) -> Self {
         let device = &context.device;
+        let shapes = ShapePipelines::new(
+            context,
+            format,
+            physical_size,
+            scale_factor,
+            msaa_sample_count,
+            None,
+        );
         let composite_resources =
             effects::compile_composite_pipeline(device, format, msaa_sample_count);
+        let blending = BlendPipelineResources::new(
+            device,
+            format,
+            msaa_sample_count,
+            &shapes.layouts.uniform,
+            &composite_resources.bind_group_layout,
+        );
         let backdrops =
             BackdropPipelineResources::new(device, format, &composite_resources.bind_group_layout);
         Self {
-            shapes: ShapePipelines::new(
-                context,
-                format,
-                physical_size,
-                scale_factor,
-                msaa_sample_count,
-                None,
-            ),
+            shapes,
+            blending,
             shape_mask_effects: ShapeMaskEffectRendererResources::new(device, format),
             effect_sampler: device.create_sampler(&SamplerDescriptor {
                 address_mode_u: AddressMode::ClampToEdge,
