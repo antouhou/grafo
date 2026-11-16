@@ -3,7 +3,7 @@
 
 use futures::executor::block_on;
 use grafo::{
-    BackdropCaptureArea, BackdropEffectConfig, BorderRadii, Color, ColorInterpolation,
+    BackdropCaptureArea, BackdropEffectConfig, BlendMode, BorderRadii, Color, ColorInterpolation,
     ContentEffectConfig, DrawCommandError, EffectError, EffectResourceError, Fill, Gradient,
     GradientStop, GradientStopOffset, LinearGradientDesc, LinearGradientLine, PixelFormat,
     PixelLayout, Pixmap, PixmapMut, Scene, SceneCreationError, SceneError, Shape, ShapeDrawOptions,
@@ -12,8 +12,9 @@ use grafo::{
 };
 use grafo_test_scenes::shaders::{PASSTHROUGH_WGSL, SHAPE_DROP_WGSL};
 use grafo_test_scenes::{
-    build_bounded_targets_scene, build_main_scene, build_nested_targets_scene, check_pixels,
-    PixelExpectation, CANVAS_HEIGHT, CANVAS_WIDTH,
+    build_blend_modes_scene, build_bounded_targets_scene, build_main_scene,
+    build_nested_targets_scene, check_pixels, PixelExpectation, BLEND_CANVAS_HEIGHT,
+    BLEND_CANVAS_WIDTH, CANVAS_HEIGHT, CANVAS_WIDTH,
 };
 
 #[path = "visual_regression/bounded_targets.rs"]
@@ -62,6 +63,142 @@ fn render_bgra(scene: &mut Scene, pixels: &mut Vec<u8>) -> Result<(), WgpuBacken
     let size = scene.size();
     pixels.resize(size.0 as usize * size.1 as usize * 4, 0);
     scene.render(PixmapMut::bgra8(pixels, size)?)
+}
+
+fn assert_blend_format_transitions_and_retained_changes(scene: &mut Scene, pixels: &mut Vec<u8>) {
+    let size = (BLEND_CANVAS_WIDTH, BLEND_CANVAS_HEIGHT);
+    scene.resize(size);
+    scene.change_scale_factor(1.0).unwrap();
+    scene.set_msaa_samples(1);
+    scene.clear();
+    let grid = build_blend_modes_scene(scene);
+    let mut reference = Pixmap::new(size, PixelFormat::Bgra8).unwrap();
+    scene.render(&mut reference).unwrap();
+    for format in [PixelFormat::Rgba8, PixelFormat::Bgra8] {
+        let mut target = Pixmap::new(size, format).unwrap();
+        scene.render(&mut target).unwrap();
+        for (index, (actual, expected)) in target
+            .pixels()
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(reference.pixels().as_chunks::<4>().0)
+            .enumerate()
+        {
+            let actual = if format == PixelFormat::Rgba8 {
+                [actual[2], actual[1], actual[0], actual[3]]
+            } else {
+                *actual
+            };
+            assert_eq!(actual, *expected, "pixel {index}, format {format:?}");
+        }
+    }
+
+    let source = Color::rgba(48, 137, 224, 153);
+    let gray_source = Color::rgba(128, 128, 128, 153);
+    let mut destination = Color::rgb(48, 137, 224);
+    for (source_change, destination_change, expected, label) in [
+        (
+            Some((source, BlendMode::Overlay)),
+            None,
+            [30, 116, 234, 255],
+            "retained_blend_source_changed",
+        ),
+        (
+            None,
+            Some(Color::rgb(224, 72, 159)),
+            [204, 60, 179, 255],
+            "retained_blend_destination_changed",
+        ),
+        (
+            Some((source, BlendMode::Multiply)),
+            None,
+            [151, 53, 147, 255],
+            "retained_blend_sampled_mode_changed",
+        ),
+        (
+            Some((gray_source, BlendMode::Hue)),
+            None,
+            [184, 125, 153, 255],
+            "retained_blend_achromatic_hue",
+        ),
+        (
+            Some((gray_source, BlendMode::SourceOver)),
+            None,
+            [175, 110, 141, 255],
+            "retained_blend_capture_removed",
+        ),
+        (
+            Some((gray_source, BlendMode::Source)),
+            None,
+            [101, 101, 101, 153],
+            "retained_blend_fixed_mode_added",
+        ),
+    ] {
+        if let Some((fill, mode)) = source_change {
+            grid.replace_source(scene, fill, mode);
+        }
+        if let Some(fill) = destination_change {
+            grid.replace_destination(scene, fill);
+            destination = fill;
+        }
+        render_bgra(scene, pixels).unwrap();
+        let [red, green, blue, alpha] = expected;
+        let [destination_red, destination_green, destination_blue, destination_alpha] =
+            destination.to_array();
+        let expectations = [
+            PixelExpectation::new(640, 448, red, green, blue, alpha, label).with_tolerance(3),
+            PixelExpectation::new(
+                620,
+                480,
+                destination_red,
+                destination_green,
+                destination_blue,
+                destination_alpha,
+                "retained_blend_destination",
+            ),
+            PixelExpectation::opaque(700, 448, 0, 255, 0, "retained_blend_foreground_restored"),
+        ];
+        let failures = check_pixels(pixels, size.0, size.1, &expectations);
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+}
+
+#[test]
+fn blend_modes_pixel_expectations() {
+    let Some(mut scene) =
+        create_headless_scene_with_size_and_scale((BLEND_CANVAS_WIDTH, BLEND_CANVAS_HEIGHT), 1.0)
+    else {
+        return;
+    };
+    let mut pixels = Vec::new();
+    for scale_factor in [1.0, 1.25] {
+        let width = (f64::from(BLEND_CANVAS_WIDTH) * scale_factor) as u32;
+        let height = (f64::from(BLEND_CANVAS_HEIGHT) * scale_factor) as u32;
+        scene.resize((width, height));
+        scene.change_scale_factor(scale_factor).unwrap();
+        for _ in 0..2 {
+            scene.clear();
+            let mut expectations = build_blend_modes_scene(&mut scene).expectations;
+            for expectation in &mut expectations {
+                expectation.x = ((f64::from(expectation.x) + 0.5) * scale_factor) as u32;
+                expectation.y = ((f64::from(expectation.y) + 0.5) * scale_factor) as u32;
+            }
+            for samples in [1, 4, 1] {
+                scene.set_msaa_samples(samples);
+                for _ in 0..2 {
+                    render_bgra(&mut scene, &mut pixels).unwrap();
+                    let failures = check_pixels(&pixels, width, height, &expectations);
+                    assert!(
+                        failures.is_empty(),
+                        "scale {scale_factor}, samples {samples}: {}",
+                        failures.join("\n")
+                    );
+                }
+            }
+        }
+    }
+    assert_blend_format_transitions_and_retained_changes(&mut scene, &mut pixels);
 }
 
 #[test]

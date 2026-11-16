@@ -11,6 +11,7 @@ use super::textures::{IntermediateTextureResources, PlannedTexture};
 use crate::commands::{
     IntermediateTextureId, RenderCommand, RenderOperation, Target, TexturePlacement,
 };
+use crate::core::BlendMode;
 #[cfg(feature = "render_metrics")]
 use crate::wgpu_backend::metrics::{PipelineSwitchCounts, ShapeMaskEffectCacheMetrics};
 use crate::wgpu_backend::resources::{Buffers, RendererPipelineResources};
@@ -212,6 +213,17 @@ fn execute_draw_command(
             pass.decrement_stencil(
                 command.clip.stencil_reference,
                 shapes.draw_resources(draw.id),
+            );
+        }
+        RenderOperation::CompositeTexture(composite)
+            if composite.blend_mode != BlendMode::SourceOver =>
+        {
+            pass.composite_blended_texture(
+                composite,
+                command.clip,
+                &mut shapes.composites,
+                context.device,
+                context.queue,
             );
         }
         RenderOperation::CompositeTexture(composite) => match composite.placement {
