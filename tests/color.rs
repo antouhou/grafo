@@ -1,7 +1,7 @@
 use grafo::core::gradient::types::GradientRamp;
 use grafo::{
-    Color, ColorError, ColorInterpolation, Fill, Gradient, GradientStop, LinearGradientDesc,
-    LinearGradientLine,
+    Color, ColorError, ColorInterpolation, Fill, Gradient, GradientColor, GradientStop,
+    HueComponent, HueInterpolationMethod, LinearGradientDesc, LinearGradientLine,
 };
 
 type ColorConstructor = fn([f32; 4]) -> Result<Color, ColorError>;
@@ -14,6 +14,67 @@ fn assert_channels_close(actual: [f32; 4], expected: [f32; 4]) {
             "{actual} != {expected}"
         );
     }
+}
+
+fn authored_hue_colors(degrees: f32) -> [GradientColor; 2] {
+    [
+        GradientColor::Hsl {
+            hue: HueComponent::Degrees(degrees),
+            saturation: 1.0,
+            lightness: 0.5,
+            alpha: 1.0,
+        },
+        GradientColor::Hwb {
+            hue: HueComponent::Degrees(degrees),
+            whiteness: 0.0,
+            blackness: 0.0,
+            alpha: 1.0,
+        },
+    ]
+}
+
+fn gradient_midpoint(colors: [GradientColor; 2], interpolation: ColorInterpolation) -> [f32; 4] {
+    let gradient = Gradient::linear(
+        LinearGradientDesc::new(
+            LinearGradientLine {
+                start: [0.0, 0.0],
+                end: [1.0, 0.0],
+            },
+            colors.map(GradientStop::auto),
+        )
+        .with_interpolation(interpolation),
+    )
+    .unwrap();
+    let ramp = match &gradient.data().ramp {
+        GradientRamp::Pending(source) => source.bake(),
+        ramp => ramp.clone(),
+    };
+    let samples = ramp.as_slice();
+    let before = samples[(samples.len() - 1) / 2];
+    let after = samples[samples.len() / 2];
+    [
+        (before[0] + after[0]) * 0.5,
+        (before[1] + after[1]) * 0.5,
+        (before[2] + after[2]) * 0.5,
+        (before[3] + after[3]) * 0.5,
+    ]
+}
+
+fn assert_gradient_midpoint(
+    colors: [GradientColor; 2],
+    interpolation: ColorInterpolation,
+    expected: [f32; 4],
+) {
+    let actual = gradient_midpoint(colors, interpolation);
+    // Saturated cusps fall between the two midpoint ramp texels.
+    let channels_match = actual
+        .into_iter()
+        .zip(expected)
+        .all(|(actual, expected)| (actual - expected).abs() < 0.004);
+    assert!(
+        channels_match,
+        "{colors:?}, {interpolation:?}: {actual:?} != {expected:?}"
+    );
 }
 
 #[test]
@@ -101,4 +162,111 @@ fn float_constructors_reject_nonfinite_rgb_and_invalid_alpha() {
         Color::display_p3([f32::MAX, 0.0, 0.0, 1.0]),
         Err(ColorError::NonFiniteRgb),
     );
+}
+
+#[test]
+fn coincident_rgb_hues_do_not_make_directed_full_turns() {
+    let encoded = [
+        GradientColor::Srgb {
+            red: 147.0 / 255.0,
+            green: 187.0 / 255.0,
+            blue: 227.0 / 255.0,
+            alpha: 1.0,
+        },
+        GradientColor::Srgb {
+            red: 19.0 / 255.0,
+            green: 70.0 / 255.0,
+            blue: 121.0 / 255.0,
+            alpha: 1.0,
+        },
+    ];
+    let linear = [
+        Color::rgb(147, 187, 227).into(),
+        Color::rgb(19, 70, 121).into(),
+    ];
+    for method in [
+        HueInterpolationMethod::Increasing,
+        HueInterpolationMethod::Decreasing,
+    ] {
+        for interpolation in [
+            ColorInterpolation::Hsl { hue: method },
+            ColorInterpolation::Hwb { hue: method },
+        ] {
+            let expected = gradient_midpoint(encoded, interpolation);
+            assert!(
+                expected[2] > expected[0] + 0.2,
+                "{interpolation:?}: {expected:?}"
+            );
+            assert_channels_close(gradient_midpoint(linear, interpolation), expected);
+        }
+    }
+}
+
+#[test]
+fn authored_hues_keep_their_arcs_near_coincident_and_antipodal_angles() {
+    let [hsl_start, hwb_start] = authored_hue_colors(0.0);
+    for (end_hue, method, expected_srgb) in [
+        (
+            180.0005,
+            HueInterpolationMethod::Shorter,
+            [0.5, 0.0, 1.0, 1.0],
+        ),
+        (
+            180.0005,
+            HueInterpolationMethod::Longer,
+            [0.5, 1.0, 0.0, 1.0],
+        ),
+        (
+            179.9995,
+            HueInterpolationMethod::Shorter,
+            [0.5, 1.0, 0.0, 1.0],
+        ),
+        (
+            179.9995,
+            HueInterpolationMethod::Longer,
+            [0.5, 0.0, 1.0, 1.0],
+        ),
+        (
+            0.0005,
+            HueInterpolationMethod::Increasing,
+            [1.0, 0.0, 0.0, 1.0],
+        ),
+        (
+            0.0005,
+            HueInterpolationMethod::Decreasing,
+            [0.0, 1.0, 1.0, 1.0],
+        ),
+        (
+            359.9995,
+            HueInterpolationMethod::Increasing,
+            [0.0, 1.0, 1.0, 1.0],
+        ),
+        (
+            359.9995,
+            HueInterpolationMethod::Decreasing,
+            [1.0, 0.0, 0.0, 1.0],
+        ),
+    ] {
+        let expected = Color::srgb(expected_srgb).unwrap().linear_rgba();
+        let reversed_method = match method {
+            HueInterpolationMethod::Increasing => HueInterpolationMethod::Decreasing,
+            HueInterpolationMethod::Decreasing => HueInterpolationMethod::Increasing,
+            method => method,
+        };
+        let [hsl_end, hwb_end] = authored_hue_colors(end_hue);
+        let rgb_start = Color::rgb(255, 0, 0).into();
+        for colors in [
+            [hsl_start, hsl_end],
+            [hsl_start, hwb_end],
+            [hwb_start, hsl_end],
+            [hwb_start, hwb_end],
+            [rgb_start, hsl_end],
+            [rgb_start, hwb_end],
+        ] {
+            for (colors, method) in [(colors, method), ([colors[1], colors[0]], reversed_method)] {
+                assert_gradient_midpoint(colors, ColorInterpolation::Hsl { hue: method }, expected);
+                assert_gradient_midpoint(colors, ColorInterpolation::Hwb { hue: method }, expected);
+            }
+        }
+    }
 }

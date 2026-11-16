@@ -13,10 +13,11 @@ use grafo::{
     premultiply_rgba8_srgb_inplace, BackdropCaptureArea, BackdropEffectConfig, BorderRadii, Color,
     ColorInterpolation, ConicGradientDesc, ContentEffectConfig, DrawMode, Fill, GlyphContent,
     Gradient, GradientColor, GradientCommonDesc, GradientStop, GradientStopOffset,
-    GradientStopPositions, GradientUnits, HueInterpolationMethod, LineCap, LinearGradientDesc,
-    LinearGradientLine, PositionedGlyph, RadialGradientDesc, RadialGradientSize, Scene, Shape,
-    ShapeDrawOptions, ShapeMaskEffectConfig, ShapeTextureFitMode, ShapeTextureOptions, SpreadMode,
-    StrokeGeometryOptions, TextSource, TextureManager, TransformInstance,
+    GradientStopPositions, GradientUnits, HueComponent, HueInterpolationMethod, LineCap,
+    LinearGradientDesc, LinearGradientLine, PositionedGlyph, RadialGradientDesc,
+    RadialGradientSize, Scene, Shape, ShapeDrawOptions, ShapeMaskEffectConfig, ShapeTextureFitMode,
+    ShapeTextureOptions, SpreadMode, StrokeGeometryOptions, TextSource, TextureManager,
+    TransformInstance,
 };
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
 use std::slice;
@@ -3589,6 +3590,48 @@ fn two_stop_common_with_units(
     .with_interpolation(ColorInterpolation::Srgb)
 }
 
+fn add_linear_gradient_strip(
+    scene: &mut Scene,
+    bounds: [(f32, f32); 2],
+    colors: [GradientColor; 2],
+    interpolation: ColorInterpolation,
+    expected: [u8; 3],
+    label: &'static str,
+) -> PixelExpectation {
+    let [(left, top), (right, bottom)] = bounds;
+    let gradient = Gradient::linear(
+        LinearGradientDesc::new(
+            LinearGradientLine {
+                start: [left + 0.5, top],
+                end: [right + 0.5, top],
+            },
+            colors.map(GradientStop::auto),
+        )
+        .with_units(GradientUnits::Canvas)
+        .with_interpolation(interpolation),
+    )
+    .expect("valid gradient");
+    scene
+        .add_shape(
+            Shape::rect(bounds),
+            None,
+            None,
+            ShapeDrawOptions::new().fill(Fill::Gradient(gradient)),
+        )
+        .unwrap();
+    let [red, green, blue] = expected;
+    // Linear-space dithering can shift an encoded black channel by six byte levels.
+    PixelExpectation::opaque_approx(
+        ((left + right) * 0.5) as u32,
+        ((top + bottom) * 0.5) as u32,
+        red,
+        green,
+        blue,
+        7,
+        label,
+    )
+}
+
 fn tile_39_linear_gradient(scene: &mut Scene) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(39);
     let shape = Shape::rect([(0.0, 0.0), (60.0, 60.0)]);
@@ -3635,6 +3678,112 @@ fn tile_39_linear_gradient(scene: &mut Scene) -> Vec<PixelExpectation> {
             "t39_right_blue",
         ),
     ];
+    let coincident_colors = [
+        Color::rgb(147, 187, 227).into(),
+        Color::rgb(19, 70, 121).into(),
+    ];
+    for (row, interpolation, expected, label) in [
+        (
+            10.0,
+            ColorInterpolation::Hsl {
+                hue: HueInterpolationMethod::Increasing,
+            },
+            [45, 129, 212],
+            "t39_coincident_hsl_increasing",
+        ),
+        (
+            18.0,
+            ColorInterpolation::Hsl {
+                hue: HueInterpolationMethod::Decreasing,
+            },
+            [45, 129, 212],
+            "t39_coincident_hsl_decreasing",
+        ),
+        (
+            26.0,
+            ColorInterpolation::Hwb {
+                hue: HueInterpolationMethod::Increasing,
+            },
+            [83, 129, 174],
+            "t39_coincident_hwb_increasing",
+        ),
+        (
+            34.0,
+            ColorInterpolation::Hwb {
+                hue: HueInterpolationMethod::Decreasing,
+            },
+            [83, 129, 174],
+            "t39_coincident_hwb_decreasing",
+        ),
+    ] {
+        expectations.push(add_linear_gradient_strip(
+            scene,
+            [(ox + 10.0, oy + row), (ox + 38.0, oy + row + 6.0)],
+            coincident_colors,
+            interpolation,
+            expected,
+            label,
+        ));
+    }
+    let authored_hsl_colors = [0.0, 180.0005].map(|degrees| GradientColor::Hsl {
+        hue: HueComponent::Degrees(degrees),
+        saturation: 1.0,
+        lightness: 0.5,
+        alpha: 1.0,
+    });
+    let authored_hwb_colors = [0.0, 180.0005].map(|degrees| GradientColor::Hwb {
+        hue: HueComponent::Degrees(degrees),
+        whiteness: 0.0,
+        blackness: 0.0,
+        alpha: 1.0,
+    });
+    for (row, colors, interpolation, expected, label) in [
+        (
+            10.0,
+            authored_hsl_colors,
+            ColorInterpolation::Hsl {
+                hue: HueInterpolationMethod::Shorter,
+            },
+            [128, 0, 255],
+            "t39_authored_hsl_shorter",
+        ),
+        (
+            18.0,
+            authored_hsl_colors,
+            ColorInterpolation::Hsl {
+                hue: HueInterpolationMethod::Longer,
+            },
+            [128, 255, 0],
+            "t39_authored_hsl_longer",
+        ),
+        (
+            26.0,
+            authored_hwb_colors,
+            ColorInterpolation::Hwb {
+                hue: HueInterpolationMethod::Shorter,
+            },
+            [128, 0, 255],
+            "t39_authored_hwb_shorter",
+        ),
+        (
+            34.0,
+            authored_hwb_colors,
+            ColorInterpolation::Hwb {
+                hue: HueInterpolationMethod::Longer,
+            },
+            [128, 255, 0],
+            "t39_authored_hwb_longer",
+        ),
+    ] {
+        expectations.push(add_linear_gradient_strip(
+            scene,
+            [(ox + 42.0, oy + row), (ox + 70.0, oy + row + 6.0)],
+            colors,
+            interpolation,
+            expected,
+            label,
+        ));
+    }
     for (row, interpolation, expected, label) in [
         (
             46.0,

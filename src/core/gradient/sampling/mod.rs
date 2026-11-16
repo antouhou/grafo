@@ -7,7 +7,7 @@ use crate::core::color::{linear_to_srgb, srgb_to_linear};
 use std::sync::Arc;
 
 // RGB-to-hue conversion amplifies transfer-function rounding at low chroma.
-const ANTIPODAL_HUE_TOLERANCE: f32 = 0.001;
+const RGB_HUE_TOLERANCE: f32 = 0.001;
 
 #[derive(Debug, Clone, Copy)]
 enum RectSpace {
@@ -20,6 +20,31 @@ enum RectSpace {
 enum CylSpace {
     Hsl,
     Hwb,
+}
+
+fn authored_hue_degrees(color: &GradientColor) -> Option<f32> {
+    match color {
+        GradientColor::Hsl {
+            hue: HueComponent::Degrees(degrees),
+            ..
+        }
+        | GradientColor::Hwb {
+            hue: HueComponent::Degrees(degrees),
+            ..
+        } => Some(degrees.rem_euclid(360.0)),
+        _ => None,
+    }
+}
+
+fn stabilize_rgb_hue_delta(hue_delta: f32) -> f32 {
+    let magnitude = hue_delta.abs();
+    if magnitude <= RGB_HUE_TOLERANCE || (magnitude - 360.0).abs() <= RGB_HUE_TOLERANCE {
+        0.0
+    } else if (magnitude - 180.0).abs() <= RGB_HUE_TOLERANCE {
+        180.0 * hue_delta.signum()
+    } else {
+        hue_delta
+    }
 }
 
 fn normalize_hue(hue: HueComponent) -> f32 {
@@ -193,7 +218,11 @@ fn prepare_cylindrical_interpolation(
     let (h0, c1_a, c2_a, a_a, h0_powerless) = to_cylindrical(color_a, space);
     let (h1, c1_b, c2_b, a_b, h1_powerless) = to_cylindrical(color_b, space);
     let (hue_start, hue_end) = resolve_hue_pair(h0, h0_powerless, h1, h1_powerless);
-    let hue_delta = compute_hue_delta(hue_start, hue_end, hue_method);
+    let mut hue_difference = hue_end - hue_start;
+    if authored_hue_degrees(color_a).is_none() && authored_hue_degrees(color_b).is_none() {
+        hue_difference = stabilize_rgb_hue_delta(hue_difference);
+    }
+    let hue_delta = compute_hue_delta(hue_difference, hue_method);
     let c1_a_p = c1_a * a_a;
     let c1_b_p = c1_b * a_b;
     let c2_a_p = c2_a * a_a;
@@ -306,19 +335,20 @@ fn to_cylindrical(color: &GradientColor, space: CylSpace) -> (f32, f32, f32, f32
             let is_powerless = matches!(hue, HueComponent::Missing) || whiteness + blackness >= 1.0;
             (hue_degrees, whiteness, blackness, *alpha, is_powerless)
         }
-        // Convert any other color space to HSL or HWB through sRGB
+        // Convert components through sRGB while retaining an authored HSL or HWB hue.
         (_, cyl_space) => {
             let (srgb_r, srgb_g, srgb_b, alpha) = gradient_color_to_srgb(color);
+            let authored_hue = authored_hue_degrees(color);
             match cyl_space {
                 CylSpace::Hsl => {
                     let (h, s, l) = srgb_to_hsl(srgb_r, srgb_g, srgb_b);
                     let powerless = s == 0.0 || l == 0.0 || l == 1.0;
-                    (h, s, l, alpha, powerless)
+                    (authored_hue.unwrap_or(h), s, l, alpha, powerless)
                 }
                 CylSpace::Hwb => {
                     let (h, w, b) = srgb_to_hwb(srgb_r, srgb_g, srgb_b);
                     let powerless = w + b >= 1.0;
-                    (h, w, b, alpha, powerless)
+                    (authored_hue.unwrap_or(h), w, b, alpha, powerless)
                 }
             }
         }
@@ -342,13 +372,14 @@ fn resolve_hue_pair(h0: f32, h0_powerless: bool, h1: f32, h1_powerless: bool) ->
     }
 }
 
-fn compute_hue_delta(start_hue: f32, end_hue: f32, method: HueInterpolationMethod) -> f32 {
-    let hue_delta = end_hue - start_hue;
-    let mut shorter_delta = (hue_delta + 180.0).rem_euclid(360.0) - 180.0;
-    // Conversion rounding must not reverse the selected arc at an antipodal tie.
-    if (shorter_delta.abs() - 180.0).abs() <= ANTIPODAL_HUE_TOLERANCE {
-        shorter_delta = 180.0;
-    }
+fn compute_hue_delta(hue_difference: f32, method: HueInterpolationMethod) -> f32 {
+    let shorter_delta = if hue_difference > 180.0 {
+        hue_difference - 360.0
+    } else if hue_difference <= -180.0 {
+        hue_difference + 360.0
+    } else {
+        hue_difference
+    };
     match method {
         HueInterpolationMethod::Shorter => shorter_delta,
         HueInterpolationMethod::Longer => {
@@ -358,8 +389,8 @@ fn compute_hue_delta(start_hue: f32, end_hue: f32, method: HueInterpolationMetho
                 shorter_delta + 360.0
             }
         }
-        HueInterpolationMethod::Increasing => hue_delta.rem_euclid(360.0),
-        HueInterpolationMethod::Decreasing => hue_delta.rem_euclid(360.0) - 360.0,
+        HueInterpolationMethod::Increasing => hue_difference.rem_euclid(360.0),
+        HueInterpolationMethod::Decreasing => -(-hue_difference).rem_euclid(360.0),
     }
 }
 

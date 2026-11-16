@@ -1,7 +1,7 @@
 use super::{
     bake_gradient_ramp, color_to_final_linear_premultiplied, compute_hue_delta, hsl_to_srgb,
     linear_rgb_to_oklab, linear_to_srgb, oklab_to_linear_rgb, prepare_cylindrical_interpolation,
-    srgb_to_linear, CylSpace,
+    srgb_to_linear, stabilize_rgb_hue_delta, CylSpace,
 };
 use crate::core::gradient::normalize::NormalizedGradient;
 use crate::core::gradient::types::{
@@ -154,8 +154,9 @@ fn mixed_color_ramps_preserve_interpolation_output() {
         ],
         [
             [0.18444388, 0.5204905, 0.66794825, 1.0],
-            [0.005030864, 0.0051435423, 0.3337446, 0.69970673],
-            [0.0011545114, -0.00025836608, -0.00024760913, 0.09853381],
+            // A borrowed coincident hue stays fixed for both directed methods.
+            [0.005030864, 0.005030864, 0.3337446, 0.69970673],
+            [-0.00025836608, -0.00025836608, 0.0011545114, 0.09853381],
             [-0.003118001, -0.0006021938, 0.13839178, 0.17438902],
         ],
         [
@@ -429,24 +430,17 @@ fn low_chroma_complements_keep_the_same_arc_as_encoded_stops() {
 }
 
 #[test]
-fn antipodal_hue_ties_tolerate_rounding_without_changing_nearby_arcs() {
+fn rgb_hue_ties_tolerate_rounding_without_changing_nearby_arcs() {
     for (start_hue, end_hue) in [(0.0, 180.0), (180.0, 0.0), (40.0, 220.0), (220.0, 40.0)] {
         for rounding_error in [-0.0007, -0.00003, 0.0, 0.00003, 0.0007] {
+            let stabilized_delta = stabilize_rgb_hue_delta(end_hue + rounding_error - start_hue);
             assert_eq!(
-                compute_hue_delta(
-                    start_hue,
-                    end_hue + rounding_error,
-                    HueInterpolationMethod::Shorter
-                ),
-                180.0,
+                compute_hue_delta(stabilized_delta, HueInterpolationMethod::Shorter),
+                180.0
             );
             assert_eq!(
-                compute_hue_delta(
-                    start_hue,
-                    end_hue + rounding_error,
-                    HueInterpolationMethod::Longer
-                ),
-                -180.0,
+                compute_hue_delta(stabilized_delta, HueInterpolationMethod::Longer),
+                -180.0
             );
         }
     }
@@ -454,14 +448,33 @@ fn antipodal_hue_ties_tolerate_rounding_without_changing_nearby_arcs() {
         [(40.01, -179.99, 180.01), (39.99, 179.99, -180.01)]
     {
         assert!(
-            (compute_hue_delta(220.0, end_hue, HueInterpolationMethod::Shorter) - expected_shorter)
+            (compute_hue_delta(
+                stabilize_rgb_hue_delta(end_hue - 220.0),
+                HueInterpolationMethod::Shorter
+            ) - expected_shorter)
                 .abs()
                 < 0.0001,
         );
         assert!(
-            (compute_hue_delta(220.0, end_hue, HueInterpolationMethod::Longer) - expected_longer)
+            (compute_hue_delta(
+                stabilize_rgb_hue_delta(end_hue - 220.0),
+                HueInterpolationMethod::Longer
+            ) - expected_longer)
                 .abs()
                 < 0.0001,
         );
+    }
+    for coincident_delta in [-360.0, 0.0, 360.0] {
+        for rounding_error in [-0.0007, 0.0, 0.0007] {
+            let stabilized_delta = stabilize_rgb_hue_delta(coincident_delta + rounding_error);
+            assert_eq!(
+                compute_hue_delta(stabilized_delta, HueInterpolationMethod::Increasing),
+                0.0
+            );
+            assert_eq!(
+                compute_hue_delta(stabilized_delta, HueInterpolationMethod::Decreasing),
+                0.0
+            );
+        }
     }
 }
