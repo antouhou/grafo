@@ -1,7 +1,7 @@
 use super::{
-    bake_gradient_ramp, color_to_final_linear_premultiplied, hsl_to_srgb, linear_rgb_to_oklab,
-    linear_to_srgb, oklab_to_linear_rgb, prepare_cylindrical_interpolation, srgb_to_linear,
-    CylSpace,
+    bake_gradient_ramp, color_to_final_linear_premultiplied, compute_hue_delta, hsl_to_srgb,
+    linear_rgb_to_oklab, linear_to_srgb, oklab_to_linear_rgb, prepare_cylindrical_interpolation,
+    srgb_to_linear, CylSpace,
 };
 use crate::core::gradient::normalize::NormalizedGradient;
 use crate::core::gradient::types::{
@@ -9,6 +9,7 @@ use crate::core::gradient::types::{
     GradientStop, GradientStopOffset, GradientStopPositions, GradientUnits, HueComponent,
     HueInterpolationMethod, SpreadMode, RAMP_RESOLUTION, RESOLVED_DEGENERATE_EPSILON,
 };
+use crate::core::Color;
 
 fn srgb_color(red: f32, green: f32, blue: f32) -> GradientColor {
     GradientColor::Srgb {
@@ -361,4 +362,106 @@ fn cylindrical_interpolation_premultiplies_non_hue_channels() {
     });
 
     assert_eq!(interpolated, expected);
+}
+
+#[test]
+fn complementary_colors_keep_their_hue_arc_after_linear_conversion() {
+    for (space, shorter_midpoint, longer_midpoint) in [
+        (CylSpace::Hsl, [0.8, 0.2, 0.7], [0.2, 0.8, 0.3]),
+        (
+            CylSpace::Hwb,
+            [202.5 / 255.0, 52.5 / 255.0, 177.5 / 255.0],
+            [52.5 / 255.0, 202.5 / 255.0, 77.5 / 255.0],
+        ),
+    ] {
+        for (method, expected_srgb) in [
+            (HueInterpolationMethod::Shorter, shorter_midpoint),
+            (HueInterpolationMethod::Longer, longer_midpoint),
+        ] {
+            for (start, end) in [
+                (
+                    srgb_color(50.0 / 255.0, 100.0 / 255.0, 200.0 / 255.0),
+                    srgb_color(205.0 / 255.0, 155.0 / 255.0, 55.0 / 255.0),
+                ),
+                (
+                    Color::rgb(50, 100, 200).into(),
+                    Color::rgb(205, 155, 55).into(),
+                ),
+            ] {
+                let midpoint = prepare_cylindrical_interpolation(&start, &end, space, method)(0.5);
+                for (actual, expected) in
+                    midpoint[..3].iter().zip(expected_srgb.map(srgb_to_linear))
+                {
+                    assert!(
+                        (actual - expected).abs() < 2e-6,
+                        "{space:?} {method:?}: {midpoint:?}, expected sRGB {expected_srgb:?}"
+                    );
+                }
+                assert_eq!(midpoint[3], 1.0);
+            }
+        }
+    }
+}
+
+#[test]
+fn low_chroma_complements_keep_the_same_arc_as_encoded_stops() {
+    let encoded_start = srgb_color(68.0 / 255.0, 56.0 / 255.0, 67.0 / 255.0);
+    let encoded_end = srgb_color(187.0 / 255.0, 199.0 / 255.0, 188.0 / 255.0);
+    let linear_start = Color::rgb(68, 56, 67).into();
+    let linear_end = Color::rgb(187, 199, 188).into();
+    for space in [CylSpace::Hsl, CylSpace::Hwb] {
+        for method in [
+            HueInterpolationMethod::Shorter,
+            HueInterpolationMethod::Longer,
+        ] {
+            let expected =
+                prepare_cylindrical_interpolation(&encoded_start, &encoded_end, space, method)(0.5);
+            let actual =
+                prepare_cylindrical_interpolation(&linear_start, &linear_end, space, method)(0.5);
+            for (actual_channel, expected_channel) in actual.into_iter().zip(expected) {
+                assert!(
+                    (actual_channel - expected_channel).abs() < 2e-6,
+                    "{space:?} {method:?}: {actual:?} != {expected:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn antipodal_hue_ties_tolerate_rounding_without_changing_nearby_arcs() {
+    for (start_hue, end_hue) in [(0.0, 180.0), (180.0, 0.0), (40.0, 220.0), (220.0, 40.0)] {
+        for rounding_error in [-0.0007, -0.00003, 0.0, 0.00003, 0.0007] {
+            assert_eq!(
+                compute_hue_delta(
+                    start_hue,
+                    end_hue + rounding_error,
+                    HueInterpolationMethod::Shorter
+                ),
+                180.0,
+            );
+            assert_eq!(
+                compute_hue_delta(
+                    start_hue,
+                    end_hue + rounding_error,
+                    HueInterpolationMethod::Longer
+                ),
+                -180.0,
+            );
+        }
+    }
+    for (end_hue, expected_shorter, expected_longer) in
+        [(40.01, -179.99, 180.01), (39.99, 179.99, -180.01)]
+    {
+        assert!(
+            (compute_hue_delta(220.0, end_hue, HueInterpolationMethod::Shorter) - expected_shorter)
+                .abs()
+                < 0.0001,
+        );
+        assert!(
+            (compute_hue_delta(220.0, end_hue, HueInterpolationMethod::Longer) - expected_longer)
+                .abs()
+                < 0.0001,
+        );
+    }
 }

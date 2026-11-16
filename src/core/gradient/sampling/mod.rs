@@ -6,6 +6,9 @@ use super::types::{
 use crate::core::color::{linear_to_srgb, srgb_to_linear};
 use std::sync::Arc;
 
+// RGB-to-hue conversion amplifies transfer-function rounding at low chroma.
+const ANTIPODAL_HUE_TOLERANCE: f32 = 0.001;
+
 #[derive(Debug, Clone, Copy)]
 enum RectSpace {
     Srgb,
@@ -339,30 +342,24 @@ fn resolve_hue_pair(h0: f32, h0_powerless: bool, h1: f32, h1_powerless: bool) ->
     }
 }
 
-fn compute_hue_delta(h0: f32, h1: f32, method: HueInterpolationMethod) -> f32 {
+fn compute_hue_delta(start_hue: f32, end_hue: f32, method: HueInterpolationMethod) -> f32 {
+    let hue_delta = end_hue - start_hue;
+    let mut shorter_delta = (hue_delta + 180.0).rem_euclid(360.0) - 180.0;
+    // Conversion rounding must not reverse the selected arc at an antipodal tie.
+    if (shorter_delta.abs() - 180.0).abs() <= ANTIPODAL_HUE_TOLERANCE {
+        shorter_delta = 180.0;
+    }
     match method {
-        HueInterpolationMethod::Shorter => {
-            let mut delta = (h1 - h0 + 180.0).rem_euclid(360.0) - 180.0;
-            if delta == -180.0 {
-                delta = 180.0;
-            }
-            delta
-        }
+        HueInterpolationMethod::Shorter => shorter_delta,
         HueInterpolationMethod::Longer => {
-            let mut shorter = (h1 - h0 + 180.0).rem_euclid(360.0) - 180.0;
-            if shorter == -180.0 {
-                shorter = 180.0;
-            }
-            if shorter == 180.0 {
-                -180.0
-            } else if shorter > 0.0 {
-                shorter - 360.0
+            if shorter_delta > 0.0 {
+                shorter_delta - 360.0
             } else {
-                shorter + 360.0
+                shorter_delta + 360.0
             }
         }
-        HueInterpolationMethod::Increasing => (h1 - h0).rem_euclid(360.0),
-        HueInterpolationMethod::Decreasing => (h1 - h0).rem_euclid(360.0) - 360.0,
+        HueInterpolationMethod::Increasing => hue_delta.rem_euclid(360.0),
+        HueInterpolationMethod::Decreasing => hue_delta.rem_euclid(360.0) - 360.0,
     }
 }
 

@@ -13,9 +13,9 @@ use grafo::{
     premultiply_rgba8_srgb_inplace, BackdropCaptureArea, BackdropEffectConfig, BorderRadii, Color,
     ColorInterpolation, ConicGradientDesc, ContentEffectConfig, DrawMode, Fill, GlyphContent,
     Gradient, GradientColor, GradientCommonDesc, GradientStop, GradientStopOffset,
-    GradientStopPositions, GradientUnits, LineCap, LinearGradientDesc, LinearGradientLine,
-    PositionedGlyph, RadialGradientDesc, RadialGradientSize, Scene, Shape, ShapeDrawOptions,
-    ShapeMaskEffectConfig, ShapeTextureFitMode, ShapeTextureOptions, SpreadMode,
+    GradientStopPositions, GradientUnits, HueInterpolationMethod, LineCap, LinearGradientDesc,
+    LinearGradientLine, PositionedGlyph, RadialGradientDesc, RadialGradientSize, Scene, Shape,
+    ShapeDrawOptions, ShapeMaskEffectConfig, ShapeTextureFitMode, ShapeTextureOptions, SpreadMode,
     StrokeGeometryOptions, TextSource, TextureManager, TransformInstance,
 };
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
@@ -3612,7 +3612,7 @@ fn tile_39_linear_gradient(scene: &mut Scene) -> Vec<PixelExpectation> {
         )
         .unwrap();
 
-    vec![
+    let mut expectations = vec![
         // Canvas units are evaluated in screen space, so the transformed shape still
         // follows the tile-space line rather than restarting in local space.
         PixelExpectation::opaque_approx(
@@ -3634,7 +3634,70 @@ fn tile_39_linear_gradient(scene: &mut Scene) -> Vec<PixelExpectation> {
             45,
             "t39_right_blue",
         ),
-    ]
+    ];
+    for (row, interpolation, expected, label) in [
+        (
+            46.0,
+            ColorInterpolation::Hsl {
+                hue: HueInterpolationMethod::Shorter,
+            },
+            [204, 51, 179],
+            "t39_complementary_hsl_shorter",
+        ),
+        (
+            54.0,
+            ColorInterpolation::Hsl {
+                hue: HueInterpolationMethod::Longer,
+            },
+            [51, 204, 77],
+            "t39_complementary_hsl_longer",
+        ),
+        (
+            62.0,
+            ColorInterpolation::Hwb {
+                hue: HueInterpolationMethod::Shorter,
+            },
+            [203, 53, 178],
+            "t39_complementary_hwb_shorter",
+        ),
+        (
+            70.0,
+            ColorInterpolation::Hwb {
+                hue: HueInterpolationMethod::Longer,
+            },
+            [53, 203, 78],
+            "t39_complementary_hwb_longer",
+        ),
+    ] {
+        let gradient = Gradient::linear(LinearGradientDesc {
+            common: two_stop_common_canvas((50, 100, 200), (205, 155, 55), SpreadMode::Pad)
+                .with_interpolation(interpolation),
+            line: LinearGradientLine {
+                start: [ox + 10.5, oy + row],
+                end: [ox + 70.5, oy + row],
+            },
+        })
+        .expect("valid gradient");
+        scene
+            .add_shape(
+                Shape::rect([(ox + 10.0, oy + row), (ox + 70.0, oy + row + 6.0)]),
+                None,
+                None,
+                ShapeDrawOptions::new().fill(Fill::Gradient(gradient)),
+            )
+            .unwrap();
+        let [red, green, blue] = expected;
+        expectations.push(PixelExpectation::opaque_approx(
+            ox as u32 + 40,
+            (oy + row + 3.0) as u32,
+            red,
+            green,
+            blue,
+            3,
+            label,
+        ));
+    }
+    expectations
 }
 
 fn tile_40_radial_gradient(scene: &mut Scene) -> Vec<PixelExpectation> {

@@ -83,6 +83,18 @@ impl Color {
         }
     }
 
+    /// Creates a color from straight-alpha linear sRGB without encoding or clipping RGB.
+    /// Returns an error for nonfinite RGB or alpha outside `[0.0, 1.0]`.
+    pub fn linear_srgb(rgba: [f32; 4]) -> Result<Self, ColorError> {
+        if !rgba[..3].iter().all(|channel| channel.is_finite()) {
+            return Err(ColorError::NonFiniteRgb);
+        }
+        if !(0.0..=1.0).contains(&rgba[3]) {
+            return Err(ColorError::InvalidAlpha);
+        }
+        Ok(Self { linear_rgba: rgba })
+    }
+
     /// Decodes straight-alpha sRGB channels. Nominal RGB values are in `[0.0, 1.0]`;
     /// negative and extended values use the signed sRGB transfer function.
     /// Returns an error if conversion produces nonfinite RGB or alpha is outside `[0.0, 1.0]`.
@@ -108,18 +120,6 @@ impl Color {
                 + coefficients[2] * linear_p3[2]
         });
         Self::linear_srgb([linear_srgb[0], linear_srgb[1], linear_srgb[2], alpha])
-    }
-
-    /// Creates a color from straight-alpha linear sRGB without encoding or clipping RGB.
-    /// Returns an error for nonfinite RGB or alpha outside `[0.0, 1.0]`.
-    pub fn linear_srgb(rgba: [f32; 4]) -> Result<Self, ColorError> {
-        if !rgba[..3].iter().all(|channel| channel.is_finite()) {
-            return Err(ColorError::NonFiniteRgb);
-        }
-        if !(0.0..=1.0).contains(&rgba[3]) {
-            return Err(ColorError::InvalidAlpha);
-        }
-        Ok(Self { linear_rgba: rgba })
     }
 
     /// Returns straight-alpha linear sRGB in `[red, green, blue, alpha]` order.
