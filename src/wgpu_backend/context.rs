@@ -1,9 +1,12 @@
 use super::texture_manager::WgpuTextureManager;
-use super::{WgpuBackend, WgpuContext, WgpuSurface};
+use super::{WgpuBackend, WgpuBackendError, WgpuContext, WgpuSurface};
 use crate::render_backend::render_target::Surface;
 use crate::render_backend::texture_manager::TextureUpdatePublisher;
 use crate::render_backend::RenderContext;
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use tracing::{error, info, warn};
 use wgpu::{CompositeAlphaMode, DownlevelFlags, InstanceDescriptor, SurfaceTarget};
 
@@ -75,6 +78,13 @@ impl RenderContext for Arc<WgpuContext> {
 }
 
 impl WgpuContext {
+    pub(super) fn ensure_available(&self) -> Result<(), WgpuBackendError> {
+        if self.is_device_lost.load(Ordering::Relaxed) {
+            return Err(WgpuBackendError::DeviceLost);
+        }
+        Ok(())
+    }
+
     /// Creates a device, command queue, and texture manager that scenes can share.
     pub(crate) async fn try_new(
         texture_updates: TextureUpdatePublisher,
@@ -103,6 +113,12 @@ impl WgpuContext {
                 trace: Default::default(),
             })
             .await?;
+        let is_device_lost = Arc::new(AtomicBool::new(false));
+        let callback_device_lost = Arc::clone(&is_device_lost);
+        device.set_device_lost_callback(move |reason, message| {
+            callback_device_lost.store(true, Ordering::Relaxed);
+            error!(?reason, %message, "WGPU device lost");
+        });
         device.on_uncaptured_error(Box::new(|error| {
             error!(%error, "WGPU error");
         }));
@@ -123,6 +139,7 @@ impl WgpuContext {
             ),
             device,
             queue,
+            is_device_lost,
         })
     }
 }

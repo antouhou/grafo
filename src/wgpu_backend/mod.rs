@@ -9,7 +9,7 @@ pub use readback::ReadbackError;
 use readback::{ArgbReadbackResources, ByteReadbackResources};
 use resources::{BackendResources, RendererPipelineResources};
 use retained_output::RetainedOutput;
-use std::sync::Arc;
+use std::sync::{atomic::AtomicBool, Arc};
 #[cfg(feature = "render_metrics")]
 use std::time::Duration;
 pub use surface::WgpuSurface;
@@ -44,6 +44,7 @@ pub struct WgpuContext {
     supports_base_vertex: bool,
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
+    is_device_lost: Arc<AtomicBool>,
     texture_manager: WgpuTextureManager,
 }
 

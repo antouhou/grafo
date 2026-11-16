@@ -102,6 +102,11 @@ Rendering leaves row padding and trailing bytes untouched.
 When rendering to memory, WGPU waits for readback. Errors leave the buffer unchanged.
 Rendering to a surface submits and presents the frame.
 
+After WGPU reports device loss, `scene.render()` returns `WgpuBackendError::DeviceLost`
+for every scene sharing that context. Create a new `SceneContext`, recreate its surfaces
+and scenes, and reload assets from application data. GPU failures can be reported after
+a render call returns because surface rendering submits work asynchronously.
+
 BGRA8 and RGBA8 store channels in that byte order. ARGB32 stores native-endian `0xAARRGGBB` words.
 RGB is premultiplied in linear space, then encoded as sRGB. Alpha stays linear.
 

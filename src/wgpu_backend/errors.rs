@@ -45,6 +45,9 @@ pub enum EffectResourceError {
 /// Errors returned by WGPU backend operations.
 #[derive(Debug, thiserror::Error)]
 pub enum WgpuBackendError {
+    /// The shared GPU device is unusable. Create a new context and rebuild its scenes and assets.
+    #[error("GPU device lost")]
+    DeviceLost,
     #[error(transparent)]
     Output(#[from] RenderTargetError),
     #[error(transparent)]

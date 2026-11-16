@@ -136,6 +136,7 @@ impl RenderBackend for WgpuBackend {
         &mut self,
         target: &mut RenderTarget<'_, Self::Surface>,
     ) -> Result<bool, Self::Error> {
+        self.context.ensure_available()?;
         let size = target.validate_size(self.maximum_texture_dimension())?;
         if self.viewport.physical_size != size {
             self.resize(Viewport {
@@ -162,19 +163,24 @@ impl RenderBackend for WgpuBackend {
         commands: impl Iterator<Item = RenderCommand<'scene>>,
         target: RenderTarget<'_, Self::Surface>,
     ) -> Result<(), Self::Error> {
+        self.context.ensure_available()?;
         self.resources.shape_execution.compact_draw_buffers();
-        match target {
+        let result = match target {
             RenderTarget::Surface(surface) => self
                 .render_surface(root_scissor, commands, &surface.resource().surface)
                 .map_err(WgpuBackendError::Surface),
             RenderTarget::Pixmap(mut pixels) => {
                 if pixels.layout().format() == PixelFormat::Argb32 {
-                    self.render_argb_pixels(root_scissor, commands, &mut pixels)?;
+                    self.render_argb_pixels(root_scissor, commands, &mut pixels)
                 } else {
-                    self.render_byte_pixels(root_scissor, commands, &mut pixels)?;
+                    self.render_byte_pixels(root_scissor, commands, &mut pixels)
                 }
-                Ok(())
+                .map_err(WgpuBackendError::Readback)
             }
-        }
+        };
+        result.or_else(|error| {
+            self.context.ensure_available()?;
+            Err(error)
+        })
     }
 }
