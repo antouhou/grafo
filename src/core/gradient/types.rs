@@ -411,12 +411,12 @@ pub enum GradientColor {
 
 impl From<Color> for GradientColor {
     fn from(color: Color) -> Self {
-        let [red, green, blue, alpha] = color.to_array();
-        Self::Srgb {
-            red: red as f32 / 255.0,
-            green: green as f32 / 255.0,
-            blue: blue as f32 / 255.0,
-            alpha: alpha as f32 / 255.0,
+        let [red, green, blue, alpha] = color.linear_rgba();
+        Self::SrgbLinear {
+            red,
+            green,
+            blue,
+            alpha,
         }
     }
 }
@@ -489,9 +489,9 @@ pub enum Fill {
 
 impl Fill {
     #[inline]
-    pub fn to_normalized_solid(&self) -> Option<[f32; 4]> {
+    pub fn solid_linear_rgba(&self) -> Option<[f32; 4]> {
         match self {
-            Fill::Solid(color) => Some(color.normalize()),
+            Fill::Solid(color) => Some(color.linear_rgba()),
             _ => None,
         }
     }

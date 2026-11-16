@@ -96,7 +96,7 @@ fn assert_blend_format_transitions_and_retained_changes(scene: &mut Scene, pixel
 
     let source = Color::rgba(48, 137, 224, 153);
     let gray_source = Color::rgba(128, 128, 128, 153);
-    let mut destination = Color::rgb(48, 137, 224);
+    let mut destination = [48, 137, 224, 255];
     for (source_change, destination_change, expected, label) in [
         (
             Some((source, BlendMode::Overlay)),
@@ -106,7 +106,7 @@ fn assert_blend_format_transitions_and_retained_changes(scene: &mut Scene, pixel
         ),
         (
             None,
-            Some(Color::rgb(224, 72, 159)),
+            Some([224, 72, 159, 255]),
             [204, 60, 179, 255],
             "retained_blend_destination_changed",
         ),
@@ -139,13 +139,12 @@ fn assert_blend_format_transitions_and_retained_changes(scene: &mut Scene, pixel
             grid.replace_source(scene, fill, mode);
         }
         if let Some(fill) = destination_change {
-            grid.replace_destination(scene, fill);
+            grid.replace_destination(scene, Color::rgba(fill[0], fill[1], fill[2], fill[3]));
             destination = fill;
         }
         render_bgra(scene, pixels).unwrap();
         let [red, green, blue, alpha] = expected;
-        let [destination_red, destination_green, destination_blue, destination_alpha] =
-            destination.to_array();
+        let [destination_red, destination_green, destination_blue, destination_alpha] = destination;
         let expectations = [
             PixelExpectation::new(640, 448, red, green, blue, alpha, label).with_tolerance(3),
             PixelExpectation::new(

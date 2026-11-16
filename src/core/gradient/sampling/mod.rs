@@ -3,6 +3,7 @@ use super::types::{
     ColorInterpolation, GradientColor, GradientRamp, GradientRampSource, HueComponent,
     HueInterpolationMethod, RAMP_RESOLUTION, RESOLVED_DEGENERATE_EPSILON,
 };
+use crate::core::color::{linear_to_srgb, srgb_to_linear};
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy)]
@@ -420,30 +421,22 @@ fn gradient_color_to_srgb(color: &GradientColor) -> (f32, f32, f32, f32) {
 
 /// Converts a `GradientColor` to linear premultiplied RGBA.
 pub(crate) fn color_to_final_linear_premultiplied(color: &GradientColor) -> [f32; 4] {
+    if let GradientColor::SrgbLinear {
+        red,
+        green,
+        blue,
+        alpha,
+    } = color
+    {
+        let alpha = alpha.clamp(0.0, 1.0);
+        return [red * alpha, green * alpha, blue * alpha, alpha];
+    }
     let (sr, sg, sb, alpha) = gradient_color_to_srgb(color);
     let alpha = alpha.clamp(0.0, 1.0);
     let lr = srgb_to_linear(sr);
     let lg = srgb_to_linear(sg);
     let lb = srgb_to_linear(sb);
     [lr * alpha, lg * alpha, lb * alpha, alpha]
-}
-
-fn srgb_to_linear(c: f32) -> f32 {
-    if c.abs() <= 0.04045 {
-        c / 12.92
-    } else {
-        let sign = c.signum();
-        sign * ((c.abs() + 0.055) / 1.055).powf(2.4)
-    }
-}
-
-fn linear_to_srgb(c: f32) -> f32 {
-    if c.abs() <= 0.0031308 {
-        c * 12.92
-    } else {
-        let sign = c.signum();
-        sign * (1.055 * c.abs().powf(1.0 / 2.4) - 0.055)
-    }
 }
 
 #[allow(clippy::excessive_precision)]

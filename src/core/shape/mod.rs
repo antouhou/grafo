@@ -143,7 +143,7 @@ impl ShapeInstance {
             transform: options.transform,
             textures: [options.background_texture, options.foreground_texture],
             color_override: match options.fill.as_ref() {
-                Some(Fill::Solid(color)) => Some(color.normalize()),
+                Some(Fill::Solid(color)) => Some(color.linear_rgba()),
                 _ => None,
             },
             fill: options.fill,

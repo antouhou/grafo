@@ -1,13 +1,50 @@
 use super::{scene, surface};
 use crate::commands::{RenderOperation, Target};
 use crate::core::{
-    BackdropEffectConfig, Color, ContentEffectConfig, Shape, ShapeDrawOptions,
-    ShapeMaskEffectConfig, UnsignedPhysicalRect,
+    BackdropEffectConfig, Color, ContentEffectConfig, GroupDrawCommandOptions, Shape,
+    ShapeDrawOptions, ShapeMaskEffectConfig, UnsignedPhysicalRect,
 };
 use crate::scene::EffectError;
 use crate::scene_state::effects::EffectConfig;
 use crate::scene_state::types::DrawTreeNode;
 use crate::scene_state::SceneError;
+
+#[test]
+fn explicit_and_inherited_linear_fills_preserve_extended_channels() {
+    let mut scene = scene();
+    let inherited_rgba = [4.0, -0.25, 0.5, 0.5];
+    let explicit_rgba = [0.25, 0.75, 0.125, 0.2];
+    let group = scene
+        .add_group(
+            None,
+            GroupDrawCommandOptions::new().color(Color::linear_srgb(inherited_rgba).unwrap()),
+        )
+        .unwrap();
+    let inherited = scene
+        .add_shape(
+            Shape::rect([(2.0, 2.0), (8.0, 8.0)]),
+            Some(group),
+            None,
+            ShapeDrawOptions::new(),
+        )
+        .unwrap();
+    let explicit = scene
+        .add_shape(
+            Shape::rect([(12.0, 2.0), (18.0, 8.0)]),
+            Some(group),
+            None,
+            ShapeDrawOptions::new().color(Color::linear_srgb(explicit_rgba).unwrap()),
+        )
+        .unwrap();
+    scene.render(&mut surface()).unwrap();
+
+    for (id, expected) in [(inherited, inherited_rgba), (explicit, explicit_rgba)] {
+        let DrawTreeNode::CachedShape(shape) = scene.state.draw_tree.get_unchecked(id) else {
+            panic!("expected a shape draw");
+        };
+        assert_eq!(shape.instance.color_override, Some(expected));
+    }
+}
 
 #[test]
 fn group_effect_changes_preserve_member_overrides() {

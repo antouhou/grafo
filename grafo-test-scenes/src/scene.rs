@@ -2558,7 +2558,7 @@ fn tile_21_alpha_overlap(scene: &mut Scene) -> Vec<PixelExpectation> {
         )
         .unwrap();
 
-    vec![
+    let mut expectations = vec![
         // Blue region only
         PixelExpectation::opaque(ox as u32 + 15, oy as u32 + 15, 50, 50, 220, "t21_blue_only"),
         // Blend in linear RGB with alpha 128/255, then encode the result as sRGB.
@@ -2581,7 +2581,45 @@ fn tile_21_alpha_overlap(scene: &mut Scene) -> Vec<PixelExpectation> {
             255,
             "t21_red_over_white",
         ),
-    ]
+    ];
+    for (offset, color, expected_gray, label) in [
+        (
+            10.0,
+            Color::srgb([0.5, 0.5, 0.5, 0.5]).expect("valid sRGB color"),
+            204,
+            "t21_float_srgb_over_white",
+        ),
+        (
+            30.0,
+            Color::display_p3([0.5, 0.5, 0.5, 0.5]).expect("valid Display P3 color"),
+            204,
+            "t21_display_p3_over_white",
+        ),
+        (
+            50.0,
+            Color::linear_srgb([0.25, 0.25, 0.25, 0.5]).expect("valid linear color"),
+            207,
+            "t21_linear_srgb_over_white",
+        ),
+    ] {
+        scene
+            .add_shape(
+                Shape::rect([(ox + offset, oy + 66.0), (ox + offset + 15.0, oy + 76.0)]),
+                None,
+                None,
+                ShapeDrawOptions::new().color(color),
+            )
+            .unwrap();
+        expectations.push(PixelExpectation::opaque(
+            (ox + offset + 7.0) as u32,
+            oy as u32 + 71,
+            expected_gray,
+            expected_gray,
+            expected_gray,
+            label,
+        ));
+    }
+    expectations
 }
 
 fn tile_22_no_color_default(scene: &mut Scene) -> Vec<PixelExpectation> {

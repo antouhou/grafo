@@ -82,7 +82,7 @@ fn resolve_inherited_fill(
     let DrawTreeNode::CachedShape(shape) = tree.get_mut(id)? else {
         return None;
     };
-    shape.instance.color_override = fill.as_ref().and_then(Fill::to_normalized_solid);
+    shape.instance.color_override = fill.as_ref().and_then(Fill::solid_linear_rgba);
     shape.instance.fill = fill;
     shape.instance.paint_transform = transform;
     Some(shape)

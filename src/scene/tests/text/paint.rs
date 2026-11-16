@@ -266,7 +266,7 @@ fn text_gradients_share_coordinates_and_cached_geometry_across_replacements() {
     scene.render(&mut target).unwrap();
     let shape = instance(&scene, glyph_ids(&scene, text)[0]);
     assert_fill(shape, &parent_fill);
-    assert_eq!(shape.color_override, Some(Color::WHITE.normalize()));
+    assert_eq!(shape.color_override, Some(Color::WHITE.linear_rgba()));
     assert_eq!(shape.paint_transform, Transform3D::identity());
 }
 
