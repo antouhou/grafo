@@ -23,7 +23,7 @@ struct SolidVertexOutput {
 fn vs_solid(input: SolidVertexInput) -> SolidVertexOutput {
     var output: SolidVertexOutput;
     let model = mat4x4<f32>(input.t_col0, input.t_col1, input.t_col2, input.t_col3);
-    output.position = compute_vertex_position(input.position, model).clip_position;
+    output.position = compute_vertex_position(input.position, model, uniforms).clip_position;
     output.color = input.color;
     output.coverage_start = 0xffffffffu;
     output.coverage_origin = vec2<f32>(0.0);

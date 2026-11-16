@@ -11,7 +11,11 @@ use wgpu::{
     ShaderModule, ShaderModuleDescriptor, ShaderSource, TextureFormat, VertexState,
 };
 
-const BLEND_SHADER: &str = include_str!("../../../shaders/texture_blend.wgsl");
+const BLEND_SHADER: &str = concat!(
+    include_str!("../../../shaders/vertex_transform.wgsl"),
+    "\n",
+    include_str!("../../../shaders/texture_blend.wgsl"),
+);
 
 fn blend_component(source: BlendFactor, destination: BlendFactor) -> BlendComponent {
     BlendComponent {

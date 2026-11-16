@@ -1,12 +1,5 @@
 override blend_mode: u32 = 0u;
 
-struct Uniforms {
-    canvas_size: vec2<f32>,
-    target_origin: vec2<f32>,
-    scale_factor: f32,
-    _padding: f32,
-};
-
 struct LocalVertexInput {
     @location(0) position: vec2<f32>,
     @location(2) texture_coordinates: vec2<f32>,
@@ -29,16 +22,6 @@ struct VertexOutput {
 @group(2) @binding(0) var destination_texture: texture_2d<f32>;
 @group(2) @binding(1) var destination_sampler: sampler;
 
-fn compute_vertex_position(position: vec2<f32>, model: mat4x4<f32>) -> vec4<f32> {
-    let transformed = model * vec4<f32>(position, 0.0, 1.0);
-    let inverse_w = 1.0 / max(abs(transformed.w), 1e-6);
-    let screen_position = transformed.xy * inverse_w;
-    let target_position = screen_position - uniforms.target_origin / uniforms.scale_factor;
-    let normalized_x = 2.0 * target_position.x / uniforms.canvas_size.x - 1.0;
-    let normalized_y = 1.0 - 2.0 * target_position.y / uniforms.canvas_size.y;
-    return vec4<f32>(normalized_x, normalized_y, 0.0, 1.0);
-}
-
 @vertex
 fn vs_local(input: LocalVertexInput) -> VertexOutput {
     let transform = mat4x4<f32>(
@@ -48,7 +31,7 @@ fn vs_local(input: LocalVertexInput) -> VertexOutput {
         input.transform_column3,
     );
     var output: VertexOutput;
-    output.position = compute_vertex_position(input.position, transform);
+    output.position = compute_vertex_position(input.position, transform, uniforms).clip_position;
     output.raw_uv = input.texture_coordinates;
     output.source_uv_transform = input.source_uv_transform;
     return output;
