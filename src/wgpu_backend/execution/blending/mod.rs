@@ -110,7 +110,7 @@ pub(in crate::wgpu_backend) struct BlendPipelineResources {
     device: Device,
     shader: ShaderModule,
     source_layout: PipelineLayout,
-    sampled_layout: PipelineLayout,
+    destination_sampling_layout: PipelineLayout,
     format: TextureFormat,
     sample_count: u32,
     pipelines: [[OnceLock<RenderPipeline>; 2]; 28],
@@ -129,11 +129,12 @@ impl BlendPipelineResources {
             bind_group_layouts: &[uniform_layout, texture_layout],
             push_constant_ranges: &[],
         });
-        let sampled_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-            label: Some("sampled_blend_pipeline_layout"),
-            bind_group_layouts: &[uniform_layout, texture_layout, texture_layout],
-            push_constant_ranges: &[],
-        });
+        let destination_sampling_layout =
+            device.create_pipeline_layout(&PipelineLayoutDescriptor {
+                label: Some("destination_sampling_blend_pipeline_layout"),
+                bind_group_layouts: &[uniform_layout, texture_layout, texture_layout],
+                push_constant_ranges: &[],
+            });
         Self {
             device: device.clone(),
             shader: device.create_shader_module(ShaderModuleDescriptor {
@@ -141,7 +142,7 @@ impl BlendPipelineResources {
                 source: ShaderSource::Wgsl(BLEND_SHADER.into()),
             }),
             source_layout,
-            sampled_layout,
+            destination_sampling_layout,
             format,
             sample_count,
             pipelines: Default::default(),
@@ -166,7 +167,7 @@ impl BlendPipelineResources {
             .create_render_pipeline(&RenderPipelineDescriptor {
                 label: Some("texture_blend_pipeline"),
                 layout: Some(if samples_destination {
-                    &self.sampled_layout
+                    &self.destination_sampling_layout
                 } else {
                     &self.source_layout
                 }),

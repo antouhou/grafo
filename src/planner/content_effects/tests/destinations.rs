@@ -96,7 +96,7 @@ fn content_composites_capture_destination_pixels_only_when_needed() {
                 if captures_destination {
                     BlendDestination::Texture(IntermediateTextureId::Planned(destination_index))
                 } else {
-                    BlendDestination::FinalTarget
+                    BlendDestination::CurrentTarget
                 }
             );
             assert_eq!(

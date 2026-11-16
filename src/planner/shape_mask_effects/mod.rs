@@ -92,7 +92,7 @@ pub(super) fn append_shape_mask_effect<'scene>(
         TextureComposite {
             source: output,
             blend_mode: BlendMode::SourceOver,
-            destination: BlendDestination::FinalTarget,
+            destination: BlendDestination::CurrentTarget,
             placement: TexturePlacement::Local {
                 transform: geometry::unit_quad_transform(
                     bounds.local_bounds,

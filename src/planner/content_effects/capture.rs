@@ -123,7 +123,7 @@ impl ContentCapture {
         let mut composite = TextureComposite {
             source: texture,
             blend_mode,
-            destination: BlendDestination::FinalTarget,
+            destination: BlendDestination::CurrentTarget,
             placement: TexturePlacement::Local {
                 transform: geometry::unit_quad_transform(self.logical_output_bounds, None),
                 sampling: TextureUvTransform::IDENTITY,

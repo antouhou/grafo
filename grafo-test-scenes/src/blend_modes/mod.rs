@@ -52,7 +52,7 @@ fn color([red, green, blue, alpha]: [u8; 4]) -> Color {
     Color::rgba(red, green, blue, alpha)
 }
 
-fn rectangle(
+fn add_rectangle(
     scene: &mut Scene,
     parent: usize,
     bounds: [(f32, f32); 2],
@@ -69,7 +69,7 @@ fn rectangle(
         .unwrap()
 }
 
-fn caption(scene: &mut Scene, parent: usize, text: &str, x: f32, y: f32) {
+fn add_caption(scene: &mut Scene, parent: usize, text: &str, x: f32, y: f32) {
     scene
         .add_shape(
             caption_font::shape(text),
@@ -82,23 +82,23 @@ fn caption(scene: &mut Scene, parent: usize, text: &str, x: f32, y: f32) {
         .unwrap();
 }
 
-fn matrix(scene: &mut Scene, root: usize, expectations: &mut Vec<PixelExpectation>) {
+fn add_blend_mode_grid(scene: &mut Scene, root: usize, expectations: &mut Vec<PixelExpectation>) {
     for (mode_index, (mode, name)) in MODES.into_iter().enumerate() {
         let origin_x = (mode_index % 7) as f32 * 104.0;
         let origin_y = (mode_index / 7) as f32 * 96.0;
-        caption(scene, root, name, origin_x + 4.0, origin_y + 4.0);
+        add_caption(scene, root, name, origin_x + 4.0, origin_y + 4.0);
         for (sample_index, (source, destination)) in SAMPLES.into_iter().enumerate() {
             let x = origin_x + 4.0 + (sample_index % 3) as f32 * 32.0;
             let y = origin_y + 16.0 + (sample_index / 3) as f32 * 24.0;
             let bounds = [(x, y), (x + 28.0, y + 20.0)];
-            rectangle(
+            add_rectangle(
                 scene,
                 root,
                 bounds,
                 color(destination),
                 BlendMode::SourceOver,
             );
-            let source = rectangle(scene, root, bounds, color(source), mode);
+            let source = add_rectangle(scene, root, bounds, color(source), mode);
             if sample_index == 1 {
                 scene
                     .set_content_effect(
@@ -118,9 +118,9 @@ fn matrix(scene: &mut Scene, root: usize, expectations: &mut Vec<PixelExpectatio
     }
 }
 
-fn captured_rectangle(scene: &mut Scene, root: usize) -> Vec<PixelExpectation> {
-    caption(scene, root, "CAPTURE RECTANGLE", 4.0, 392.0);
-    rectangle(
+fn add_capture_rectangle_tile(scene: &mut Scene, root: usize) -> Vec<PixelExpectation> {
+    add_caption(scene, root, "CAPTURE RECTANGLE", 4.0, 392.0);
+    add_rectangle(
         scene,
         root,
         [(4.0, 408.0), (140.0, 492.0)],
@@ -139,7 +139,7 @@ fn captured_rectangle(scene: &mut Scene, root: usize) -> Vec<PixelExpectation> {
             )
             .unwrap();
         for left in [24.0, 96.0] {
-            rectangle(
+            add_rectangle(
                 scene,
                 source,
                 [(left, top + 6.0), (left + 24.0, top + 22.0)],
@@ -159,9 +159,9 @@ fn captured_rectangle(scene: &mut Scene, root: usize) -> Vec<PixelExpectation> {
     ]
 }
 
-fn padded_source(scene: &mut Scene, root: usize) -> Vec<PixelExpectation> {
-    caption(scene, root, "PADDED SOURCE", 148.0, 392.0);
-    rectangle(
+fn add_padded_source_tile(scene: &mut Scene, root: usize) -> Vec<PixelExpectation> {
+    add_caption(scene, root, "PADDED SOURCE", 148.0, 392.0);
+    add_rectangle(
         scene,
         root,
         [(148.0, 408.0), (284.0, 492.0)],
@@ -195,8 +195,8 @@ fn padded_source(scene: &mut Scene, root: usize) -> Vec<PixelExpectation> {
     ]
 }
 
-fn nested_targets(scene: &mut Scene, root: usize) -> Vec<PixelExpectation> {
-    caption(scene, root, "NESTED TARGET", 296.0, 392.0);
+fn add_nested_targets_tile(scene: &mut Scene, root: usize) -> Vec<PixelExpectation> {
+    add_caption(scene, root, "NESTED TARGET", 296.0, 392.0);
     let outer = scene
         .add_shape(
             Shape::rounded_rect([(296.0, 408.0), (472.0, 492.0)], BorderRadii::new(12.0)),
@@ -213,7 +213,7 @@ fn nested_targets(scene: &mut Scene, root: usize) -> Vec<PixelExpectation> {
             true,
         )
         .unwrap();
-    let inner = rectangle(
+    let inner = add_rectangle(
         scene,
         clip,
         [(288.0, 432.0), (480.0, 464.0)],
@@ -249,16 +249,16 @@ fn nested_targets(scene: &mut Scene, root: usize) -> Vec<PixelExpectation> {
     ]
 }
 
-fn masked_backdrop(scene: &mut Scene, root: usize) -> Vec<PixelExpectation> {
-    caption(scene, root, "MASK BACKDROP", 488.0, 392.0);
-    rectangle(
+fn add_masked_backdrop_tile(scene: &mut Scene, root: usize) -> Vec<PixelExpectation> {
+    add_caption(scene, root, "MASK BACKDROP", 488.0, 392.0);
+    add_rectangle(
         scene,
         root,
         [(488.0, 408.0), (600.0, 492.0)],
         Color::WHITE,
         BlendMode::SourceOver,
     );
-    let source = rectangle(
+    let source = add_rectangle(
         scene,
         root,
         [(512.0, 424.0), (552.0, 464.0)],
@@ -288,16 +288,19 @@ fn masked_backdrop(scene: &mut Scene, root: usize) -> Vec<PixelExpectation> {
     ]
 }
 
-fn restored_foreground(scene: &mut Scene, root: usize) -> (Vec<PixelExpectation>, usize, usize) {
-    caption(scene, root, "BINDINGS", 612.0, 392.0);
-    let destination = rectangle(
+fn add_foreground_binding_tile(
+    scene: &mut Scene,
+    root: usize,
+) -> (Vec<PixelExpectation>, usize, usize) {
+    add_caption(scene, root, "BINDINGS", 612.0, 392.0);
+    let destination = add_rectangle(
         scene,
         root,
         RETAINED_DESTINATION_BOUNDS,
         color(SAMPLES[0].1),
         BlendMode::SourceOver,
     );
-    let foreground = |scene: &mut Scene, bounds| {
+    let add_foreground_rectangle = |scene: &mut Scene, bounds| {
         scene
             .add_shape(
                 Shape::rect(bounds),
@@ -307,15 +310,15 @@ fn restored_foreground(scene: &mut Scene, root: usize) -> (Vec<PixelExpectation>
             )
             .unwrap();
     };
-    foreground(scene, [(616.0, 412.0), (640.0, 420.0)]);
-    let source = rectangle(
+    add_foreground_rectangle(scene, [(616.0, 412.0), (640.0, 420.0)]);
+    let source = add_rectangle(
         scene,
         root,
         RETAINED_SOURCE_BOUNDS,
         color(SAMPLES[0].0),
         BlendMode::Overlay,
     );
-    foreground(scene, [(680.0, 428.0), (720.0, 468.0)]);
+    add_foreground_rectangle(scene, [(680.0, 428.0), (720.0, 468.0)]);
     (
         vec![
             PixelExpectation::opaque(628, 416, 0, 255, 0, "foreground_before_blend"),
@@ -339,12 +342,13 @@ pub fn build_blend_modes_scene(scene: &mut Scene) -> BlendModesScene {
     );
     let root = scene.add_group(None, Default::default()).unwrap();
     let mut expectations = Vec::new();
-    matrix(scene, root, &mut expectations);
-    expectations.extend(captured_rectangle(scene, root));
-    expectations.extend(padded_source(scene, root));
-    expectations.extend(nested_targets(scene, root));
-    expectations.extend(masked_backdrop(scene, root));
-    let (foreground_expectations, source_node, destination_node) = restored_foreground(scene, root);
+    add_blend_mode_grid(scene, root, &mut expectations);
+    expectations.extend(add_capture_rectangle_tile(scene, root));
+    expectations.extend(add_padded_source_tile(scene, root));
+    expectations.extend(add_nested_targets_tile(scene, root));
+    expectations.extend(add_masked_backdrop_tile(scene, root));
+    let (foreground_expectations, source_node, destination_node) =
+        add_foreground_binding_tile(scene, root);
     expectations.extend(foreground_expectations);
     BlendModesScene {
         expectations,

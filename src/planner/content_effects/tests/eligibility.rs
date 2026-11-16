@@ -172,7 +172,7 @@ fn nested_captures_forward_each_shape_mode_without_changing_mask_composites() {
         for command in &commands {
             if let RenderOperation::CompositeTexture(composite) = command.operation {
                 if composite.blend_mode != BlendMode::Multiply {
-                    assert_eq!(composite.destination, BlendDestination::FinalTarget);
+                    assert_eq!(composite.destination, BlendDestination::CurrentTarget);
                 }
             }
         }
@@ -300,7 +300,7 @@ fn nested_blend_destinations_capture_the_active_parent_instead_of_its_backdrop_b
                 RenderOperation::CompositeTexture(composite)
                     if composite.blend_mode == BlendMode::SourceOver =>
                 {
-                    assert_eq!(composite.destination, BlendDestination::FinalTarget);
+                    assert_eq!(composite.destination, BlendDestination::CurrentTarget);
                 }
                 _ => {}
             }

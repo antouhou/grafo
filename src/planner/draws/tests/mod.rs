@@ -246,7 +246,7 @@ fn shape_mask_composites_preserve_geometry_and_clips() {
         TextureComposite {
             source: leaf_texture,
             blend_mode: BlendMode::SourceOver,
-            destination: BlendDestination::FinalTarget,
+            destination: BlendDestination::CurrentTarget,
             placement: TexturePlacement::Local {
                 transform: InstanceTransform::translation(10.0, 20.0),
                 sampling: TextureUvTransform::IDENTITY,

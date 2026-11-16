@@ -342,7 +342,7 @@ fn shape_mask_effect_composite_precedes_its_source_backdrop_capture_under_inheri
         TextureComposite {
             source: IntermediateTextureId::Registered(100),
             blend_mode: BlendMode::SourceOver,
-            destination: BlendDestination::FinalTarget,
+            destination: BlendDestination::CurrentTarget,
             placement: TexturePlacement::Local {
                 transform: InstanceTransform::translation(12.0, 18.0),
                 sampling: TextureUvTransform::IDENTITY,

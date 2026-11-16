@@ -94,7 +94,7 @@ pub enum TexturePlacement {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BlendDestination {
-    FinalTarget,
+    CurrentTarget,
     // Full-resolution destination pixels in the placement's original UV space.
     Texture(IntermediateTextureId),
 }
