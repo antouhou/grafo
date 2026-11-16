@@ -13,6 +13,11 @@ pub(crate) struct EffectRegistry {
 }
 
 impl EffectRegistry {
+    pub(in crate::wgpu_backend) fn clear_caches(&mut self) {
+        self.loaded.shrink_to_fit();
+        self.validator = Validator::new(ValidationFlags::all(), Capabilities::default());
+    }
+
     pub(crate) fn new(device: &Device) -> Self {
         Self {
             loaded: HashMap::new(),

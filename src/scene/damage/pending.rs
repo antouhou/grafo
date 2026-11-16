@@ -12,6 +12,14 @@ pub(in crate::scene) struct PendingDamage {
 }
 
 impl PendingDamage {
+    pub(in crate::scene) fn clear_caches(&mut self) {
+        self.roots.shrink_to_fit();
+        self.visited.clear();
+        self.visited.shrink_to_fit();
+        self.stack.clear();
+        self.stack.shrink_to_fit();
+    }
+
     pub(in crate::scene) fn insert(&mut self, node_id: usize) {
         self.roots.insert(node_id);
     }

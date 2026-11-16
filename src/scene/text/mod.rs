@@ -18,6 +18,12 @@ pub(super) struct TextScratch {
     child_ids_to_remove: Vec<usize>,
 }
 
+impl TextScratch {
+    pub(super) fn clear_caches(&mut self) {
+        *self = Self::default();
+    }
+}
+
 impl<B: RenderBackend> Scene<B> {
     pub(super) fn remove_text_glyphs(&mut self, node_id: usize) {
         let mut glyph_ids = mem::take(&mut self.text_scratch.child_ids_to_remove);

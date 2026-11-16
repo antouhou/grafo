@@ -124,6 +124,19 @@ pub(super) struct EffectDamage {
 }
 
 impl EffectDamage {
+    pub(super) fn clear_caches(&mut self) {
+        self.entries.shrink_to_fit();
+        self.tree = RTree::bulk_load(
+            self.entries
+                .values()
+                .flat_map(|entry| entry.triggers())
+                .collect(),
+        );
+        self.traversal.clear_caches();
+        self.processed_effects.clear();
+        self.processed_effects.shrink_to_fit();
+    }
+
     pub(super) fn output_region(
         &self,
         kind: EffectDamageKind,

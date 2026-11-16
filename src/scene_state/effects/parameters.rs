@@ -71,4 +71,9 @@ impl EffectParameterStorage {
         self.compacted.clear();
         self.needs_compaction = false;
     }
+
+    pub(crate) fn clear_caches(&mut self) {
+        self.bytes.shrink_to_fit();
+        self.compacted.shrink_to_fit();
+    }
 }

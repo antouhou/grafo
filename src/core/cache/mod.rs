@@ -83,6 +83,12 @@ where
         self.current_frame.clear();
     }
 
+    pub(crate) fn clear_caches(&mut self) {
+        self.clear();
+        self.previous_frame.shrink_to_fit();
+        self.current_frame.shrink_to_fit();
+    }
+
     /// Yields unused entries. Dropping the iterator discards the remainder.
     pub(crate) fn end_frame(&mut self) -> impl Iterator<Item = (K, V)> + '_ {
         mem::swap(&mut self.previous_frame, &mut self.current_frame);
@@ -99,6 +105,10 @@ impl Cache {
         Self {
             entries: FrameCache::new(),
         }
+    }
+
+    pub(crate) fn clear_caches(&mut self) {
+        self.entries.clear_caches();
     }
 
     pub(crate) fn get_shape(&mut self, geometry_id: &u64) -> Option<CachedShapeHandle> {

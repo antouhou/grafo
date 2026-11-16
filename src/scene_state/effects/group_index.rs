@@ -9,6 +9,15 @@ pub(in crate::scene_state) struct GroupEffectIndex {
 }
 
 impl GroupEffectIndex {
+    pub(in crate::scene_state) fn clear_caches(&mut self) {
+        for groups in self.groups_by_effect.values_mut() {
+            groups.shrink_to_fit();
+        }
+        self.groups_by_effect.shrink_to_fit();
+        self.group_set_pool.clear();
+        self.group_set_pool.shrink_to_fit();
+    }
+
     pub(in crate::scene_state) fn replace(
         &mut self,
         node_id: usize,

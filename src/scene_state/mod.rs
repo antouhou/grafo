@@ -44,6 +44,22 @@ impl SceneStateContext {
             ..Self::default()
         }
     }
+
+    pub(crate) fn clear_caches(&self) {
+        let mut glyph_usage = self
+            .glyph_usage
+            .write()
+            .expect("shared glyph usage lock poisoned");
+        let mut loaded_shapes = self
+            .loaded_shapes
+            .write()
+            .expect("shared shape cache lock poisoned");
+        glyph_usage.clear_caches(&mut loaded_shapes);
+        loaded_shapes.shrink_to_fit();
+        drop(loaded_shapes);
+        drop(glyph_usage);
+        self.texture_updates.clear_caches();
+    }
 }
 
 /// Owns CPU descriptions and rasterization settings.
@@ -96,6 +112,32 @@ impl SceneState {
     /// Returns output dimensions and the logical-to-physical scale.
     pub(crate) fn viewport(&self) -> Viewport {
         self.viewport
+    }
+
+    pub(crate) fn clear_caches(&mut self) {
+        self.effect_parameters.request_compaction();
+        self.compact_effect_parameters();
+        self.effect_parameters.clear_caches();
+        self.shape_resources.clear_caches();
+        self.texture_index.clear_caches();
+        self.texture_updates.clear_caches();
+        self.updated_texture_ids.clear();
+        self.updated_texture_ids.shrink_to_fit();
+        self.updated_shape_ids.clear();
+        self.updated_shape_ids.shrink_to_fit();
+        self.content_groups.shrink_to_fit();
+        self.backdrop_effects.shrink_to_fit();
+        self.effect_damage.clear_caches();
+        self.shape_mask_effects.shrink_to_fit();
+        self.text_glyphs.shrink_to_fit();
+        self.group_effect_source_scratch.clear();
+        self.group_effect_source_scratch.shrink_to_fit();
+        self.group_effect_index.clear_caches();
+        self.fill_source_scratch.clear();
+        self.fill_source_scratch.shrink_to_fit();
+        if self.draw_tree.is_empty() {
+            self.draw_tree = Tree::new();
+        }
     }
 
     /// Updates effect bounds and backdrop captures for the new scale.

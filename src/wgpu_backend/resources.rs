@@ -26,6 +26,14 @@ pub(in crate::wgpu_backend) struct Buffers {
 }
 
 impl Buffers {
+    fn clear_caches(&mut self) {
+        self.aggregated_vertex_buffer = None;
+        self.aggregated_index_buffer = None;
+        self.aggregated_instance_transform_buffer = None;
+        self.aggregated_instance_color_buffer = None;
+        self.aggregated_instance_metadata_buffer = None;
+    }
+
     pub(in crate::wgpu_backend) fn vertex_buffer(&self) -> &Buffer {
         self.aggregated_vertex_buffer
             .as_ref()
@@ -117,4 +125,13 @@ pub(in crate::wgpu_backend) struct BackendResources {
     #[cfg(feature = "render_metrics")]
     /// Cache activity from the most recent render.
     pub(in crate::wgpu_backend) shape_mask_effect_cache_metrics: ShapeMaskEffectCacheMetrics,
+}
+
+impl BackendResources {
+    pub(in crate::wgpu_backend) fn clear_caches(&mut self) {
+        self.shape_execution.clear_caches();
+        self.buffers.clear_caches();
+        self.effect_execution.clear_caches();
+        self.textures.clear_caches();
+    }
 }

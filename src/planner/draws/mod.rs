@@ -96,6 +96,10 @@ pub(crate) struct DrawPlanner {
 }
 
 impl DrawPlanner {
+    pub(crate) fn clear_caches(&mut self) {
+        *self = Self::default();
+    }
+
     pub(crate) fn start(&mut self, input: &DrawPlanningInput<'_, '_>) {
         self.parents.clear();
         self.current = DrawTargetState::for_viewport(input.physical_size, CaptureSource::Target);

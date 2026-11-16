@@ -148,6 +148,8 @@ impl RenderBackend for TestBackend {
         self.registered_shapes.clear();
     }
 
+    fn clear_caches(&mut self) {}
+
     fn texture_manager(&self) -> &TestTextureManager {
         &self.texture_manager
     }

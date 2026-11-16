@@ -4,12 +4,19 @@ use crate::core::gradient::types::{
 use crate::wgpu_backend::execution::shapes::TextureSamplingUniform;
 use lru::LruCache;
 use std::f32::consts::TAU;
+use std::hash::Hash;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 
 const MAX_GRADIENT_RAMP_CACHE_SIZE: usize = 256;
 const MAX_GRADIENT_MATERIAL_CACHE_SIZE: usize = 1024;
+
+fn empty_lru_cache<K: Hash + Eq, V>(capacity: NonZeroUsize) -> LruCache<K, V> {
+    let mut cache = LruCache::unbounded();
+    cache.resize(capacity);
+    cache
+}
 
 /// Gradient parameters laid out for a GPU uniform buffer.
 /// Matches the WGSL `GradientColorParams` struct in shader.wgsl.
@@ -286,6 +293,13 @@ pub(crate) struct GradientCache {
 }
 
 impl GradientCache {
+    pub(in crate::wgpu_backend) fn clear_caches(&mut self) {
+        self.ramps = empty_lru_cache(self.ramps.cap());
+        self.ramp_textures = empty_lru_cache(self.ramp_textures.cap());
+        self.materials = empty_lru_cache(self.materials.cap());
+        self.default_ramp_texture = None;
+    }
+
     pub(crate) fn new() -> Self {
         Self {
             ramps: LruCache::new(

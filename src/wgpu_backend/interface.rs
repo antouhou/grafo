@@ -57,6 +57,10 @@ impl RenderBackend for WgpuBackend {
         self.resources.shape_execution.clear();
     }
 
+    fn clear_caches(&mut self) {
+        self.clear_caches();
+    }
+
     fn texture_manager(&self) -> &Self::TextureManager {
         self.texture_manager()
     }

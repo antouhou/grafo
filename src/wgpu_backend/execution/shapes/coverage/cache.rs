@@ -59,6 +59,14 @@ pub(in crate::wgpu_backend) struct CoverageCache {
 }
 
 impl CoverageCache {
+    pub(in crate::wgpu_backend) fn clear_caches(&mut self) {
+        self.entries.clear_caches();
+        self.builder.clear_caches();
+        self.uploads.clear_caches();
+        self.buffers = Vec::new();
+        self.retained = Vec::new();
+    }
+
     pub(in crate::wgpu_backend) fn new() -> Self {
         Self {
             entries: FrameCache::new(),

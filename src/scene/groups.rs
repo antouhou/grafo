@@ -20,6 +20,12 @@ pub(super) struct GroupEffectScratch {
     pub(super) removed_effects: Vec<(usize, EffectAttachmentKind)>,
 }
 
+impl GroupEffectScratch {
+    pub(super) fn clear_caches(&mut self) {
+        *self = Self::default();
+    }
+}
+
 impl<B: RenderBackend> Scene<B> {
     fn collect_member_effect_attachments(
         &self,

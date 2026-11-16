@@ -62,6 +62,15 @@ impl DamageTraversal {
         }
     }
 
+    pub(super) fn clear_caches(&mut self) {
+        self.clear();
+        self.node_locations.shrink_to_fit();
+        self.path.shrink_to_fit();
+        for waiting in &mut self.waiting_nodes {
+            waiting.shrink_to_fit();
+        }
+    }
+
     fn ready_node(&mut self, bounds: UnsignedPhysicalRect) -> Option<usize> {
         for edge in DamageEdge::ALL {
             let waiting = &mut self.waiting_nodes[edge as usize];

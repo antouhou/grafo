@@ -32,6 +32,10 @@ pub(in crate::wgpu_backend) struct CompositeExecutionResources {
 }
 
 impl CompositeExecutionResources {
+    pub(in crate::wgpu_backend) fn clear_caches(&mut self) {
+        *self = Self::default();
+    }
+
     pub(super) fn begin_render(&mut self) {
         self.instances.reset();
     }

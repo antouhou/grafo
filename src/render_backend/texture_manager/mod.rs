@@ -51,6 +51,13 @@ pub(crate) struct TextureUpdateSubscription {
 }
 
 impl TextureUpdateSubscription {
+    pub(crate) fn clear_caches(&self) {
+        self.pending
+            .lock()
+            .expect("pending texture updates lock poisoned")
+            .shrink_to_fit();
+    }
+
     /// Replaces `texture_ids` with pending changes, consuming them from this subscription.
     /// Repeated changes to an ID are coalesced. ID order is unspecified.
     pub(crate) fn drain_into(&mut self, texture_ids: &mut Vec<u64>) {
@@ -72,6 +79,21 @@ pub(crate) struct TextureUpdatePublisher {
 }
 
 impl TextureUpdatePublisher {
+    pub(crate) fn clear_caches(&self) {
+        let mut subscriptions = self
+            .subscriptions
+            .lock()
+            .expect("texture subscriptions lock poisoned");
+        subscriptions.retain(|subscription| subscription.strong_count() != 0);
+        subscriptions.shrink_to_fit();
+        for pending in subscriptions.iter().filter_map(Weak::upgrade) {
+            pending
+                .lock()
+                .expect("pending texture updates lock poisoned")
+                .shrink_to_fit();
+        }
+    }
+
     /// Subscribes to changes published after this call
     pub(crate) fn subscribe(&self) -> TextureUpdateSubscription {
         let pending = Arc::new(Mutex::new(HashSet::default()));
