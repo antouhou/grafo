@@ -61,6 +61,9 @@ impl WgpuBackend {
             .begin_render();
         self.resources.effect_execution.begin_render();
 
+        if self.msaa_sample_count > 1 && self.msaa_color_texture_view.is_none() {
+            self.recreate_msaa_texture();
+        }
         if self.depth_stencil_view.is_none() {
             self.recreate_depth_stencil_texture();
         }

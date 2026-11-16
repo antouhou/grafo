@@ -11,6 +11,19 @@ pub(super) struct GlyphUsage {
 }
 
 impl GlyphUsage {
+    fn remove_unused(&mut self, loaded_shapes: &mut HashMap<u64, CachedShapeHandle>) {
+        for glyph_key in self.glyphs_to_remove.drain() {
+            self.counts.remove(&glyph_key);
+            loaded_shapes.remove(&glyph_key);
+        }
+    }
+
+    pub(super) fn clear_caches(&mut self, loaded_shapes: &mut HashMap<u64, CachedShapeHandle>) {
+        self.remove_unused(loaded_shapes);
+        self.counts.shrink_to_fit();
+        self.glyphs_to_remove.shrink_to_fit();
+    }
+
     fn insert(&mut self, glyph_key: u64) {
         *self.counts.entry(glyph_key).or_default() += 1;
         self.glyphs_to_remove.remove(&glyph_key);
@@ -126,14 +139,7 @@ impl SceneState {
             .loaded_shapes
             .write()
             .expect("shared shape cache lock poisoned");
-        let GlyphUsage {
-            counts,
-            glyphs_to_remove,
-        } = &mut *glyph_usage;
-        for glyph_key in glyphs_to_remove.drain() {
-            counts.remove(&glyph_key);
-            loaded_shapes.remove(&glyph_key);
-        }
+        glyph_usage.remove_unused(&mut loaded_shapes);
     }
 }
 

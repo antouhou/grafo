@@ -43,6 +43,19 @@ pub(crate) struct IntermediateTextureResources {
 }
 
 impl IntermediateTextureResources {
+    pub(in crate::wgpu_backend) fn clear_caches(&mut self) {
+        self.active_targets = Vec::new();
+        self.target_uniforms.clear_caches();
+        self.masks = Vec::new();
+        self.sampled_textures.clear();
+        self.sampled_textures.shrink_to_fit();
+        self.planned = Vec::new();
+        self.pool.clear_caches();
+        self.work_textures = Vec::new();
+        self.shape_mask_effect_results.clear_caches();
+        self.shape_masks.clear_caches();
+    }
+
     pub(crate) fn new() -> Self {
         Self {
             active_targets: Vec::new(),

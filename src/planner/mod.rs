@@ -103,6 +103,12 @@ impl Planner {
     pub(crate) fn clear(&mut self) {
         self.shape_composites.clear();
     }
+
+    pub(crate) fn clear_caches(&mut self) {
+        self.clear();
+        self.shape_composites.shrink_to_fit();
+        self.traversal.clear_caches();
+    }
 }
 
 impl<'state> CommandIterator<'state, '_> {

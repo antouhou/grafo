@@ -87,6 +87,25 @@ pub(crate) struct ShapeExecutionResources {
 }
 
 impl ShapeExecutionResources {
+    pub(in crate::wgpu_backend) fn clear_caches(&mut self) {
+        self.compact_draw_buffers();
+        self.compaction = DrawBufferCompactionStorage::default();
+        for draw in self.draws.values_mut() {
+            draw.clear_under_fill_binding();
+        }
+        self.draws.shrink_to_fit();
+        self.vertices.shrink_to_fit();
+        self.indices.shrink_to_fit();
+        self.geometry_ranges.shrink_to_fit();
+        self.instance_transforms.shrink_to_fit();
+        self.instance_colors.shrink_to_fit();
+        self.instance_metadata.shrink_to_fit();
+        self.coverage_cache.clear_caches();
+        self.gradient_cache.clear_caches();
+        self.texture_materials.clear_caches();
+        self.composites.clear_caches();
+    }
+
     pub(in crate::wgpu_backend) fn register_draw(
         &mut self,
         id: ShapeDrawId,

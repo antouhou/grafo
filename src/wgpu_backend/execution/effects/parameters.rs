@@ -180,6 +180,10 @@ pub(crate) struct EffectExecutionResources {
 }
 
 impl EffectExecutionResources {
+    pub(in crate::wgpu_backend) fn clear_caches(&mut self) {
+        *self = Self::default();
+    }
+
     pub(crate) fn begin_render(&mut self) {
         self.parameters.begin_render();
         self.backdrop_composites.slots.reset();

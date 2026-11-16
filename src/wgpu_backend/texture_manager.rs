@@ -70,6 +70,22 @@ impl WgpuTextureManager {
         (texture_storage.len(), bind_group_cache.len())
     }
 
+    /// Releases cached bindings and spare storage while preserving all loaded textures.
+    pub fn clear_caches(&self) {
+        let mut texture_storage = self
+            .texture_storage
+            .write()
+            .expect("texture storage lock poisoned");
+        let mut bind_group_cache = self
+            .shape_bind_group_cache
+            .write()
+            .expect("shape bind-group cache lock poisoned");
+        bind_group_cache.clear();
+        bind_group_cache.shrink_to_fit();
+        texture_storage.shrink_to_fit();
+        self.updates.clear_caches();
+    }
+
     fn create_sampler(device: &wgpu::Device) -> wgpu::Sampler {
         device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,

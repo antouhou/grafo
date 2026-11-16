@@ -47,6 +47,10 @@ pub(in crate::wgpu_backend) struct TextureMaterialPool {
 }
 
 impl TextureMaterialPool {
+    pub(in crate::wgpu_backend) fn clear_caches(&mut self) {
+        *self = Self::default();
+    }
+
     pub(in crate::wgpu_backend) fn begin_render(&mut self) {
         self.slots.reset();
     }

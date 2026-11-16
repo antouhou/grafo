@@ -18,4 +18,11 @@ impl ShapeResources {
             tessellation_cache: Cache::new(),
         }
     }
+
+    pub(crate) fn clear_caches(&mut self) {
+        self.path_boundary_builder = PathBoundaryBuilder::default();
+        self.fill_tessellator = FillTessellator::new();
+        self.stroke_tessellator = StrokeTessellator::new();
+        self.tessellation_cache.clear_caches();
+    }
 }

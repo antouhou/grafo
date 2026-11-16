@@ -115,6 +115,11 @@ pub(crate) struct OffscreenTexturePool {
 }
 
 impl OffscreenTexturePool {
+    pub(in crate::wgpu_backend) fn clear_caches(&mut self) {
+        self.available.clear();
+        self.available.shrink_to_fit();
+    }
+
     pub fn new() -> Self {
         Self {
             available: HashMap::new(),

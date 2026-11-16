@@ -82,6 +82,18 @@ pub(super) struct CoverageUploads {
 }
 
 impl CoverageUploads {
+    pub(super) fn clear_caches(&mut self) {
+        // Live draws can still reference uploads queued before the first render.
+        self.pending
+            .retain(|pending| Arc::strong_count(&pending.buffers) > 1);
+        for pending in &mut self.pending {
+            pending.geometry.clear_caches();
+        }
+        self.pending.shrink_to_fit();
+        self.storage = Vec::new();
+        self.indices = Vec::new();
+    }
+
     pub(super) fn prepare(
         &mut self,
         builder: &mut CoverageBuilder,

@@ -34,6 +34,10 @@ pub(crate) struct CoverageBuilder {
 }
 
 impl CoverageBuilder {
+    pub(in crate::wgpu_backend) fn clear_caches(&mut self) {
+        *self = Self::default();
+    }
+
     pub(super) fn trim_row_buckets(&mut self, height: u32) {
         self.path_sweep.trim_row_buckets(height);
     }

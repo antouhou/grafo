@@ -9,6 +9,12 @@ use texture_manager::TextureManager;
 pub mod render_target;
 pub mod texture_manager;
 
+/// Shared backend resources used by multiple scenes.
+pub trait RenderContext {
+    /// Releases disposable caches and spare capacity while preserving loaded assets.
+    fn clear_caches(&self);
+}
+
 /// Owns execution resources and interprets incoming commands.
 /// Shapes are registered while queuing; rendering consumes commands in order.
 pub trait RenderBackend {
@@ -32,6 +38,10 @@ pub trait RenderBackend {
     fn unregister_shapes(&mut self, ids: &[ShapeDrawId]);
     /// Releases queued references, retaining reusable storage and resource caches.
     fn clear(&mut self);
+
+    /// Releases disposable caches and spare capacity, preserving registered draws and assets.
+    /// Recreate discarded resources on the next render and request a full redraw if needed.
+    fn clear_caches(&mut self);
 
     fn texture_manager(&self) -> &Self::TextureManager;
 

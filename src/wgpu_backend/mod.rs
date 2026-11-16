@@ -91,6 +91,19 @@ pub struct WgpuBackend {
 }
 
 impl WgpuBackend {
+    pub(crate) fn clear_caches(&mut self) {
+        self.resources.clear_caches();
+        self.effect_registry.clear_caches();
+        self.readback_bytes = Vec::new();
+        self.argb_readback = None;
+        self.byte_readback = None;
+        self.retained_output = None;
+        self.msaa_color_texture = None;
+        self.msaa_color_texture_view = None;
+        self.depth_stencil_texture = None;
+        self.depth_stencil_view = None;
+    }
+
     /// Shared source textures used by this backend.
     pub fn texture_manager(&self) -> &WgpuTextureManager {
         &self.pipeline_resources.shapes.texture_manager

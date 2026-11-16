@@ -67,6 +67,11 @@ impl RenderLoopMetricsTracker {
         }
     }
 
+    pub(super) fn clear_caches(&mut self, now: Instant) {
+        self.prune_rolling_window(now);
+        self.rolling_samples.shrink_to_fit();
+    }
+
     pub(super) fn record_presented_frame(
         &mut self,
         render_loop_started_at: Instant,

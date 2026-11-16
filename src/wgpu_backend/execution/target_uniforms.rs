@@ -12,6 +12,10 @@ pub(super) struct TargetUniformPool {
 }
 
 impl TargetUniformPool {
+    pub(in crate::wgpu_backend) fn clear_caches(&mut self) {
+        *self = Self::default();
+    }
+
     pub(super) fn begin_render(&mut self) {
         self.buffers.reset();
     }

@@ -62,6 +62,12 @@ pub(crate) struct CoverageGeometry {
 }
 
 impl CoverageGeometry {
+    pub(in crate::wgpu_backend) fn clear_caches(&mut self) {
+        self.tiles.shrink_to_fit();
+        self.projections.shrink_to_fit();
+        self.coverage.shrink_to_fit();
+    }
+
     pub(crate) fn clear(&mut self) {
         self.tiles.clear();
         self.projections.clear();

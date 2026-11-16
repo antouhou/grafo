@@ -8,7 +8,7 @@ use crate::core::vertex::InstanceTransform;
 use crate::core::{GroupDrawCommandOptions, TextSource, UnsignedPhysicalRect};
 use crate::planner::Planner;
 use crate::render_backend::render_target::RenderTarget;
-use crate::render_backend::RenderBackend;
+use crate::render_backend::{RenderBackend, RenderContext};
 use crate::scene_state::effects::{
     EffectAttachment, EffectAttachmentKind, EffectAttachments, EffectConfig,
 };
@@ -56,6 +56,15 @@ pub enum EffectError<E> {
 pub struct SceneContext<B> {
     pub(crate) backend: B,
     pub(crate) state: SceneStateContext,
+}
+
+impl<B: RenderContext> SceneContext<B> {
+    /// Releases shared disposable caches and spare capacity, preserving loaded assets.
+    /// Clear each scene's caches separately to release its private rendering resources.
+    pub fn clear_caches(&self) {
+        self.state.clear_caches();
+        self.backend.clear_caches();
+    }
 }
 
 /// A retained scene of groups, shapes, clipping rectangles, and effects.
@@ -386,6 +395,29 @@ impl<B: RenderBackend> Scene<B> {
     /// Loaded shapes, textures, and effect definitions remain available.
     pub fn clear(&mut self) {
         self.remove_subtrees([0], |_| {});
+    }
+
+    /// Releases disposable caches and spare capacity without changing scene contents or IDs.
+    /// Loaded shapes, textures, and effect definitions remain available. The next render
+    /// rebuilds discarded resources and redraws the scene. Call after a workload shrinks or
+    /// when the application receives a memory-pressure notification.
+    ///
+    /// Physical memory reclamation may wait for submitted GPU work or the allocator.
+    /// Shared context caches can be cleared separately with [`SceneContext::clear_caches`].
+    pub fn clear_caches(&mut self) {
+        self.state.clear_caches();
+        self.planner.clear_caches();
+        self.removed_shape_ids.shrink_to_fit();
+        self.text_scratch.clear_caches();
+        self.group_effect_scratch.clear_caches();
+        self.pending_damage.clear_caches();
+        self.backend.clear_caches();
+        #[cfg(feature = "render_metrics")]
+        self.render_loop_metrics_tracker
+            .clear_caches(Instant::now());
+        self.dirty_bounds = Some(UnsignedPhysicalRect::from_size(
+            self.state.viewport().physical_size.into(),
+        ));
     }
 
     /// Loads shader passes. Changed sources detach old instances and invalidate cached results.

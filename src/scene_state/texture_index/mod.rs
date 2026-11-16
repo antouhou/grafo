@@ -27,6 +27,14 @@ pub(super) struct TextureIndex {
 }
 
 impl TextureIndex {
+    pub(super) fn clear_caches(&mut self) {
+        for shapes in self.shapes_by_texture.values_mut() {
+            shapes.shrink_to_fit();
+        }
+        self.shapes_by_texture.shrink_to_fit();
+        self.textures_by_shape.shrink_to_fit();
+    }
+
     pub(super) fn shapes_using(&self, texture_id: u64) -> impl Iterator<Item = usize> + '_ {
         self.shapes_by_texture
             .get(&texture_id)
