@@ -15,6 +15,9 @@ pub struct WgpuSurface {
 
 impl WgpuBackend {
     pub(in crate::wgpu_backend) fn resize(&mut self, viewport: Viewport) {
+        if self.context.ensure_available().is_err() {
+            return;
+        }
         let should_rebuild_coverage = self.viewport.physical_size != viewport.physical_size
             || self.viewport.scale_factor != viewport.scale_factor;
         self.viewport = viewport;
