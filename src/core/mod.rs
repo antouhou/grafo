@@ -2,7 +2,6 @@
 
 pub use blend::BlendMode;
 pub use cache::CachedTessellation;
-pub(crate) use color::linear_to_srgb_u8;
 pub use color::{premultiply_rgba8_srgb_inplace, Color};
 pub use effect::{
     BackdropCaptureArea, BackdropEffectConfig, ContentEffectConfig, ShapeMaskEffectConfig,
@@ -25,7 +24,7 @@ pub use vertex::{CustomVertex, TextureUvTransform};
 
 mod blend;
 pub(crate) mod cache;
-mod color;
+pub mod color;
 pub(crate) mod effect;
 pub(crate) mod geometry;
 pub mod gradient;

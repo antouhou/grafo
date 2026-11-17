@@ -3,6 +3,7 @@ use super::types::{
     ColorInterpolation, GradientColor, GradientRamp, GradientRampSource, HueComponent,
     HueInterpolationMethod, RAMP_RESOLUTION, RESOLVED_DEGENERATE_EPSILON,
 };
+use crate::core::color;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy)]
@@ -246,15 +247,15 @@ fn to_rect_space(color: &GradientColor, space: RectSpace) -> [f32; 4] {
     match space {
         RectSpace::Srgb => [srgb_r, srgb_g, srgb_b, alpha],
         RectSpace::SrgbLinear => {
-            let lr = srgb_to_linear(srgb_r);
-            let lg = srgb_to_linear(srgb_g);
-            let lb = srgb_to_linear(srgb_b);
+            let lr = color::srgb_to_linear(srgb_r);
+            let lg = color::srgb_to_linear(srgb_g);
+            let lb = color::srgb_to_linear(srgb_b);
             [lr, lg, lb, alpha]
         }
         RectSpace::Oklab => {
-            let lr = srgb_to_linear(srgb_r);
-            let lg = srgb_to_linear(srgb_g);
-            let lb = srgb_to_linear(srgb_b);
+            let lr = color::srgb_to_linear(srgb_r);
+            let lg = color::srgb_to_linear(srgb_g);
+            let lb = color::srgb_to_linear(srgb_b);
             let [ol, oa, ob] = linear_rgb_to_oklab(lr, lg, lb);
             [ol, oa, ob, alpha]
         }
@@ -264,7 +265,11 @@ fn to_rect_space(color: &GradientColor, space: RectSpace) -> [f32; 4] {
 /// Converts from a rectangular interpolation space back to linear sRGB.
 fn rect_to_linear(c0: f32, c1: f32, c2: f32, space: RectSpace) -> [f32; 3] {
     match space {
-        RectSpace::Srgb => [srgb_to_linear(c0), srgb_to_linear(c1), srgb_to_linear(c2)],
+        RectSpace::Srgb => [
+            color::srgb_to_linear(c0),
+            color::srgb_to_linear(c1),
+            color::srgb_to_linear(c2),
+        ],
         RectSpace::SrgbLinear => [c0, c1, c2],
         RectSpace::Oklab => oklab_to_linear_rgb(c0, c1, c2),
     }
@@ -326,7 +331,11 @@ fn cylindrical_to_linear(hue: f32, c1: f32, c2: f32, space: CylSpace) -> [f32; 3
         CylSpace::Hsl => hsl_to_srgb(hue, c1, c2),
         CylSpace::Hwb => hwb_to_srgb(hue, c1, c2),
     };
-    [srgb_to_linear(sr), srgb_to_linear(sg), srgb_to_linear(sb)]
+    [
+        color::srgb_to_linear(sr),
+        color::srgb_to_linear(sg),
+        color::srgb_to_linear(sb),
+    ]
 }
 
 fn resolve_hue_pair(h0: f32, h0_powerless: bool, h1: f32, h1_powerless: bool) -> (f32, f32) {
@@ -381,17 +390,17 @@ fn gradient_color_to_srgb(color: &GradientColor) -> (f32, f32, f32, f32) {
             blue,
             alpha,
         } => (
-            linear_to_srgb(*red),
-            linear_to_srgb(*green),
-            linear_to_srgb(*blue),
+            color::linear_to_srgb(*red),
+            color::linear_to_srgb(*green),
+            color::linear_to_srgb(*blue),
             *alpha,
         ),
         GradientColor::Oklab { l, a, b, alpha } => {
             let [lr, lg, lb] = oklab_to_linear_rgb(*l, *a, *b);
             (
-                linear_to_srgb(lr),
-                linear_to_srgb(lg),
-                linear_to_srgb(lb),
+                color::linear_to_srgb(lr),
+                color::linear_to_srgb(lg),
+                color::linear_to_srgb(lb),
                 *alpha,
             )
         }
@@ -422,28 +431,10 @@ fn gradient_color_to_srgb(color: &GradientColor) -> (f32, f32, f32, f32) {
 pub(crate) fn color_to_final_linear_premultiplied(color: &GradientColor) -> [f32; 4] {
     let (sr, sg, sb, alpha) = gradient_color_to_srgb(color);
     let alpha = alpha.clamp(0.0, 1.0);
-    let lr = srgb_to_linear(sr);
-    let lg = srgb_to_linear(sg);
-    let lb = srgb_to_linear(sb);
+    let lr = color::srgb_to_linear(sr);
+    let lg = color::srgb_to_linear(sg);
+    let lb = color::srgb_to_linear(sb);
     [lr * alpha, lg * alpha, lb * alpha, alpha]
-}
-
-fn srgb_to_linear(c: f32) -> f32 {
-    if c.abs() <= 0.04045 {
-        c / 12.92
-    } else {
-        let sign = c.signum();
-        sign * ((c.abs() + 0.055) / 1.055).powf(2.4)
-    }
-}
-
-fn linear_to_srgb(c: f32) -> f32 {
-    if c.abs() <= 0.0031308 {
-        c * 12.92
-    } else {
-        let sign = c.signum();
-        sign * (1.055 * c.abs().powf(1.0 / 2.4) - 0.055)
-    }
 }
 
 #[allow(clippy::excessive_precision)]

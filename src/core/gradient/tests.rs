@@ -2,9 +2,9 @@ use super::errors::GradientError;
 use super::normalize::NormalizedGradient;
 use super::sampling::bake_gradient_ramp;
 use super::types::{
-    ColorInterpolation, Gradient, GradientColor, GradientCommonDesc, GradientKind, GradientRamp,
-    GradientRampSource, GradientStop, GradientStopOffset, LinearGradientDesc, LinearGradientLine,
-    RadialGradientDesc, RadialGradientSize,
+    ColorInterpolation, Fill, Gradient, GradientColor, GradientCommonDesc, GradientKind,
+    GradientRamp, GradientRampSource, GradientStop, GradientStopOffset, LinearGradientDesc,
+    LinearGradientLine, RadialGradientDesc, RadialGradientSize,
 };
 use crate::core::Color;
 
@@ -40,6 +40,25 @@ fn single_stop_bakes_a_constant_premultiplied_color_for_any_position() {
         });
         assert_eq!(ramp.as_slice(), &[[0.5, 0.0, 0.0, 0.5]]);
     }
+}
+
+#[test]
+fn float_color_stops_preserve_the_solid_fill_components() {
+    let color = Color::rgba_f32(0.123_456, -0.5, 1.5, 0.25);
+    let [red, green, blue, alpha] = Fill::Solid(color).to_normalized_solid().unwrap();
+    let gradient = Gradient::linear(LinearGradientDesc::new(
+        LinearGradientLine {
+            start: [0.0, 0.0],
+            end: [10.0, 0.0],
+        },
+        [GradientStop::auto(color)],
+    ))
+    .unwrap();
+
+    assert_eq!(
+        gradient.data().ramp.as_slice(),
+        &[[red * alpha, green * alpha, blue * alpha, alpha]]
+    );
 }
 
 #[test]

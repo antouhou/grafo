@@ -127,8 +127,6 @@ pub struct ShapeInstance {
     pub transform: Option<InstanceTransform>,
     /// Texture sources associated with this cached shape.
     pub textures: [ShapeTextureOptions; 2],
-    /// Linear RGBA color for a solid fill. Other fills leave this unset.
-    pub color_override: Option<[f32; 4]>,
     /// Resolved solid or gradient fill. `None` leaves the shape transparent.
     pub fill: Option<Fill>,
     /// Maps shape-local positions to the local gradient's paint coordinates.
@@ -142,10 +140,6 @@ impl ShapeInstance {
             draw_mode: options.draw_mode,
             transform: options.transform,
             textures: [options.background_texture, options.foreground_texture],
-            color_override: match options.fill.as_ref() {
-                Some(Fill::Solid(color)) => Some(color.normalize()),
-                _ => None,
-            },
             fill: options.fill,
             paint_transform: Transform3D::identity(),
         }

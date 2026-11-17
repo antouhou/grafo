@@ -1,6 +1,6 @@
 use super::WgpuBackend;
 use crate::commands::RenderCommand;
-use crate::core::linear_to_srgb_u8;
+use crate::core::color;
 use crate::render_backend::render_target::{PixelFormat, PixmapMut};
 #[cfg(feature = "render_metrics")]
 use crate::wgpu_backend::metrics::PhaseTimings;
@@ -94,9 +94,9 @@ fn copy_readback_rows(
                 (source[0], source[1], source[2], source[3])
             };
             if !is_srgb {
-                red = linear_to_srgb_u8(red as f32 / 255.0);
-                green = linear_to_srgb_u8(green as f32 / 255.0);
-                blue = linear_to_srgb_u8(blue as f32 / 255.0);
+                red = color::linear_to_srgb_u8(red as f32 / 255.0);
+                green = color::linear_to_srgb_u8(green as f32 / 255.0);
+                blue = color::linear_to_srgb_u8(blue as f32 / 255.0);
             }
             let pixel = match layout.format() {
                 PixelFormat::Bgra8 => [blue, green, red, alpha],

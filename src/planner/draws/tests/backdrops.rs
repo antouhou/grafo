@@ -64,7 +64,6 @@ fn texture_only_rectangle_draws_only_when_capture_produces_a_texture() {
         unreachable!()
     };
     description.instance.fill = None;
-    description.instance.color_override = None;
     let mut output = RecordedCommands::default();
     scene.attach_backdrop(panel);
     scene.plan(&mut DrawPlanner::default(), &mut output);

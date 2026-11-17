@@ -1,8 +1,8 @@
 use super::{
     bake_gradient_ramp, color_to_final_linear_premultiplied, hsl_to_srgb, linear_rgb_to_oklab,
-    linear_to_srgb, oklab_to_linear_rgb, prepare_cylindrical_interpolation, srgb_to_linear,
-    CylSpace,
+    oklab_to_linear_rgb, prepare_cylindrical_interpolation, CylSpace,
 };
+use crate::core::color;
 use crate::core::gradient::normalize::NormalizedGradient;
 use crate::core::gradient::types::{
     ColorInterpolation, GradientColor, GradientCommonDesc, GradientKind, GradientRampSource,
@@ -231,8 +231,8 @@ fn sampled_hard_stop_uses_the_last_coincident_color() {
 #[test]
 fn srgb_linear_conversion_roundtrip_preserves_channel_values() {
     for channel in [0.0, 0.04045, 0.5, 1.0, -0.5] {
-        let linear = srgb_to_linear(channel);
-        let restored = linear_to_srgb(linear);
+        let linear = color::srgb_to_linear(channel);
+        let restored = color::linear_to_srgb(linear);
         assert!(
             (channel - restored).abs() < 1e-5,
             "roundtrip failed for {channel}: got {restored}"
