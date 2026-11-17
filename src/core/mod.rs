@@ -24,7 +24,7 @@ pub use vertex::{CustomVertex, TextureUvTransform};
 
 mod blend;
 pub(crate) mod cache;
-pub(crate) mod color;
+pub mod color;
 pub(crate) mod effect;
 pub(crate) mod geometry;
 pub mod gradient;

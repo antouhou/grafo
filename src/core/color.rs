@@ -1,5 +1,11 @@
-/// Decodes an extended sRGB channel without clamping.
-pub(crate) fn srgb_to_linear(value: f32) -> f32 {
+//! sRGB colors, channel conversions, and pixel-buffer preparation.
+
+/// Converts one encoded sRGB channel to linear sRGB.
+///
+/// Values outside `[0.0, 1.0]` are not clamped. Negative values use the
+/// sign-preserving extension of the sRGB transfer function.
+/// Apply this to RGB channels only; alpha stays linear.
+pub fn srgb_to_linear(value: f32) -> f32 {
     if value.abs() <= 0.04045 {
         value / 12.92
     } else {
@@ -7,8 +13,12 @@ pub(crate) fn srgb_to_linear(value: f32) -> f32 {
     }
 }
 
-/// Encodes a linear sRGB channel without clamping.
-pub(crate) fn linear_to_srgb(value: f32) -> f32 {
+/// Converts one linear sRGB channel to encoded sRGB.
+///
+/// Values outside `[0.0, 1.0]` are not clamped. Negative values use the
+/// sign-preserving extension of the sRGB transfer function.
+/// Apply this to RGB channels only; alpha stays linear.
+pub fn linear_to_srgb(value: f32) -> f32 {
     if value.abs() <= 0.0031308 {
         value * 12.92
     } else {
