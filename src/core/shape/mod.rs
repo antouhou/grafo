@@ -743,8 +743,8 @@ impl ShapeDrawOptions {
         self
     }
 
-    pub fn color(mut self, color: Color) -> Self {
-        self.fill = Some(Fill::Solid(color));
+    pub fn color(mut self, color: impl Into<Color>) -> Self {
+        self.fill = Some(Fill::Solid(color.into()));
         self
     }
 }

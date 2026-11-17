@@ -47,6 +47,26 @@ fn srgb_u8_to_linear(value: u8) -> f32 {
 /// assert_eq!(red.to_array(), [255, 0, 0, 255]);
 /// assert_eq!(semi_blue.to_array(), [0, 0, 255, 128]);
 /// ```
+/// `Color` supports HDR and custom color profiles. Implement [`From`] for your
+/// own type to supply its conversion to encoded extended sRGB with straight alpha.
+///
+/// ```
+/// use grafo::{core::color, Color, GroupDrawCommandOptions, ShapeDrawOptions};
+///
+/// struct LinearRgb([f32; 3]);
+///
+/// impl From<LinearRgb> for Color {
+///     fn from(value: LinearRgb) -> Self {
+///         let [red, green, blue] = value.0.map(color::linear_to_srgb);
+///         Color::rgb_f32(red, green, blue)
+///     }
+/// }
+///
+/// # fn main() {
+/// let shape = ShapeDrawOptions::new().color(LinearRgb([0.5, 0.25, 1.5]));
+/// let group = GroupDrawCommandOptions::new().color(LinearRgb([0.1, 0.2, 0.3]));
+/// # }
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Color(pub [f32; 4]);
 
