@@ -1,19 +1,23 @@
-/// Converts an sRGB byte to a linear channel value between 0.0 and 1.0.
-pub(crate) fn srgb_u8_to_linear(value: u8) -> f32 {
-    let normalized = value as f32 / 255.0;
-    if normalized <= 0.04045 {
-        normalized / 12.92
+/// Decodes an extended sRGB channel without clamping.
+pub(crate) fn srgb_to_linear(value: f32) -> f32 {
+    if value.abs() <= 0.04045 {
+        value / 12.92
     } else {
-        ((normalized + 0.055) / 1.055).powf(2.4)
+        value.signum() * ((value.abs() + 0.055) / 1.055).powf(2.4)
     }
 }
 
-pub fn normalize_rgba_color(color: &[u8; 4]) -> [f32; 4] {
+/// Converts an sRGB byte to a linear channel value between 0.0 and 1.0.
+pub(crate) fn srgb_u8_to_linear(value: u8) -> f32 {
+    srgb_to_linear(f32::from(value) / 255.0)
+}
+
+pub fn normalize_rgba_color(color: &[f32; 4]) -> [f32; 4] {
     [
-        srgb_u8_to_linear(color[0]),
-        srgb_u8_to_linear(color[1]),
-        srgb_u8_to_linear(color[2]),
-        color[3] as f32 / 255.0, // alpha is linear, not gamma-encoded
+        srgb_to_linear(color[0]),
+        srgb_to_linear(color[1]),
+        srgb_to_linear(color[2]),
+        color[3],
     ]
 }
 

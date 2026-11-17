@@ -411,12 +411,12 @@ pub enum GradientColor {
 
 impl From<Color> for GradientColor {
     fn from(color: Color) -> Self {
-        let [red, green, blue, alpha] = color.to_array();
+        let [red, green, blue, alpha] = color.to_array_f32();
         Self::Srgb {
-            red: red as f32 / 255.0,
-            green: green as f32 / 255.0,
-            blue: blue as f32 / 255.0,
-            alpha: alpha as f32 / 255.0,
+            red,
+            green,
+            blue,
+            alpha,
         }
     }
 }

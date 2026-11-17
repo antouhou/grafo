@@ -32,7 +32,7 @@ pub(super) fn should_skip_visible_rect_draw(
 
     if draw_tree_node
         .solid_fill_color()
-        .is_some_and(|color| color.to_array()[3] != 0)
+        .is_some_and(|color| color.to_array_f32()[3] != 0.0)
     {
         return false;
     }

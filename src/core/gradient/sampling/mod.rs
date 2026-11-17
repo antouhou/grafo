@@ -3,6 +3,7 @@ use super::types::{
     ColorInterpolation, GradientColor, GradientRamp, GradientRampSource, HueComponent,
     HueInterpolationMethod, RAMP_RESOLUTION, RESOLVED_DEGENERATE_EPSILON,
 };
+use crate::core::util::srgb_to_linear;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy)]
@@ -426,15 +427,6 @@ pub(crate) fn color_to_final_linear_premultiplied(color: &GradientColor) -> [f32
     let lg = srgb_to_linear(sg);
     let lb = srgb_to_linear(sb);
     [lr * alpha, lg * alpha, lb * alpha, alpha]
-}
-
-fn srgb_to_linear(c: f32) -> f32 {
-    if c.abs() <= 0.04045 {
-        c / 12.92
-    } else {
-        let sign = c.signum();
-        sign * ((c.abs() + 0.055) / 1.055).powf(2.4)
-    }
 }
 
 fn linear_to_srgb(c: f32) -> f32 {

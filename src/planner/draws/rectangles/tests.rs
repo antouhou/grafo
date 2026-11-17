@@ -126,6 +126,15 @@ fn skip_visible_rect_draw_respects_solid_fill_opacity_and_textures() {
 }
 
 #[test]
+fn positive_float_alpha_keeps_the_rectangle_draw() {
+    let draw_tree_node = rect_draw_tree_node_with_options(
+        ShapeDrawOptions::new().color(Color::rgba_f32(1.0, 0.0, 0.0, 0.001)),
+    );
+
+    assert!(!should_skip(1, &draw_tree_node, &HashMap::new()));
+}
+
+#[test]
 fn skip_visible_rect_draw_rejects_gradient_rects() {
     let mut draw_tree_node = rect_draw_tree_node();
 

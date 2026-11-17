@@ -1,7 +1,8 @@
 use crate::core::util::{normalize_rgba_color, srgb_u8_to_linear};
 
-/// An sRGB color with 8-bit red, green, blue, and alpha channels.
-/// Alpha ranges from 0 for transparent to 255 for opaque. RGB is not premultiplied.
+/// An extended sRGB color with floating-point red, green, blue, and alpha channels.
+/// RGB is encoded, not linear or premultiplied, and may be negative or greater than one.
+/// Channels must be finite. Alpha ranges from zero for transparent to one for opaque.
 ///
 /// # Examples
 ///
@@ -15,28 +16,41 @@ use crate::core::util::{normalize_rgba_color, srgb_u8_to_linear};
 /// assert_eq!(semi_blue.to_array(), [0, 0, 255, 128]);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub struct Color(pub [u8; 4]);
+pub struct Color(pub [f32; 4]);
 
 impl Color {
     /// Transparent black.
-    pub const TRANSPARENT: Self = Self([0, 0, 0, 0]);
+    pub const TRANSPARENT: Self = Self([0.0, 0.0, 0.0, 0.0]);
     /// Opaque black.
-    pub const BLACK: Self = Self([0, 0, 0, 255]);
+    pub const BLACK: Self = Self([0.0, 0.0, 0.0, 1.0]);
     /// Opaque white.
-    pub const WHITE: Self = Self([255, 255, 255, 255]);
+    pub const WHITE: Self = Self([1.0, 1.0, 1.0, 1.0]);
 
-    /// Creates an opaque color from sRGB channel values.
+    /// Creates an opaque color from 8-bit sRGB channel values.
     pub fn rgb(r: u8, g: u8, b: u8) -> Self {
-        Self([r, g, b, 255])
+        Self::rgba(r, g, b, 255)
     }
 
-    /// Creates a color from sRGB channel values and alpha.
+    /// Creates a color from 8-bit sRGB channel values and alpha.
     pub fn rgba(r: u8, g: u8, b: u8, a: u8) -> Self {
-        Self([r, g, b, a])
+        Self([r, g, b, a].map(|channel| f32::from(channel) / 255.0))
     }
 
-    /// Converts sRGB channels to linear RGB and divides alpha by 255.
-    /// The returned channels are in `[0.0, 1.0]` and are not premultiplied.
+    /// Creates an opaque color from floating-point encoded sRGB channel values.
+    /// RGB channels must be finite and may be negative or greater than one.
+    pub const fn rgb_f32(red: f32, green: f32, blue: f32) -> Self {
+        Self::rgba_f32(red, green, blue, 1.0)
+    }
+
+    /// Creates a color from floating-point encoded sRGB channel values and alpha.
+    /// Channels must be finite. RGB may be negative or greater than one;
+    /// alpha must be in `[0.0, 1.0]`. Values are stored without clamping.
+    pub const fn rgba_f32(red: f32, green: f32, blue: f32, alpha: f32) -> Self {
+        Self([red, green, blue, alpha])
+    }
+
+    /// Converts encoded sRGB channels to linear RGB and leaves alpha unchanged.
+    /// RGB may be negative or greater than one. The result is not premultiplied.
     ///
     /// # Examples
     ///
@@ -51,8 +65,15 @@ impl Color {
         normalize_rgba_color(&self.0)
     }
 
-    /// Returns the stored `[red, green, blue, alpha]` bytes.
+    /// Returns `[red, green, blue, alpha]` as bytes.
+    /// Clamps each channel to `[0.0, 1.0]` and rounds to the nearest byte value.
     pub fn to_array(&self) -> [u8; 4] {
+        self.0
+            .map(|channel| (channel.clamp(0.0, 1.0) * 255.0).round() as u8)
+    }
+
+    /// Returns the encoded sRGB channels and alpha without clamping or quantization.
+    pub const fn to_array_f32(&self) -> [f32; 4] {
         self.0
     }
 }
