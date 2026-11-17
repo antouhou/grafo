@@ -1,4 +1,26 @@
-use crate::core::util::{normalize_rgba_color, srgb_u8_to_linear};
+/// Decodes an extended sRGB channel without clamping.
+pub(crate) fn srgb_to_linear(value: f32) -> f32 {
+    if value.abs() <= 0.04045 {
+        value / 12.92
+    } else {
+        value.signum() * ((value.abs() + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+/// Encodes a linear sRGB channel without clamping.
+pub(crate) fn linear_to_srgb(value: f32) -> f32 {
+    if value.abs() <= 0.0031308 {
+        value * 12.92
+    } else {
+        let sign = value.signum();
+        sign * (1.055 * value.abs().powf(1.0 / 2.4) - 0.055)
+    }
+}
+
+/// Converts an sRGB byte to a linear channel value between 0.0 and 1.0.
+fn srgb_u8_to_linear(value: u8) -> f32 {
+    srgb_to_linear(f32::from(value) / 255.0)
+}
 
 /// An extended sRGB color with floating-point red, green, blue, and alpha channels.
 /// RGB is encoded, not linear or premultiplied, and may be negative or greater than one.
@@ -62,7 +84,13 @@ impl Color {
     /// assert_eq!(normalized, [1.0, 0.0, 0.0, 128.0 / 255.0]);
     /// ```
     pub fn normalize(&self) -> [f32; 4] {
-        normalize_rgba_color(&self.0)
+        let [red, green, blue, alpha] = self.0;
+        [
+            srgb_to_linear(red),
+            srgb_to_linear(green),
+            srgb_to_linear(blue),
+            alpha,
+        ]
     }
 
     /// Returns `[red, green, blue, alpha]` as bytes.
@@ -78,14 +106,9 @@ impl Color {
     }
 }
 
-pub(crate) fn linear_to_srgb_u8(x: f32) -> u8 {
-    let x = x.clamp(0.0, 1.0);
-    let y = if x <= 0.0031308 {
-        x * 12.92
-    } else {
-        1.055 * x.powf(1.0 / 2.4) - 0.055
-    };
-    (y.clamp(0.0, 1.0) * 255.0 + 0.5).floor() as u8
+pub(crate) fn linear_to_srgb_u8(value: f32) -> u8 {
+    let encoded = linear_to_srgb(value.clamp(0.0, 1.0));
+    (encoded.clamp(0.0, 1.0) * 255.0 + 0.5).floor() as u8
 }
 
 /// Converts straight-alpha RGBA8 sRGB pixels to premultiplied alpha in place.
