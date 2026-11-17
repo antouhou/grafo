@@ -3,7 +3,7 @@ use super::{ShapeBufferLocation, ShapeDrawResources, ShapeExecutionResources};
 use crate::commands::ShapeDrawId;
 use crate::core::shape::{DrawMode, ShapeInstance};
 use crate::core::vertex::{CustomVertex, InstanceTransform, TextureUvTransform};
-use crate::core::Viewport;
+use crate::core::{Fill, Viewport};
 use crate::wgpu_backend::resources::ShapePipelines;
 use crate::wgpu_backend::texture_manager::WgpuTextureManager;
 use crate::wgpu_backend::types::GeometryBufferError;
@@ -84,14 +84,12 @@ pub(crate) fn append_instance_data(
     temp_instance_colors: &mut Vec<InstanceColor>,
     temp_instance_metadata: &mut Vec<InstanceMetadata>,
     transform: Option<InstanceTransform>,
-    color_override: Option<[f32; 4]>,
+    color: [f32; 4],
     texture_data: InstanceTextureData,
 ) -> usize {
     let instance_index = temp_instance_transforms.len();
     temp_instance_transforms.push(transform.unwrap_or_else(InstanceTransform::identity));
-    temp_instance_colors.push(InstanceColor {
-        color: color_override.unwrap_or([0.0, 0.0, 0.0, 0.0]),
-    });
+    temp_instance_colors.push(InstanceColor { color });
     let texture_flags = (texture_data.texture_presence[0] as u32)
         | ((texture_data.texture_presence[1] as u32) << 1);
     temp_instance_metadata.push(InstanceMetadata {
@@ -178,8 +176,11 @@ impl ShapeExecutionResources {
         );
         resources.clear_under_fill_binding();
         if let Some(location) = resources.geometry_buffer_location {
-            self.instance_colors[location.instance_index].color =
-                shape.color_override.unwrap_or([0.0; 4]);
+            self.instance_colors[location.instance_index].color = shape
+                .fill
+                .as_ref()
+                .and_then(Fill::to_normalized_solid)
+                .unwrap_or([0.0; 4]);
             self.instance_metadata[location.instance_index].paint_transform =
                 encode_paint_transform(shape.paint_transform);
         }
@@ -256,12 +257,17 @@ impl ShapeExecutionResources {
                 &pipelines.texture_manager,
                 scale_factor,
             );
+            let color = cached_shape_data
+                .fill
+                .as_ref()
+                .and_then(Fill::to_normalized_solid)
+                .unwrap_or([0.0; 4]);
             let instance_index = append_instance_data(
                 &mut self.instance_transforms,
                 &mut self.instance_colors,
                 &mut self.instance_metadata,
                 cached_shape_data.transform,
-                cached_shape_data.color_override,
+                color,
                 InstanceTextureData {
                     texture_presence: cached_shape_data
                         .textures

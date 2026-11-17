@@ -21,7 +21,7 @@ fn insert_draw(resources: &mut ShapeExecutionResources, id: usize, shape: &Shape
             &mut resources.instance_colors,
             &mut resources.instance_metadata,
             Some(InstanceTransform::translation(id as f32, 0.0)),
-            Some([id as f32; 4]),
+            [id as f32; 4],
             InstanceTextureData {
                 texture_presence: [true; 2],
                 texture_uv_transforms: [TextureUvTransform {

@@ -31,8 +31,8 @@ pub(super) fn should_skip_visible_rect_draw(
     }
 
     if draw_tree_node
-        .instance_color_override()
-        .is_some_and(|color| color[3] != 0.0)
+        .solid_fill_color()
+        .is_some_and(|color| color.to_array()[3] != 0)
     {
         return false;
     }

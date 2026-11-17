@@ -2,7 +2,7 @@ use super::effects::{EffectAttachmentKind, EffectAttachments};
 use super::paint::GroupFill;
 use crate::core::shape::{CachedShapeHandle, DrawMode, ShapeDrawOptions, ShapeInstance};
 use crate::core::vertex::InstanceTransform;
-use crate::core::{geometry, BlendMode, MathRect};
+use crate::core::{geometry, BlendMode, Color, Fill, MathRect};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct GroupEffectSources {
@@ -134,9 +134,12 @@ impl DrawTreeNode {
         }
     }
 
-    pub(crate) fn instance_color_override(&self) -> Option<[f32; 4]> {
+    pub(crate) fn solid_fill_color(&self) -> Option<Color> {
         match self {
-            DrawTreeNode::CachedShape(cached_shape) => cached_shape.instance.color_override,
+            DrawTreeNode::CachedShape(cached_shape) => match &cached_shape.instance.fill {
+                Some(Fill::Solid(color)) => Some(*color),
+                _ => None,
+            },
             DrawTreeNode::Group(_) | DrawTreeNode::ClipRect(_) => None,
         }
     }

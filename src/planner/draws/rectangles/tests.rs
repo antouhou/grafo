@@ -111,11 +111,13 @@ fn skip_visible_rect_draw_accepts_untextured_none_color_rect() {
 }
 
 #[test]
-fn skip_visible_rect_draw_rejects_opaque_color_and_textures() {
-    let opaque_draw_tree_node =
-        rect_draw_tree_node_with_options(ShapeDrawOptions::new().color(Color::WHITE));
-
-    assert!(!should_skip(1, &opaque_draw_tree_node, &HashMap::new(),));
+fn skip_visible_rect_draw_respects_solid_fill_opacity_and_textures() {
+    for alpha in [0, 1, 128, 255] {
+        let draw_tree_node = rect_draw_tree_node_with_options(
+            ShapeDrawOptions::new().color(Color::rgba(101, 81, 226, alpha)),
+        );
+        assert_eq!(should_skip(1, &draw_tree_node, &HashMap::new()), alpha == 0);
+    }
 
     let textured_draw_tree_node =
         rect_draw_tree_node_with_options(ShapeDrawOptions::new().background_texture_id(9));
