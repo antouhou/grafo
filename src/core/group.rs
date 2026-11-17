@@ -39,8 +39,8 @@ impl GroupDrawCommandOptions {
         self
     }
 
-    pub fn color(self, color: Color) -> Self {
-        self.fill(Fill::Solid(color))
+    pub fn color(self, color: impl Into<Color>) -> Self {
+        self.fill(Fill::Solid(color.into()))
     }
 
     pub fn texture_bounds(mut self, bounds: MathRect) -> Self {
