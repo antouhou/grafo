@@ -35,9 +35,14 @@ impl ApplicationHandler for App {
         let window_size = window.inner_size();
         let physical_size = (window_size.width, window_size.height);
 
-        let context = block_on(SceneContext::new());
-        let surface = Surface::new(&context, window.clone(), physical_size, true, false)
-            .expect("Failed to create surface");
+        let (context, surface) = block_on(SceneContext::try_new_with_surface(
+            event_loop.owned_display_handle(),
+            window.clone(),
+            physical_size,
+            true,
+            false,
+        ))
+        .expect("create window rendering context and surface");
         let mut scene = Scene::new_with_context(context, physical_size, 1.0, 1);
 
         build_main_scene(&mut scene);
@@ -62,6 +67,7 @@ impl ApplicationHandler for App {
         };
 
         match event {
+            WindowEvent::Occluded(false) => window.request_redraw(),
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(physical_size) => {
                 let new_size = (physical_size.width, physical_size.height);
@@ -72,7 +78,7 @@ impl ApplicationHandler for App {
                 scene.clear();
                 build_main_scene(scene);
 
-                window_rendering::render(scene, surface, event_loop);
+                window_rendering::render(scene, surface, window, event_loop);
             }
             _ => {}
         }

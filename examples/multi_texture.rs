@@ -40,9 +40,14 @@ impl ApplicationHandler for App {
         );
         let physical_size = (800, 600);
         let scale_factor = 1.0;
-        let context = futures::executor::block_on(SceneContext::new());
-        let surface = Surface::new(&context, window.clone(), physical_size, true, false)
-            .expect("Failed to create surface");
+        let (context, surface) = futures::executor::block_on(SceneContext::try_new_with_surface(
+            event_loop.owned_display_handle(),
+            window.clone(),
+            physical_size,
+            true,
+            false,
+        ))
+        .expect("create window rendering context and surface");
         let mut scene = Scene::new_with_context(context, physical_size, scale_factor, 1);
 
         // Layer a circle mask over a checkerboard.
@@ -117,6 +122,7 @@ impl ApplicationHandler for App {
         };
 
         match event {
+            WindowEvent::Occluded(false) => window.request_redraw(),
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(physical_size) => {
                 surface.resize((physical_size.width, physical_size.height));
@@ -124,7 +130,7 @@ impl ApplicationHandler for App {
             }
             WindowEvent::RedrawRequested => {
                 // The draw queue is populated once in `resumed` and persists across frames.
-                window_rendering::render(scene, surface, event_loop);
+                window_rendering::render(scene, surface, window, event_loop);
             }
             _ => {}
         }

@@ -4,10 +4,9 @@
 use artwork::TigerArtwork;
 use camera::Camera;
 use futures::executor::block_on;
-use grafo::wgpu::SurfaceError;
 use grafo::{
     Color, DrawCommandError, Scene, SceneContext, SceneCreationError, SceneError, Shape,
-    ShapeDrawOptions, Surface, TransformInstance, WgpuBackendError,
+    ShapeDrawOptions, Surface, SurfaceError, TransformInstance, WgpuBackendError,
 };
 use stats::{FrameStatistics, StatsOverlay};
 use std::sync::Arc;
@@ -140,8 +139,11 @@ impl TigerWindow {
         };
         let started = Instant::now();
         let result = match self.scene.render(&mut self.surface) {
-            Err(WgpuBackendError::Surface(SurfaceError::Lost | SurfaceError::Outdated)) => {
-                self.surface.invalidate();
+            Err(WgpuBackendError::Surface(SurfaceError::Outdated)) => {
+                self.scene.render(&mut self.surface)
+            }
+            Err(WgpuBackendError::Surface(SurfaceError::Lost)) => {
+                self.surface.recreate(self.window.clone())?;
                 self.scene.render(&mut self.surface)
             }
             result => result,
@@ -152,8 +154,9 @@ impl TigerWindow {
                     self.refresh_overlay()?;
                 }
             }
+            Err(WgpuBackendError::Surface(SurfaceError::Occluded)) => return Ok(()),
             Err(WgpuBackendError::Surface(
-                error @ (SurfaceError::Timeout | SurfaceError::Lost | SurfaceError::Outdated),
+                error @ (SurfaceError::Timeout | SurfaceError::Outdated),
             )) => warn!("Skipping redraw: {error}"),
             Err(error) => return Err(error.into()),
         }
@@ -174,8 +177,13 @@ impl TigerWindow {
         let scale_factor = window.scale_factor();
         let physical_size = (size.width, size.height);
         let viewport = logical_size(size, scale_factor);
-        let context = block_on(SceneContext::try_new())?;
-        let surface = Surface::new(&context, window.clone(), physical_size, false, false)?;
+        let (context, surface) = block_on(SceneContext::try_new_with_surface(
+            event_loop.owned_display_handle(),
+            window.clone(),
+            physical_size,
+            false,
+            false,
+        ))?;
         let mut scene = Scene::try_new_with_context(context, physical_size, scale_factor, 1)?;
         scene.load_shape(
             Shape::rect([(0.0, 0.0), (1.0, 1.0)]),
