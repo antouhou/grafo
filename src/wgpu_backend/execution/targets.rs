@@ -83,6 +83,7 @@ impl<'a> RenderTarget<'a> {
         let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some(label),
             color_attachments: &[Some(RenderPassColorAttachment {
+                depth_slice: None,
                 view: self.color_view,
                 resolve_target: self.resolve_target,
                 ops: Operations {
@@ -116,6 +117,7 @@ impl<'a> RenderTarget<'a> {
             }),
             timestamp_writes: None,
             occlusion_query_set: None,
+            multiview_mask: None,
         });
         // Keep the damage clear and the first scene draws in the same pass.
         if let Some(clear) = self.region_clear.filter(|_| self.needs_clear) {

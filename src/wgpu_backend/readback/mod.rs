@@ -17,8 +17,8 @@ use std::time::{Duration, Instant};
 use thiserror::Error;
 use wgpu::{
     BindGroup, BindGroupLayout, Buffer, BufferAsyncError, BufferDescriptor, BufferUsages,
-    CommandEncoderDescriptor, ComputePassDescriptor, ComputePipeline, Device, MapMode, PollError,
-    PollType, TextureFormat,
+    CommandEncoderDescriptor, ComputePassDescriptor, ComputePipeline, Device, MapMode,
+    MapRangeError, PollError, PollType, TextureFormat,
 };
 
 mod mapping;
@@ -32,6 +32,8 @@ pub enum ReadbackError {
     GpuWait(#[from] PollError),
     #[error("Failed to map the readback buffer: {0}")]
     BufferMap(#[from] BufferAsyncError),
+    #[error("Failed to access mapped readback bytes: {0}")]
+    MapRange(#[from] MapRangeError),
     #[error("Readback mapping callback was dropped before reporting a result")]
     MapCallbackDropped,
 }
@@ -253,17 +255,17 @@ impl WgpuBackend {
         });
 
         // A failed target is dropped so its late callback cannot reach a later mapping.
-        if let Err(error) = device.poll(PollType::Wait) {
+        if let Err(error) = device.poll(PollType::wait_indefinitely()) {
             buffer.unmap();
             return Err(error.into());
         }
         mapping.wait()?;
 
-        let mapped_range = buffer_slice.get_mapped_range();
-        mapped_bytes.extend_from_slice(&mapped_range);
-        drop(mapped_range);
+        let copy_result = buffer_slice.get_mapped_range().map(|mapped_range| {
+            mapped_bytes.extend_from_slice(&mapped_range);
+        });
         buffer.unmap();
-        Ok(())
+        Ok(copy_result?)
     }
 
     pub(in crate::wgpu_backend) fn render_byte_pixels<'scene>(
@@ -272,7 +274,7 @@ impl WgpuBackend {
         commands: impl Iterator<Item = RenderCommand<'scene>>,
         output: &mut PixmapMut<'_>,
     ) -> Result<(), ReadbackError> {
-        validate_readback_format(self.format)?;
+        validate_readback_format(self.render_format)?;
         #[cfg(feature = "render_metrics")]
         let render_started_at = Instant::now();
 
@@ -327,7 +329,7 @@ impl WgpuBackend {
         copy_readback_rows(
             readback_bytes,
             padded_bytes_per_row as usize,
-            self.format,
+            self.render_format,
             output,
         )?;
 
@@ -346,7 +348,7 @@ impl WgpuBackend {
         commands: impl Iterator<Item = RenderCommand<'scene>>,
         output: &mut PixmapMut<'_>,
     ) -> Result<(), ReadbackError> {
-        validate_readback_format(self.format)?;
+        validate_readback_format(self.render_format)?;
         let (width, height) = self.viewport.physical_size;
         #[cfg(feature = "render_metrics")]
         let render_started_at = Instant::now();
@@ -429,7 +431,12 @@ impl WgpuBackend {
         )?;
         self.argb_readback = Some(resources);
 
-        copy_readback_rows(readback_bytes, width as usize * 4, self.format, output)?;
+        copy_readback_rows(
+            readback_bytes,
+            width as usize * 4,
+            self.render_format,
+            output,
+        )?;
 
         #[cfg(feature = "render_metrics")]
         self.record_readback_metrics(
