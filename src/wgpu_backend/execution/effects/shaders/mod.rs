@@ -49,7 +49,7 @@ fn create_effect_pass_pipeline(
         },
         depth_stencil: None,
         multisample: MultisampleState::default(),
-        multiview: None,
+        multiview_mask: None,
         cache: None,
     })
 }
@@ -177,26 +177,16 @@ pub(crate) fn compile_effect(
 
         // Include group 1 only for passes that reference it.
         let layout_label = format!("effect_pass{pass_index}_layout");
-        let pipeline_layout = if pass_has_params {
-            let bind_group_layouts = [
-                input_bind_group_layout,
-                params_bind_group_layout
-                    .as_ref()
-                    .expect("parameter layout was created for passes with parameters"),
-            ];
-            device.create_pipeline_layout(&PipelineLayoutDescriptor {
-                label: Some(&layout_label),
-                bind_group_layouts: &bind_group_layouts,
-                push_constant_ranges: &[],
-            })
-        } else {
-            let bind_group_layouts = [input_bind_group_layout];
-            device.create_pipeline_layout(&PipelineLayoutDescriptor {
-                label: Some(&layout_label),
-                bind_group_layouts: &bind_group_layouts,
-                push_constant_ranges: &[],
-            })
-        };
+        let bind_group_layouts = [
+            Some(input_bind_group_layout),
+            params_bind_group_layout.as_ref(),
+        ];
+        let layout_count = if pass_has_params { 2 } else { 1 };
+        let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: Some(&layout_label),
+            bind_group_layouts: &bind_group_layouts[..layout_count],
+            immediate_size: 0,
+        });
 
         let pipeline = create_effect_pass_pipeline(device, &shader, &pipeline_layout, format);
 

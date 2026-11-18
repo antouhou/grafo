@@ -1,6 +1,7 @@
-use super::WgpuBackend;
+use super::{SurfaceError, WgpuBackend, WgpuSurface};
 use crate::commands::RenderCommand;
 use crate::core::UnsignedPhysicalRect;
+use crate::render_backend::render_target::Surface;
 use crate::wgpu_backend::execution::effects::EffectContext;
 use crate::wgpu_backend::execution::instructions::{
     execute_commands, ExecutionContext, ExecutionResources,
@@ -14,8 +15,8 @@ use std::iter;
 #[cfg(feature = "render_metrics")]
 use std::time::Instant;
 #[cfg(feature = "render_metrics")]
-use wgpu::MaintainBase;
-use wgpu::{CommandEncoderDescriptor, Surface, SurfaceError, TextureViewDescriptor};
+use wgpu::PollType;
+use wgpu::{CommandEncoderDescriptor, CurrentSurfaceTexture, TextureViewDescriptor};
 
 impl WgpuBackend {
     /// Updates the retained image within the planned redraw bounds.
@@ -34,8 +35,9 @@ impl WgpuBackend {
         let retained = self.retained_output.take().unwrap_or_else(|| {
             RetainedOutput::new(
                 &self.device,
+                &self.context.retained_output_resources,
                 self.viewport.physical_size,
-                self.format,
+                self.render_format,
                 self.msaa_sample_count,
             )
         });
@@ -83,7 +85,7 @@ impl WgpuBackend {
             registry: &self.effect_registry,
             sampler: &pipeline_resources.effect_sampler,
             composite_layout: &pipeline_resources.composite_resources.bind_group_layout,
-            format: self.format,
+            format: self.render_format,
         };
         let backdrops = &pipeline_resources.backdrops;
         let backdrops = BackdropContext {
@@ -100,7 +102,7 @@ impl WgpuBackend {
             pipelines: pipeline_resources,
             effects,
             backdrops,
-            format: self.format,
+            format: self.render_format,
             sample_count: self.msaa_sample_count,
         };
         let resources = &mut self.resources;
@@ -172,7 +174,7 @@ impl WgpuBackend {
         &mut self,
         root_scissor: Option<UnsignedPhysicalRect>,
         commands: impl Iterator<Item = RenderCommand<'scene>>,
-        surface: &Surface<'_>,
+        surface: &mut Surface<WgpuSurface>,
     ) -> Result<(), SurfaceError> {
         #[cfg(feature = "render_metrics")]
         let frame_render_loop_started_at = Instant::now();
@@ -181,7 +183,21 @@ impl WgpuBackend {
         #[cfg(feature = "render_metrics")]
         let after_prepare = Instant::now();
 
-        let output = surface.get_current_texture()?;
+        let output = match surface.resource().native_surface()?.get_current_texture() {
+            CurrentSurfaceTexture::Success(output) => output,
+            CurrentSurfaceTexture::Suboptimal(output) => {
+                surface.invalidate();
+                output
+            }
+            CurrentSurfaceTexture::Outdated => {
+                surface.invalidate();
+                return Err(SurfaceError::Outdated);
+            }
+            CurrentSurfaceTexture::Lost => return Err(SurfaceError::Lost),
+            CurrentSurfaceTexture::Timeout => return Err(SurfaceError::Timeout),
+            CurrentSurfaceTexture::Occluded => return Err(SurfaceError::Occluded),
+            CurrentSurfaceTexture::Validation => return Err(SurfaceError::Validation),
+        };
         let output_texture_view = output
             .texture
             .create_view(&TextureViewDescriptor::default());
@@ -196,27 +212,24 @@ impl WgpuBackend {
             .create_command_encoder(&CommandEncoderDescriptor {
                 label: Some("present_retained_output"),
             });
-        retained.present(&mut encoder, &output_texture_view);
+        let overlay = root_scissor.filter(|_| self.is_dirty_region_overlay_enabled);
+        surface.resource().presentation.present(
+            &mut encoder,
+            retained,
+            &output_texture_view,
+            overlay,
+        );
         self.queue.submit(iter::once(encoder.finish()));
-        if let Some(scissor) = root_scissor.filter(|_| self.is_dirty_region_overlay_enabled) {
-            let mut encoder = self
-                .device
-                .create_command_encoder(&CommandEncoderDescriptor {
-                    label: Some("draw_dirty_region_overlay"),
-                });
-            retained.draw_dirty_region_overlay(&mut encoder, &output_texture_view, scissor);
-            self.queue.submit(iter::once(encoder.finish()));
-        }
 
         #[cfg(feature = "render_metrics")]
         let after_submit = Instant::now();
 
-        output.present();
+        self.queue.present(output);
         #[cfg(feature = "render_metrics")]
         {
             let after_present = Instant::now();
             // Measure the remaining wait for GPU work after presentation.
-            let _ = self.device.poll(MaintainBase::Wait);
+            let _ = self.device.poll(PollType::wait_indefinitely());
             let after_gpu_wait = Instant::now();
 
             let prepare_dur = after_prepare.saturating_duration_since(frame_render_loop_started_at);

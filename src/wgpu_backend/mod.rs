@@ -1,14 +1,14 @@
 //! WGPU uploads, resource caches and command execution.
 use crate::core::Viewport;
 pub use context::BackendCreationError;
-pub use errors::{EffectResourceError, EffectShaderError, WgpuBackendError};
+pub use errors::{EffectResourceError, EffectShaderError, SurfaceError, WgpuBackendError};
 use execution::effects::EffectRegistry;
 #[cfg(feature = "render_metrics")]
 use metrics::PhaseTimings;
 pub use readback::ReadbackError;
 use readback::{ArgbReadbackResources, ByteReadbackResources};
 use resources::{BackendResources, RendererPipelineResources};
-use retained_output::RetainedOutput;
+use retained_output::{RetainedOutput, RetainedOutputResources};
 use std::sync::{atomic::AtomicBool, Arc};
 #[cfg(feature = "render_metrics")]
 use std::time::Duration;
@@ -46,6 +46,7 @@ pub struct WgpuContext {
     queue: Arc<wgpu::Queue>,
     is_device_lost: Arc<AtomicBool>,
     texture_manager: WgpuTextureManager,
+    retained_output_resources: RetainedOutputResources,
 }
 
 /// WGPU resources, uploads, execution caches and submission state.
@@ -54,7 +55,7 @@ pub struct WgpuBackend {
     pub(in crate::wgpu_backend) context: Arc<WgpuContext>,
     pub(in crate::wgpu_backend) device: Arc<wgpu::Device>,
     pub(in crate::wgpu_backend) queue: Arc<wgpu::Queue>,
-    pub(in crate::wgpu_backend) format: wgpu::TextureFormat,
+    render_format: wgpu::TextureFormat,
 
     pub(in crate::wgpu_backend) readback_bytes: Vec<u8>,
     pub(in crate::wgpu_backend) viewport: Viewport,
