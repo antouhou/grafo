@@ -25,7 +25,7 @@ pub trait TextureManager {
     ///
     /// The upload dimensions must fit inside the texture. RGB must be premultiplied by alpha in
     /// linear space, then encoded as sRGB. Use
-    /// [`premultiply_rgba8_srgb_inplace`](crate::core::premultiply_rgba8_srgb_inplace)
+    /// [`premultiply_rgba8_srgb_inplace`](crate::core::color::premultiply_rgba8_srgb_inplace)
     /// to convert straight-alpha input before uploading.
     ///
     /// Returns an error if the texture ID has not been allocated

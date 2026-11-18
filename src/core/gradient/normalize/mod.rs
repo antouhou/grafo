@@ -1,26 +1,27 @@
-use super::sampling::color_to_final_linear_premultiplied;
-use super::types::{
-    GradientColor, GradientCommonDesc, GradientKind, GradientStopPositions,
-    RESOLVED_DEGENERATE_EPSILON,
-};
-use smallvec::{smallvec, SmallVec};
+use super::types::{GradientCommonDesc, GradientKind, GradientStopPositions, SpreadMode};
+use crate::core::{color, Color};
+use smallvec::SmallVec;
 use std::f32::consts::TAU;
 
 const NORMALIZED_INLINE_STOP_CAPACITY: usize = 8;
 const NORMALIZED_INLINE_SEGMENT_CAPACITY: usize = 8;
+// Skia's sweep factory uses kDegenerateThreshold = 1 / 32768 degree, inclusive.
+// Express the same cutoff in the turns used to evaluate conic gradients.
+// https://skia.googlesource.com/skia/+/d2b9e48baf1697760afc1dc8ea3ad40110b8cacc/src/shaders/gradients/SkGradientBaseShader.h
+// https://skia.googlesource.com/skia/+/d2b9e48baf1697760afc1dc8ea3ad40110b8cacc/src/shaders/gradients/SkSweepGradient.cpp#110
+const CONIC_DEGENERATE_THRESHOLD_TURNS: f32 = 1.0 / (32768.0 * 360.0);
 
 #[derive(Debug, Clone, Copy)]
-struct AuthoredStop {
-    color: GradientColor,
+struct AuthoredGradientItem {
+    color: Option<Color>,
     raw_position: Option<f32>,
-    hint_to_next_segment: Option<f32>,
 }
 
-/// A gradient stop after resolving its CSS position.
+/// A gradient stop after CSS position resolution, retaining authored units and conic radians.
 #[derive(Debug, Clone)]
 pub(crate) struct NormalizedStop {
     pub(crate) position: f32,
-    pub(crate) color: GradientColor,
+    pub(crate) color: Color,
     /// If Some, the hint position between this stop and the next.
     pub(crate) hint: Option<f32>,
 }
@@ -30,67 +31,138 @@ pub(crate) struct NormalizedStop {
 pub(crate) struct NormalizedSegment {
     pub(crate) start_position: f32,
     pub(crate) end_position: f32,
-    pub(crate) start_color: GradientColor,
-    pub(crate) end_color: GradientColor,
+    pub(crate) start_color: Color,
+    pub(crate) end_color: Color,
     pub(crate) hint: Option<f32>,
+}
+
+fn add_compensated_rgba(sums: &mut [f64; 4], corrections: &mut [f64; 4], contribution: [f64; 4]) {
+    for ((sum, correction), channel) in sums.iter_mut().zip(corrections).zip(contribution) {
+        let next_sum = *sum + channel;
+        *correction += if sum.abs() >= channel.abs() {
+            (*sum - next_sum) + channel
+        } else {
+            (channel - next_sum) + *sum
+        };
+        *sum = next_sum;
+    }
 }
 
 /// A gradient with resolved CSS stop positions.
 #[derive(Debug, Clone)]
 pub(crate) struct NormalizedGradient {
+    pub(crate) spread: SpreadMode,
     pub(crate) stops: SmallVec<[NormalizedStop; NORMALIZED_INLINE_STOP_CAPACITY]>,
     pub(crate) segments: SmallVec<[NormalizedSegment; NORMALIZED_INLINE_SEGMENT_CAPACITY]>,
+    /// Evaluation coordinates use normalized positions, or turns for conics.
     pub(crate) period_start: f32,
     pub(crate) period_len: f32,
+    constant_color: Option<[f32; 4]>,
 }
 
 impl NormalizedGradient {
+    fn average_color(stops: &[NormalizedStop], span: f64) -> [f32; 4] {
+        if stops.len() == 1 {
+            return stops.last().unwrap().color.to_linear_premultiplied_rgba();
+        }
+        // CSS Images 3 averages intervals in premultiplied encoded sRGB. A zero period
+        // uses equally spaced stops before averaging, preserving alpha and zero-width weights.
+        // https://www.w3.org/TR/css-images-3/#gradient-average-color
+        // Keep the common divisor until after summation so rounded interval ratios cannot
+        // alter signed HDR cancellation.
+        let denominator = if span == 0.0 {
+            2.0 * (stops.len() - 1) as f64
+        } else {
+            2.0 * span
+        };
+        let mut encoded_premultiplied = [0.0_f64; 4];
+        let mut summation_corrections = [0.0_f64; 4];
+        for pair in stops.windows(2) {
+            let interval_width = if span == 0.0 {
+                1.0
+            } else {
+                f64::from(pair[1].position) - f64::from(pair[0].position)
+            };
+            for stop in pair {
+                let [red, green, blue, alpha] = stop.color.to_srgba_f32().map(f64::from);
+                let alpha = alpha.clamp(0.0, 1.0);
+                // Retain small CSS sum terms when signed HDR contributions later cancel.
+                add_compensated_rgba(
+                    &mut encoded_premultiplied,
+                    &mut summation_corrections,
+                    [red * alpha, green * alpha, blue * alpha, alpha]
+                        .map(|channel| channel * interval_width),
+                );
+            }
+        }
+        for (sum, correction) in encoded_premultiplied.iter_mut().zip(summation_corrections) {
+            *sum += correction;
+        }
+        let weighted_alpha = encoded_premultiplied[3];
+        if weighted_alpha == 0.0 {
+            return [0.0; 4];
+        }
+        let alpha = weighted_alpha / denominator;
+        let decode = |channel| (color::srgb_to_linear_f64(channel / weighted_alpha) * alpha) as f32;
+        [
+            decode(encoded_premultiplied[0]),
+            decode(encoded_premultiplied[1]),
+            decode(encoded_premultiplied[2]),
+            alpha as f32,
+        ]
+    }
+
     pub(crate) fn from_common(common: &GradientCommonDesc, kind: GradientKind) -> Self {
         let is_conic = kind == GradientKind::Conic;
 
-        if common.stops.len() == 1 {
-            return NormalizedGradient {
-                stops: smallvec![NormalizedStop {
-                    position: 0.0,
-                    color: common.stops[0].color,
-                    hint: None,
-                }],
-                segments: SmallVec::new(),
-                period_start: 0.0,
-                period_len: 0.0,
-            };
-        }
-
-        // Expand double positions into paired stops.
-        let mut authored: SmallVec<[AuthoredStop; NORMALIZED_INLINE_STOP_CAPACITY]> =
-            SmallVec::with_capacity(common.stops.len() * 2);
-        for stop in &common.stops {
+        // CSS Images 4 section 3.5.1 expands double positions before considering constants.
+        // Hints participate in the same position resolution and implicit spacing as color stops.
+        // https://www.w3.org/TR/css-images-4/#color-stop-syntax
+        // https://www.w3.org/TR/css-images-4/#color-stop-fixup
+        let authored_item_count = common
+            .stops
+            .iter()
+            .enumerate()
+            .map(|(index, stop)| {
+                1 + usize::from(matches!(stop.positions, GradientStopPositions::Double(..)))
+                    + usize::from(
+                        index + 1 < common.stops.len() && stop.hint_to_next_segment.is_some(),
+                    )
+            })
+            .sum();
+        let mut authored: SmallVec<[AuthoredGradientItem; NORMALIZED_INLINE_STOP_CAPACITY]> =
+            SmallVec::with_capacity(authored_item_count);
+        for (stop_index, stop) in common.stops.iter().enumerate() {
             match &stop.positions {
                 GradientStopPositions::Auto => {
-                    authored.push(AuthoredStop {
-                        color: stop.color,
+                    authored.push(AuthoredGradientItem {
+                        color: Some(stop.color),
                         raw_position: None,
-                        hint_to_next_segment: stop.hint_to_next_segment.map(|h| h.value()),
                     });
                 }
                 GradientStopPositions::Single(offset) => {
-                    authored.push(AuthoredStop {
-                        color: stop.color,
+                    authored.push(AuthoredGradientItem {
+                        color: Some(stop.color),
                         raw_position: Some(offset.value()),
-                        hint_to_next_segment: stop.hint_to_next_segment.map(|h| h.value()),
                     });
                 }
                 GradientStopPositions::Double(a, b) => {
-                    authored.push(AuthoredStop {
-                        color: stop.color,
+                    authored.push(AuthoredGradientItem {
+                        color: Some(stop.color),
                         raw_position: Some(a.value()),
-                        hint_to_next_segment: None,
                     });
                     // The hint applies after the second position of the double stop.
-                    authored.push(AuthoredStop {
-                        color: stop.color,
+                    authored.push(AuthoredGradientItem {
+                        color: Some(stop.color),
                         raw_position: Some(b.value()),
-                        hint_to_next_segment: stop.hint_to_next_segment.map(|h| h.value()),
+                    });
+                }
+            }
+            if stop_index + 1 < common.stops.len() {
+                if let Some(hint) = stop.hint_to_next_segment {
+                    authored.push(AuthoredGradientItem {
+                        color: None,
+                        raw_position: Some(hint.value()),
                     });
                 }
             }
@@ -107,7 +179,7 @@ impl NormalizedGradient {
             authored[last_index].raw_position = Some(default_end);
         }
 
-        // Resolve decreasing explicit positions before spacing the omitted stops.
+        // Resolve decreasing color/hint positions before spacing omitted color stops.
         let mut previous_position = f32::NEG_INFINITY;
         for position in authored
             .iter_mut()
@@ -119,31 +191,67 @@ impl NormalizedGradient {
 
         fill_implicit_positions(&mut authored);
 
+        let color_stop_count = authored.iter().filter(|item| item.color.is_some()).count();
         let mut stops: SmallVec<[NormalizedStop; NORMALIZED_INLINE_STOP_CAPACITY]> =
-            SmallVec::with_capacity(authored.len());
-        for authored_stop in &authored {
-            let position = authored_stop
+            SmallVec::with_capacity(color_stop_count);
+        for authored_item in &authored {
+            let position = authored_item
                 .raw_position
                 .expect("gradient stop positions should be resolved before normalization");
 
-            stops.push(NormalizedStop {
-                position,
-                color: authored_stop.color,
-                hint: None,
-            });
+            if let Some(color) = authored_item.color {
+                stops.push(NormalizedStop {
+                    position,
+                    color,
+                    hint: None,
+                });
+            } else if let Some(previous) = stops.last_mut() {
+                previous.hint = Some(position);
+            }
         }
 
-        // Keep only hints strictly inside the following segment.
-        for (stop_index, authored_stop) in authored.iter().enumerate() {
-            if let Some(hint_value) = authored_stop.hint_to_next_segment {
-                if stop_index + 1 < stops.len() {
-                    let current_position = stops[stop_index].position;
-                    let next_position = stops[stop_index + 1].position;
-                    if current_position < hint_value && hint_value < next_position {
-                        stops[stop_index].hint = Some(hint_value);
-                    }
-                }
-            }
+        let first_position = stops.first().unwrap().position;
+        let last_position = stops.last().unwrap().position;
+        let period_start = if is_conic {
+            first_position / TAU
+        } else {
+            first_position
+        };
+        let period_len = if is_conic {
+            // Convert the span once so turn rounding cannot move shifted stops across the cutoff.
+            ((f64::from(last_position) - f64::from(first_position)) / f64::from(TAU)) as f32
+        } else {
+            last_position - first_position
+        };
+        // Resolve constants before seam simplification can discard authored stop weights.
+        // CSS uses equally spaced stops for a period that rounds to zero, and actual
+        // interval weights for an unresolvable positive period. Skia's sweep cutoff
+        // resolves those tiny spans to a constant, losing their angular variation.
+        // https://www.w3.org/TR/css-images-3/#repeating-gradients
+        let constant_color = if stops.len() == 1 {
+            Some(stops[0].color.to_linear_premultiplied_rgba())
+        } else if common.spread == SpreadMode::Repeat && period_len == 0.0 {
+            Some(Self::average_color(&stops, 0.0))
+        } else if common.spread == SpreadMode::Repeat
+            && is_conic
+            && period_len <= CONIC_DEGENERATE_THRESHOLD_TURNS
+        {
+            Some(Self::average_color(
+                &stops,
+                f64::from(last_position) - f64::from(first_position),
+            ))
+        } else {
+            None
+        };
+
+        // Skia removes duplicate outer colors used only by clamp padding for non-clamp modes.
+        // Do this before segments and cache keys so a repeating seam cannot inherit padding colors.
+        // https://skia.googlesource.com/skia/+/d2b9e48baf1697760afc1dc8ea3ad40110b8cacc/src/shaders/gradients/SkGradientBaseShader.cpp#281
+        if common.spread == SpreadMode::Repeat && first_position < last_position {
+            let first_kept = stops.partition_point(|stop| stop.position == first_position) - 1;
+            let last_kept = stops.partition_point(|stop| stop.position < last_position);
+            stops.truncate(last_kept + 1);
+            drop(stops.drain(..first_kept));
         }
 
         let mut segments: SmallVec<[NormalizedSegment; NORMALIZED_INLINE_SEGMENT_CAPACITY]> =
@@ -158,67 +266,71 @@ impl NormalizedGradient {
             });
         }
 
-        let period_start = stops.first().unwrap().position;
-        let period_end = stops.last().unwrap().position;
-        let period_len = period_end - period_start;
-
         NormalizedGradient {
+            spread: common.spread,
             stops,
             segments,
             period_start,
             period_len,
+            constant_color,
         }
     }
 
-    /// Returns a constant color for a single stop or a short span without a hard stop.
-    pub(crate) fn constant_color(&self) -> Option<[f32; 4]> {
-        if self.stops.len() == 1
-            || (self.period_len <= RESOLVED_DEGENERATE_EPSILON
-                && !self
-                    .stops
-                    .windows(2)
-                    .any(|pair| (pair[1].position - pair[0].position).abs() <= f32::EPSILON))
-        {
-            Some(self.degenerate_constant_color())
-        } else {
-            None
-        }
-    }
-
-    /// Returns the last stop's color in linear premultiplied RGBA.
+    /// Resolves degenerate padding to the final color and repeats to their average.
     pub(crate) fn degenerate_constant_color(&self) -> [f32; 4] {
-        color_to_final_linear_premultiplied(&self.stops.last().unwrap().color)
+        if self.spread == SpreadMode::Pad {
+            return self
+                .stops
+                .last()
+                .unwrap()
+                .color
+                .to_linear_premultiplied_rgba();
+        }
+        let span = f64::from(self.stops.last().unwrap().position)
+            - f64::from(self.stops.first().unwrap().position);
+        Self::average_color(&self.stops, span)
+    }
+
+    /// Returns the constant resolved before stop simplification and sampling.
+    pub(crate) fn constant_color(&self) -> Option<[f32; 4]> {
+        self.constant_color
     }
 }
 
 /// Fills contiguous runs of `None` positions by even spacing between the
 /// nearest explicit neighbors.
-fn fill_implicit_positions(authored_stops: &mut [AuthoredStop]) {
-    let len = authored_stops.len();
+fn fill_implicit_positions(authored_items: &mut [AuthoredGradientItem]) {
+    let len = authored_items.len();
     let mut i = 0;
     while i < len {
-        if authored_stops[i].raw_position.is_some() {
+        if authored_items[i].raw_position.is_some() {
             i += 1;
             continue;
         }
         let run_start = i;
-        let left_value = authored_stops[run_start - 1]
-            .raw_position
-            .expect("implicit position runs must have an explicit left bound");
+        let left_value = f64::from(
+            authored_items[run_start - 1]
+                .raw_position
+                .expect("implicit position runs must have an explicit left bound"),
+        );
 
         let mut run_end = run_start;
-        while run_end < len && authored_stops[run_end].raw_position.is_none() {
+        while run_end < len && authored_items[run_end].raw_position.is_none() {
             run_end += 1;
         }
-        let right_value = authored_stops[run_end]
-            .raw_position
-            .expect("implicit position runs must have an explicit right bound");
+        let right_value = f64::from(
+            authored_items[run_end]
+                .raw_position
+                .expect("implicit position runs must have an explicit right bound"),
+        );
 
         let run_count = run_end - run_start;
         for j in 0..run_count {
-            let fraction = (j + 1) as f32 / (run_count + 1) as f32;
-            authored_stops[run_start + j].raw_position =
-                Some(left_value + fraction * (right_value - left_value));
+            // Finite f32 bounds can have a difference outside f32's representable range.
+            authored_items[run_start + j].raw_position = Some(
+                ((left_value * (run_count - j) as f64 + right_value * (j + 1) as f64)
+                    / (run_count + 1) as f64) as f32,
+            );
         }
 
         i = run_end + 1;

@@ -2,7 +2,7 @@
 
 pub use blend::BlendMode;
 pub use cache::CachedTessellation;
-pub use color::{premultiply_rgba8_srgb_inplace, Color};
+pub use color::Color;
 pub use effect::{
     BackdropCaptureArea, BackdropEffectConfig, ContentEffectConfig, ShapeMaskEffectConfig,
 };
@@ -11,10 +11,9 @@ pub use geometry::{
 };
 pub use gradient::errors::GradientError;
 pub use gradient::types::{
-    ColorInterpolation, ConicGradientDesc, Fill, Gradient, GradientColor, GradientCommonDesc,
-    GradientDesc, GradientStop, GradientStopOffset, GradientStopPositions, GradientUnits,
-    HueComponent, HueInterpolationMethod, LinearGradientDesc, LinearGradientLine,
-    RadialGradientDesc, RadialGradientSize, SpreadMode,
+    ColorInterpolation, ConicGradientDesc, Fill, Gradient, GradientCommonDesc, GradientDesc,
+    GradientStop, GradientStopOffset, GradientStopPositions, GradientUnits, HueInterpolationMethod,
+    LinearGradientDesc, LinearGradientLine, RadialGradientDesc, RadialGradientSize, SpreadMode,
 };
 pub use group::GroupDrawCommandOptions;
 pub use shape::*;

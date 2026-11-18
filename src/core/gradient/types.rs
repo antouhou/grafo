@@ -27,6 +27,7 @@ pub enum GradientDesc {
 pub struct GradientCommonDesc {
     pub units: GradientUnits,
     pub spread: SpreadMode,
+    /// Interpolation space and hue path shared by every segment in this gradient.
     pub interpolation: ColorInterpolation,
     pub stops: GradientStops,
 }
@@ -248,12 +249,14 @@ impl ConicGradientDesc {
 #[derive(Debug, Clone)]
 pub struct GradientStop {
     pub positions: GradientStopPositions,
-    pub color: GradientColor,
+    /// Encoded extended sRGB color, converted to the gradient's interpolation space when sampled.
+    pub color: Color,
     pub hint_to_next_segment: Option<GradientStopOffset>,
 }
 
 impl GradientStop {
-    pub fn auto(color: impl Into<GradientColor>) -> Self {
+    /// Converts the input to a color with an automatically assigned position.
+    pub fn auto(color: impl Into<Color>) -> Self {
         Self {
             positions: GradientStopPositions::Auto,
             color: color.into(),
@@ -261,7 +264,8 @@ impl GradientStop {
         }
     }
 
-    pub fn at_position(position: GradientStopOffset, color: impl Into<GradientColor>) -> Self {
+    /// Converts the input to a color at the specified position.
+    pub fn at_position(position: GradientStopOffset, color: impl Into<Color>) -> Self {
         Self {
             positions: GradientStopPositions::Single(position),
             color: color.into(),
@@ -269,10 +273,11 @@ impl GradientStop {
         }
     }
 
+    /// Converts the input to a color shared by both positions.
     pub fn between_positions(
         start_position: GradientStopOffset,
         end_position: GradientStopOffset,
-        color: impl Into<GradientColor>,
+        color: impl Into<Color>,
     ) -> Self {
         Self {
             positions: GradientStopPositions::Double(start_position, end_position),
@@ -302,13 +307,25 @@ pub enum RadialGradientSize {
     ExplicitEllipseRadii { radius_x: f32, radius_y: f32 },
 }
 
+/// Space used to interpolate all stop colors after converting them from encoded sRGB.
+/// In polar spaces, powerless hues borrow the other endpoint's hue for each segment.
+/// Like the CSS reference conversions, finite precision can lose small RGB components at extreme magnitudes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ColorInterpolation {
     Oklab,
     Srgb,
     SrgbLinear,
-    Hsl { hue: HueInterpolationMethod },
-    Hwb { hue: HueInterpolationMethod },
+    /// Uses the [CSS Color 4 HSL conversion](https://www.w3.org/TR/2026/CRD-css-color-4-20261112/#rgb-to-hsl).
+    /// Colors near lightness zero or one, or with nearly zero saturation, lose chroma.
+    /// This can change intermediate extended RGB colors. Padded gradients retain authored endpoint colors in their padding.
+    /// Sampled ramps approximate interior stops, including lossy conversions, at finite resolution.
+    Hsl {
+        hue: HueInterpolationMethod,
+    },
+    /// Near-neutral colors discard chroma and borrow hue according to CSS Color 4.
+    Hwb {
+        hue: HueInterpolationMethod,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -319,7 +336,7 @@ pub enum HueInterpolationMethod {
     Decreasing,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SpreadMode {
     Pad,
     Repeat,
@@ -363,108 +380,17 @@ impl GradientStopOffset {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum HueComponent {
-    Degrees(f32),
-    Missing,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) enum HueComponentKey {
-    Degrees(u32),
-    Missing,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum GradientColor {
-    Srgb {
-        red: f32,
-        green: f32,
-        blue: f32,
-        alpha: f32,
-    },
-    SrgbLinear {
-        red: f32,
-        green: f32,
-        blue: f32,
-        alpha: f32,
-    },
-    Oklab {
-        l: f32,
-        a: f32,
-        b: f32,
-        alpha: f32,
-    },
-    Hsl {
-        hue: HueComponent,
-        saturation: f32,
-        lightness: f32,
-        alpha: f32,
-    },
-    Hwb {
-        hue: HueComponent,
-        whiteness: f32,
-        blackness: f32,
-        alpha: f32,
-    },
-}
-
-impl From<Color> for GradientColor {
-    fn from(color: Color) -> Self {
-        let [red, green, blue, alpha] = color.to_array_f32();
-        Self::Srgb {
-            red,
-            green,
-            blue,
-            alpha,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) enum GradientColorKey {
-    Srgb {
-        red_bits: u32,
-        green_bits: u32,
-        blue_bits: u32,
-        alpha_bits: u32,
-    },
-    SrgbLinear {
-        red_bits: u32,
-        green_bits: u32,
-        blue_bits: u32,
-        alpha_bits: u32,
-    },
-    Oklab {
-        l_bits: u32,
-        a_bits: u32,
-        b_bits: u32,
-        alpha_bits: u32,
-    },
-    Hsl {
-        hue: HueComponentKey,
-        saturation_bits: u32,
-        lightness_bits: u32,
-        alpha_bits: u32,
-    },
-    Hwb {
-        hue: HueComponentKey,
-        whiteness_bits: u32,
-        blackness_bits: u32,
-        alpha_bits: u32,
-    },
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct GradientRampStopKey {
     pub(crate) position_bits: u32,
-    pub(crate) color: GradientColorKey,
+    pub(crate) color_bits: [u32; 4],
     pub(crate) hint_bits: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GradientRampCacheKey {
     content_hash: u64,
+    pub(crate) spread: SpreadMode,
     pub(crate) interpolation: ColorInterpolation,
     pub(crate) stops: Arc<[GradientRampStopKey]>,
 }
@@ -488,10 +414,12 @@ pub enum Fill {
 }
 
 impl Fill {
+    /// Converts a solid fill to straight linear RGB and alpha; gradients return `None`.
+    /// Decoded RGB that exceeds the `f32` range becomes infinite.
     #[inline]
-    pub fn to_normalized_solid(&self) -> Option<[f32; 4]> {
+    pub fn to_solid_linear_rgba(&self) -> Option<[f32; 4]> {
         match self {
-            Fill::Solid(color) => Some(color.normalize()),
+            Fill::Solid(color) => Some(color.to_linear_rgba()),
             _ => None,
         }
     }
@@ -534,8 +462,8 @@ impl GradientRamp {
 
 #[derive(Debug, Clone)]
 pub struct GradientRampSource {
-    pub(crate) interpolation: ColorInterpolation,
-    pub(crate) normalized: NormalizedGradient,
+    pub(super) interpolation: ColorInterpolation,
+    pub(super) normalized: NormalizedGradient,
 }
 
 impl GradientRampSource {
@@ -560,8 +488,9 @@ pub struct GradientData {
     pub ramp_cache_key: GradientRampCacheKey,
     /// Pending source, a constant color, or a sampled linear premultiplied RGBA ramp.
     pub ramp: GradientRamp,
-    /// For repeating: period_start and period_len in the t/theta domain
+    /// Start of the ramp and repeating period in normalized coordinates, or turns for conics.
     pub period_start: f32,
+    /// Length of the ramp and repeating period in normalized coordinates, or turns for conics.
     pub period_len: f32,
 }
 
@@ -697,9 +626,6 @@ impl Gradient {
         }
 
         let normalized = NormalizedGradient::from_common(&desc.common, GradientKind::Conic);
-        let is_degenerate = desc.common.spread == SpreadMode::Repeat
-            && normalized.period_len <= RESOLVED_DEGENERATE_EPSILON;
-
         Ok(Gradient {
             data: Arc::new(GradientData::new(
                 &desc.common,
@@ -708,75 +634,9 @@ impl Gradient {
                     start_angle: desc.start_angle_radians,
                 },
                 normalized,
-                is_degenerate,
+                false,
             )),
         })
-    }
-}
-
-impl HueComponentKey {
-    fn from_hue_component(hue_component: HueComponent) -> Self {
-        match hue_component {
-            HueComponent::Degrees(value) => Self::Degrees(value.to_bits()),
-            HueComponent::Missing => Self::Missing,
-        }
-    }
-}
-
-impl GradientColorKey {
-    fn from_gradient_color(color: GradientColor) -> Self {
-        match color {
-            GradientColor::Srgb {
-                red,
-                green,
-                blue,
-                alpha,
-            } => Self::Srgb {
-                red_bits: red.to_bits(),
-                green_bits: green.to_bits(),
-                blue_bits: blue.to_bits(),
-                alpha_bits: alpha.to_bits(),
-            },
-            GradientColor::SrgbLinear {
-                red,
-                green,
-                blue,
-                alpha,
-            } => Self::SrgbLinear {
-                red_bits: red.to_bits(),
-                green_bits: green.to_bits(),
-                blue_bits: blue.to_bits(),
-                alpha_bits: alpha.to_bits(),
-            },
-            GradientColor::Oklab { l, a, b, alpha } => Self::Oklab {
-                l_bits: l.to_bits(),
-                a_bits: a.to_bits(),
-                b_bits: b.to_bits(),
-                alpha_bits: alpha.to_bits(),
-            },
-            GradientColor::Hsl {
-                hue,
-                saturation,
-                lightness,
-                alpha,
-            } => Self::Hsl {
-                hue: HueComponentKey::from_hue_component(hue),
-                saturation_bits: saturation.to_bits(),
-                lightness_bits: lightness.to_bits(),
-                alpha_bits: alpha.to_bits(),
-            },
-            GradientColor::Hwb {
-                hue,
-                whiteness,
-                blackness,
-                alpha,
-            } => Self::Hwb {
-                hue: HueComponentKey::from_hue_component(hue),
-                whiteness_bits: whiteness.to_bits(),
-                blackness_bits: blackness.to_bits(),
-                alpha_bits: alpha.to_bits(),
-            },
-        }
     }
 }
 
@@ -790,13 +650,18 @@ impl GradientRampCacheKey {
             .iter()
             .map(|stop| GradientRampStopKey {
                 position_bits: stop.position.to_bits(),
-                color: GradientColorKey::from_gradient_color(stop.color),
+                color_bits: stop.color.to_srgba_f32().map(f32::to_bits),
                 hint_bits: stop.hint.map(f32::to_bits),
             })
             .collect();
 
         Self {
-            content_hash: RandomState::with_seeds(0, 0, 0, 0).hash_one((interpolation, &stops)),
+            content_hash: RandomState::with_seeds(0, 0, 0, 0).hash_one((
+                interpolation,
+                normalized.spread,
+                &stops,
+            )),
+            spread: normalized.spread,
             interpolation: *interpolation,
             stops,
         }
@@ -820,7 +685,7 @@ fn validate_common(common: &GradientCommonDesc, kind: GradientKind) -> Result<()
     let is_conic = kind == GradientKind::Conic;
 
     for (stop_index, stop) in common.stops.iter().enumerate() {
-        validate_gradient_color_finite(stop_index, &stop.color)?;
+        validate_color_finite(stop_index, &stop.color)?;
 
         match &stop.positions {
             GradientStopPositions::Auto => {}
@@ -883,61 +748,12 @@ fn validate_stop_offset_finite(
     Ok(())
 }
 
-fn validate_gradient_color_finite(
-    stop_index: usize,
-    color: &GradientColor,
-) -> Result<(), GradientError> {
-    match color {
-        GradientColor::Srgb {
-            red,
-            green,
-            blue,
-            alpha,
-        }
-        | GradientColor::SrgbLinear {
-            red,
-            green,
-            blue,
-            alpha,
-        } => {
-            check_finite(stop_index, *red, "red")?;
-            check_finite(stop_index, *green, "green")?;
-            check_finite(stop_index, *blue, "blue")?;
-            check_finite(stop_index, *alpha, "alpha")?;
-        }
-        GradientColor::Oklab { l, a, b, alpha } => {
-            check_finite(stop_index, *l, "l")?;
-            check_finite(stop_index, *a, "a")?;
-            check_finite(stop_index, *b, "b")?;
-            check_finite(stop_index, *alpha, "alpha")?;
-        }
-        GradientColor::Hsl {
-            hue,
-            saturation,
-            lightness,
-            alpha,
-        } => {
-            if let HueComponent::Degrees(deg) = hue {
-                check_finite(stop_index, *deg, "hue")?;
-            }
-            check_finite(stop_index, *saturation, "saturation")?;
-            check_finite(stop_index, *lightness, "lightness")?;
-            check_finite(stop_index, *alpha, "alpha")?;
-        }
-        GradientColor::Hwb {
-            hue,
-            whiteness,
-            blackness,
-            alpha,
-        } => {
-            if let HueComponent::Degrees(deg) = hue {
-                check_finite(stop_index, *deg, "hue")?;
-            }
-            check_finite(stop_index, *whiteness, "whiteness")?;
-            check_finite(stop_index, *blackness, "blackness")?;
-            check_finite(stop_index, *alpha, "alpha")?;
-        }
-    }
+fn validate_color_finite(stop_index: usize, color: &Color) -> Result<(), GradientError> {
+    let [red, green, blue, alpha] = color.to_srgba_f32();
+    check_finite(stop_index, red, "red")?;
+    check_finite(stop_index, green, "green")?;
+    check_finite(stop_index, blue, "blue")?;
+    check_finite(stop_index, alpha, "alpha")?;
     Ok(())
 }
 

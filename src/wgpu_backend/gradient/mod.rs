@@ -2,8 +2,8 @@ use crate::core::gradient::types::{
     GradientData, GradientGeometry, GradientRamp, GradientRampCacheKey, GradientUnits, SpreadMode,
 };
 use crate::wgpu_backend::execution::shapes::TextureSamplingUniform;
+use half::f16;
 use lru::LruCache;
-use std::f32::consts::TAU;
 use std::hash::Hash;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
@@ -93,9 +93,6 @@ impl GpuGradientColorParams {
                 params.gradient_type = 3;
                 params.conic_center = center;
                 params.conic_start_angle = start_angle;
-                // The shader evaluates conic stops in turns; normalization uses radians.
-                params.period_start /= TAU;
-                params.period_len /= TAU;
             }
         }
         params.ramp_start = params.period_start;
@@ -162,6 +159,14 @@ impl GpuMaterialParams {
     }
 }
 
+fn encode_ramp_texel_f16(texel: [f32; 4]) -> [u16; 4] {
+    // CSS Values 4 section 5 converts range-limited values to the closest supported value.
+    // https://www.w3.org/TR/css-values-4/#numeric-types
+    // Restrict only the packed texture to finite half-float range; keep the CPU ramp extended.
+    texel
+        .map(|channel| f16::from_f32(channel.clamp(f16::MIN.to_f32(), f16::MAX.to_f32())).to_bits())
+}
+
 /// Creates a 1D ramp texture from the baked ramp data.
 /// Returns `(texture, texture_view)`.
 pub(crate) fn create_ramp_texture(
@@ -186,10 +191,7 @@ pub(crate) fn create_ramp_texture(
         view_formats: &[],
     });
 
-    let upload_ramp: Vec<[u16; 4]> = ramp
-        .iter()
-        .map(|texel| texel.map(|channel| half::f16::from_f32(channel).to_bits()))
-        .collect();
+    let upload_ramp: Vec<[u16; 4]> = ramp.iter().copied().map(encode_ramp_texel_f16).collect();
 
     queue.write_texture(
         wgpu::TexelCopyTextureInfo {
@@ -391,7 +393,7 @@ impl GradientCache {
             return material.clone();
         }
 
-        let ramp_texture = if matches!(gradient_data.ramp, GradientRamp::Constant(_)) {
+        let ramp_texture = if material_params.gradient.is_constant != 0 {
             self.get_or_create_default_ramp_texture(device, queue)
         } else {
             self.get_or_create_ramp_texture(gradient_data, device, queue)

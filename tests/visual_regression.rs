@@ -145,7 +145,7 @@ fn assert_blend_format_transitions_and_retained_changes(scene: &mut Scene, pixel
         render_bgra(scene, pixels).unwrap();
         let [red, green, blue, alpha] = expected;
         let [destination_red, destination_green, destination_blue, destination_alpha] =
-            destination.to_array();
+            destination.to_rgba8();
         let expectations = [
             PixelExpectation::new(640, 448, red, green, blue, alpha, label).with_tolerance(3),
             PixelExpectation::new(
