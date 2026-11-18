@@ -5,7 +5,6 @@ use crate::render_backend::render_target::RenderTargetError;
 use naga::front::wgsl::ParseError;
 use naga::valid::ValidationError;
 use naga::WithSpan;
-use wgpu::SurfaceError;
 
 /// Why an effect shader was rejected.
 #[derive(Debug, Clone, thiserror::Error)]
@@ -40,6 +39,21 @@ pub enum EffectResourceError {
     /// Invalid effect parameters or configuration.
     #[error("Invalid effect parameters: {0}")]
     InvalidParams(String),
+}
+
+/// Why the window surface could not provide a texture for drawing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum SurfaceError {
+    #[error("Surface acquisition timed out")]
+    Timeout,
+    #[error("Window is occluded")]
+    Occluded,
+    #[error("Surface configuration is outdated")]
+    Outdated,
+    #[error("Surface was lost and must be recreated")]
+    Lost,
+    #[error("Surface acquisition failed validation")]
+    Validation,
 }
 
 /// Errors returned by WGPU backend operations.

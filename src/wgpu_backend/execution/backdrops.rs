@@ -15,6 +15,7 @@ fn clear_capture(encoder: &mut CommandEncoder, output_view: &TextureView) {
     encoder.begin_render_pass(&RenderPassDescriptor {
         label: Some("backdrop_capture_clear"),
         color_attachments: &[Some(RenderPassColorAttachment {
+            depth_slice: None,
             view: output_view,
             resolve_target: None,
             ops: Operations {
@@ -25,6 +26,7 @@ fn clear_capture(encoder: &mut CommandEncoder, output_view: &TextureView) {
         depth_stencil_attachment: None,
         timestamp_writes: None,
         occlusion_query_set: None,
+        multiview_mask: None,
     });
 }
 
@@ -37,6 +39,7 @@ fn composite_foreground_layer(
     let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
         label: Some("backdrop_layer_composite_pass"),
         color_attachments: &[Some(RenderPassColorAttachment {
+            depth_slice: None,
             view: output_view,
             resolve_target: None,
             ops: Operations {
@@ -47,6 +50,7 @@ fn composite_foreground_layer(
         depth_stencil_attachment: None,
         timestamp_writes: None,
         occlusion_query_set: None,
+        multiview_mask: None,
     });
     render_pass.set_pipeline(context.backdrop_layer_composite_pipeline);
     render_pass.set_bind_group(0, bind_group, &[]);
@@ -145,6 +149,7 @@ fn downsample_capture(
     let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
         label: Some("backdrop_capture_downsample"),
         color_attachments: &[Some(RenderPassColorAttachment {
+            depth_slice: None,
             view: &output_texture.color_view,
             resolve_target: None,
             ops: Operations {
@@ -155,6 +160,7 @@ fn downsample_capture(
         depth_stencil_attachment: None,
         timestamp_writes: None,
         occlusion_query_set: None,
+        multiview_mask: None,
     });
     render_pass.set_pipeline(context.texture_blit_pipeline);
     render_pass.set_bind_group(0, binding, &[]);

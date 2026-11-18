@@ -36,7 +36,7 @@ impl WgpuBackend {
             context,
             device,
             queue,
-            format,
+            render_format: format,
             readback_bytes: Vec::new(),
             viewport: Viewport {
                 physical_size,
@@ -81,13 +81,19 @@ impl WgpuBackend {
         backend
     }
 
-    pub(in crate::wgpu_backend) fn set_format(&mut self, format: TextureFormat) {
-        if self.format == format {
+    pub(in crate::wgpu_backend) fn set_output_format(&mut self, output_format: TextureFormat) {
+        let render_format = match output_format {
+            TextureFormat::Rgba8Unorm | TextureFormat::Rgba8UnormSrgb => {
+                TextureFormat::Rgba8UnormSrgb
+            }
+            _ => TextureFormat::Bgra8UnormSrgb,
+        };
+        if self.render_format == render_format {
             return;
         }
         self.effect_registry
-            .recreate_pipelines(&self.device, format);
-        self.format = format;
+            .recreate_pipelines(&self.device, render_format);
+        self.render_format = render_format;
         self.recreate_pipelines();
         self.recreate_msaa_texture();
     }
@@ -95,7 +101,7 @@ impl WgpuBackend {
     pub(in crate::wgpu_backend) fn recreate_pipelines(&mut self) {
         let resources = ShapePipelines::new(
             &self.context,
-            self.format,
+            self.render_format,
             self.viewport.physical_size,
             self.viewport.scale_factor,
             self.msaa_sample_count,
@@ -109,10 +115,10 @@ impl WgpuBackend {
 
         self.resources.textures.clear_shape_mask_effects();
         self.pipeline_resources.composite_resources =
-            compile_composite_pipeline(&self.device, self.format, self.msaa_sample_count);
+            compile_composite_pipeline(&self.device, self.render_format, self.msaa_sample_count);
         self.pipeline_resources.blending = BlendPipelineResources::new(
             &self.device,
-            self.format,
+            self.render_format,
             self.msaa_sample_count,
             &self.pipeline_resources.shapes.layouts.uniform,
             &self
@@ -122,11 +128,11 @@ impl WgpuBackend {
         );
         self.pipeline_resources
             .shape_mask_effects
-            .recreate_pipeline(&self.device, self.format);
+            .recreate_pipeline(&self.device, self.render_format);
 
         self.pipeline_resources.backdrops = BackdropPipelineResources::new(
             &self.device,
-            self.format,
+            self.render_format,
             &self
                 .pipeline_resources
                 .composite_resources

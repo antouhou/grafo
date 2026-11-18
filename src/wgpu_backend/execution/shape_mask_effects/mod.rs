@@ -173,6 +173,7 @@ impl ShapeMaskEffectExecutionResources<'_> {
                 let mut pass = RenderPass::new(encoder.begin_render_pass(&RenderPassDescriptor {
                     label: Some("shape_mask"),
                     color_attachments: &[Some(RenderPassColorAttachment {
+                        depth_slice: None,
                         view: &texture.color_view,
                         resolve_target: None,
                         ops: Operations {
@@ -183,6 +184,7 @@ impl ShapeMaskEffectExecutionResources<'_> {
                     depth_stencil_attachment: None,
                     timestamp_writes: None,
                     occlusion_query_set: None,
+                    multiview_mask: None,
                 }));
                 pass.set_scissor(command.clip.scissor);
                 pass.set_stencil_reference(command.clip.stencil_reference);

@@ -126,14 +126,18 @@ impl BlendPipelineResources {
     ) -> Self {
         let source_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("source_blend_pipeline_layout"),
-            bind_group_layouts: &[uniform_layout, texture_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(uniform_layout), Some(texture_layout)],
+            immediate_size: 0,
         });
         let destination_sampling_layout =
             device.create_pipeline_layout(&PipelineLayoutDescriptor {
                 label: Some("destination_sampling_blend_pipeline_layout"),
-                bind_group_layouts: &[uniform_layout, texture_layout, texture_layout],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[
+                    Some(uniform_layout),
+                    Some(texture_layout),
+                    Some(texture_layout),
+                ],
+                immediate_size: 0,
             });
         Self {
             device: device.clone(),
@@ -157,7 +161,8 @@ impl BlendPipelineResources {
             InstanceTransform::desc(),
             InstanceColor::desc(),
             InstanceMetadata::desc(),
-        ];
+        ]
+        .map(Some);
         let (vertex_entry_point, vertex_buffers) = match placement {
             TexturePlacement::Local { .. } => ("vs_local", vertex_layouts.as_slice()),
             TexturePlacement::Target => ("vs_target", &[][..]),
@@ -202,7 +207,7 @@ impl BlendPipelineResources {
                     count: self.sample_count,
                     ..Default::default()
                 },
-                multiview: None,
+                multiview_mask: None,
                 cache: None,
             })
     }

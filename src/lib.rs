@@ -62,7 +62,7 @@ pub use wgpu_backend::metrics::{PhaseTimings, PipelineSwitchCounts, ShapeMaskEff
 pub use wgpu_backend::texture_manager::WgpuTextureManager;
 pub use wgpu_backend::{
     BackendCreationError as SceneCreationError, EffectResourceError, EffectShaderError,
-    GeometryBufferError, ReadbackError, WgpuBackend, WgpuBackendError,
+    GeometryBufferError, ReadbackError, SurfaceError, WgpuBackend, WgpuBackendError,
 };
 use wgpu_backend::{WgpuContext, WgpuSurface};
 
