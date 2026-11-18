@@ -20,6 +20,20 @@ pub(crate) struct InstanceTextureData {
     pub(crate) texture_uv_transforms: [TextureUvTransform; 2],
 }
 
+/// Prepares straight linear solid RGB for later premultiplication.
+/// Nonzero-alpha colors require decoded RGB to fit the instance buffer's f32 channels.
+pub(super) fn prepare_solid_fill_color(fill: Option<&Fill>) -> [f32; 4] {
+    let Some(Fill::Solid(color)) = fill else {
+        return [0.0; 4];
+    };
+    // CSS premultiplication makes every finite channel zero at zero alpha.
+    // https://www.w3.org/TR/2026/CRD-css-color-4-20261112/#interpolation-alpha
+    if color.to_array_f32()[3] == 0.0 {
+        return [0.0; 4];
+    }
+    color.normalize()
+}
+
 fn append_aggregated_geometry(
     temp_vertices: &mut Vec<CustomVertex>,
     temp_indices: &mut Vec<u32>,
@@ -176,11 +190,8 @@ impl ShapeExecutionResources {
         );
         resources.clear_under_fill_binding();
         if let Some(location) = resources.geometry_buffer_location {
-            self.instance_colors[location.instance_index].color = shape
-                .fill
-                .as_ref()
-                .and_then(Fill::to_normalized_solid)
-                .unwrap_or([0.0; 4]);
+            self.instance_colors[location.instance_index].color =
+                prepare_solid_fill_color(shape.fill.as_ref());
             self.instance_metadata[location.instance_index].paint_transform =
                 encode_paint_transform(shape.paint_transform);
         }
@@ -257,11 +268,7 @@ impl ShapeExecutionResources {
                 &pipelines.texture_manager,
                 scale_factor,
             );
-            let color = cached_shape_data
-                .fill
-                .as_ref()
-                .and_then(Fill::to_normalized_solid)
-                .unwrap_or([0.0; 4]);
+            let color = prepare_solid_fill_color(cached_shape_data.fill.as_ref());
             let instance_index = append_instance_data(
                 &mut self.instance_transforms,
                 &mut self.instance_colors,

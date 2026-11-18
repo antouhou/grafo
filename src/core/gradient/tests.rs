@@ -2,9 +2,9 @@ use super::errors::GradientError;
 use super::normalize::NormalizedGradient;
 use super::sampling::bake_gradient_ramp;
 use super::types::{
-    ColorInterpolation, Fill, Gradient, GradientColor, GradientCommonDesc, GradientKind,
+    ColorInterpolation, ConicGradientDesc, Fill, Gradient, GradientCommonDesc, GradientKind,
     GradientRamp, GradientRampSource, GradientStop, GradientStopOffset, LinearGradientDesc,
-    LinearGradientLine, RadialGradientDesc, RadialGradientSize,
+    LinearGradientLine, RadialGradientDesc, RadialGradientSize, SpreadMode,
 };
 use crate::core::Color;
 
@@ -14,13 +14,168 @@ fn single_stop_common() -> GradientCommonDesc {
 }
 
 #[test]
-fn single_stop_bakes_a_constant_premultiplied_color_for_any_position() {
-    let color = GradientColor::Srgb {
-        red: 1.0,
-        green: 0.0,
-        blue: 0.0,
-        alpha: 0.5,
+fn degenerate_repeating_gradients_use_css_average_colors() {
+    let stops = [
+        GradientStop::at_position(GradientStopOffset::linear_radial(0.0), Color::BLACK),
+        GradientStop::at_position(GradientStopOffset::linear_radial(1.0), Color::WHITE),
+        GradientStop::at_position(
+            GradientStopOffset::linear_radial(1.0),
+            Color::rgb(255, 0, 0),
+        ),
+    ];
+    let linear = Gradient::linear(
+        LinearGradientDesc::new(
+            LinearGradientLine {
+                start: [0.0, 0.0],
+                end: [0.0, 0.0],
+            },
+            stops.clone(),
+        )
+        .with_spread(SpreadMode::Repeat),
+    )
+    .unwrap();
+    let radial = Gradient::radial(
+        RadialGradientDesc::new(
+            [0.0, 0.0],
+            RadialGradientSize::ExplicitCircleRadius(0.0),
+            stops,
+        )
+        .with_spread(SpreadMode::Repeat),
+    )
+    .unwrap();
+    for gradient in [linear, radial] {
+        assert_eq!(
+            gradient.data().ramp.as_slice(),
+            &[[0.21404114, 0.21404114, 0.21404114, 1.0]]
+        );
+    }
+    let transparent = Gradient::linear(
+        LinearGradientDesc::new(
+            LinearGradientLine {
+                start: [0.0, 0.0],
+                end: [0.0, 0.0],
+            },
+            [
+                GradientStop::auto(Color::rgba_f32(1.0, 0.0, 0.0, 0.0)),
+                GradientStop::auto(Color::rgb(0, 0, 255)),
+            ],
+        )
+        .with_spread(SpreadMode::Repeat),
+    )
+    .unwrap();
+    assert_eq!(transparent.data().ramp.as_slice(), &[[0.0, 0.0, 0.5, 0.5]]);
+    let conic = Gradient::conic(
+        ConicGradientDesc::new(
+            [0.0, 0.0],
+            0.0,
+            [
+                GradientStop::at_position(
+                    GradientStopOffset::conic_radians(0.0),
+                    Color::rgb(255, 0, 0),
+                ),
+                GradientStop::at_position(GradientStopOffset::conic_radians(0.0), Color::WHITE),
+                GradientStop::at_position(
+                    GradientStopOffset::conic_radians(0.0),
+                    Color::rgb(0, 0, 255),
+                ),
+            ],
+        )
+        .with_spread(SpreadMode::Repeat),
+    )
+    .unwrap();
+    assert_eq!(
+        conic.data().ramp.as_slice(),
+        &[[0.52252156, 0.21404114, 0.52252156, 1.0]]
+    );
+}
+
+#[test]
+fn degenerate_repeat_average_retains_signed_hdr_cancellation() {
+    let extreme = 2.0_f32.powi(53);
+    for sign in [-1.0, 1.0] {
+        let stops = [extreme, sign, -extreme].map(|red| {
+            GradientStop::at_position(
+                GradientStopOffset::linear_radial(0.0),
+                Color::rgb_f32(red, 0.0, 0.0),
+            )
+        });
+        let gradient = Gradient::linear(
+            LinearGradientDesc::new(
+                LinearGradientLine {
+                    start: [0.0, 0.0],
+                    end: [1.0, 0.0],
+                },
+                stops,
+            )
+            .with_spread(SpreadMode::Repeat),
+        )
+        .unwrap();
+
+        // CSS Images 3 gives encoded red 0.25*extreme + 0.5*sign - 0.25*extreme.
+        assert_eq!(
+            gradient.data().ramp.as_slice(),
+            &[[0.21404114 * sign, 0.0, 0.0, 1.0]]
+        );
+    }
+}
+
+#[test]
+fn degenerate_repeat_average_preserves_interval_ratios_before_division() {
+    let extreme = 2.0_f32.powi(54);
+    for sign in [-1.0, 1.0] {
+        let stops = [(0.0, -5.0 * extreme), (1.0, 0.0), (6.0, extreme)].map(|(position, red)| {
+            GradientStop::at_position(
+                GradientStopOffset::linear_radial(position),
+                Color::rgb_f32(red * sign, 0.0, 0.0),
+            )
+        });
+        let gradient = Gradient::linear(
+            LinearGradientDesc::new(
+                LinearGradientLine {
+                    start: [0.0, 0.0],
+                    end: [0.0, 0.0],
+                },
+                stops,
+            )
+            .with_spread(SpreadMode::Repeat),
+        )
+        .unwrap();
+        assert_eq!(gradient.data().ramp.as_slice(), &[[0.0, 0.0, 0.0, 1.0]]);
+    }
+}
+
+#[test]
+fn repeating_conic_gradients_keep_positive_stop_intervals() {
+    let gradient = Gradient::conic(
+        ConicGradientDesc::new(
+            [0.0, 0.0],
+            0.0,
+            [
+                GradientStop::at_position(
+                    GradientStopOffset::conic_radians(0.25),
+                    Color::rgb(255, 0, 0),
+                ),
+                GradientStop::at_position(
+                    GradientStopOffset::conic_radians(0.2500005),
+                    Color::rgb(0, 0, 255),
+                ),
+            ],
+        )
+        .with_spread(SpreadMode::Repeat)
+        .with_interpolation(ColorInterpolation::SrgbLinear),
+    )
+    .unwrap();
+    let GradientRamp::Pending(source) = &gradient.data().ramp else {
+        panic!("positive conic intervals must retain their interpolation source");
     };
+    let ramp = source.bake();
+    assert_eq!(ramp.as_slice().first().unwrap(), &[1.0, 0.0, 0.0, 1.0]);
+    assert_eq!(ramp.as_slice().last().unwrap(), &[0.0, 0.0, 1.0, 1.0]);
+}
+
+#[test]
+fn single_authored_color_stops_preserve_linear_premultiplied_color() {
+    let color = Color::rgba_f32(1.0, 0.0, 0.0, 0.5);
     for stop in [
         GradientStop::auto(color),
         GradientStop::at_position(GradientStopOffset::LinearRadial(0.5), color),
@@ -30,7 +185,8 @@ fn single_stop_bakes_a_constant_premultiplied_color_for_any_position() {
             color,
         ),
     ] {
-        let common = GradientCommonDesc::new([stop]);
+        let common =
+            GradientCommonDesc::new([stop]).with_interpolation(ColorInterpolation::SrgbLinear);
         let normalized = NormalizedGradient::from_common(&common, GradientKind::Linear);
         assert_eq!(normalized.degenerate_constant_color(), [0.5, 0.0, 0.0, 0.5]);
 
@@ -38,7 +194,9 @@ fn single_stop_bakes_a_constant_premultiplied_color_for_any_position() {
             interpolation: common.interpolation,
             normalized,
         });
-        assert_eq!(ramp.as_slice(), &[[0.5, 0.0, 0.0, 0.5]]);
+        for texel in ramp.as_slice() {
+            assert_eq!(*texel, [0.5, 0.0, 0.0, 0.5]);
+        }
     }
 }
 
@@ -59,6 +217,36 @@ fn float_color_stops_preserve_the_solid_fill_components() {
         gradient.data().ramp.as_slice(),
         &[[red * alpha, green * alpha, blue * alpha, alpha]]
     );
+}
+
+#[test]
+fn transparent_solid_accessor_preserves_straight_rgb() {
+    let fill = Fill::Solid(Color::rgba(255, 0, 0, 0));
+    assert_eq!(fill.to_normalized_solid(), Some([1.0, 0.0, 0.0, 0.0]));
+}
+
+#[test]
+fn gradients_reject_nonfinite_color_channels() {
+    for (channel_index, component) in ["red", "green", "blue", "alpha"].into_iter().enumerate() {
+        for invalid in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            let mut channels = [0.2, 0.3, 0.4, 1.0];
+            channels[channel_index] = invalid;
+            let gradient = Gradient::linear(LinearGradientDesc::new(
+                LinearGradientLine {
+                    start: [0.0, 0.0],
+                    end: [10.0, 0.0],
+                },
+                [GradientStop::auto(Color(channels))],
+            ));
+            assert!(matches!(
+                gradient,
+                Err(GradientError::NonFiniteColorComponent {
+                    stop_index: 0,
+                    component: actual,
+                }) if actual == component
+            ));
+        }
+    }
 }
 
 #[test]

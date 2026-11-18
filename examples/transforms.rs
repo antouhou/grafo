@@ -1,10 +1,9 @@
 use euclid::{default::Transform3D, Angle};
 use futures::executor::block_on;
+use grafo::core::color;
 use grafo::{
-    premultiply_rgba8_srgb_inplace, Color, Scene, Shape, ShapeDrawOptions, TextureManager,
-    TransformInstance,
+    Color, Scene, SceneContext, Shape, ShapeDrawOptions, Surface, TextureManager, TransformInstance,
 };
-use grafo::{SceneContext, Surface};
 use lyon::algorithms::hit_test::hit_test_path;
 use lyon::algorithms::math::point as algo_point;
 use lyon::geom::point;
@@ -178,7 +177,7 @@ impl ApplicationHandler for App {
         let rust_logo_png_dimensions = rust_logo_rgba.dimensions();
         let mut rust_logo_png_bytes = rust_logo_rgba.to_vec();
         // Premultiply to avoid fringes when minifying near transparent edges
-        premultiply_rgba8_srgb_inplace(&mut rust_logo_png_bytes);
+        color::premultiply_rgba8_srgb_inplace(&mut rust_logo_png_bytes);
         let rust_logo_texture_id = 1u64;
         scene.texture_manager().allocate_texture_with_data(
             rust_logo_texture_id,

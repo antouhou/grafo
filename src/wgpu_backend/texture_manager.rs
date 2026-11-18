@@ -17,7 +17,7 @@ pub enum TextureManagerError {
 /// # Examples
 ///
 /// ```rust,no_run
-/// use grafo::{premultiply_rgba8_srgb_inplace, Scene, TextureManager};
+/// use grafo::{core::color, Scene, TextureManager};
 /// # fn example(scene: &Scene) {
 /// let texture_manager = scene.texture_manager();
 /// let texture_id = 42;
@@ -27,7 +27,7 @@ pub enum TextureManagerError {
 /// texture_manager.allocate_texture_with_data(texture_id, texture_dimensions, &data);
 ///
 /// data.fill(128);
-/// premultiply_rgba8_srgb_inplace(&mut data);
+/// color::premultiply_rgba8_srgb_inplace(&mut data);
 /// texture_manager.load_data_into_texture(texture_id, texture_dimensions, &data).unwrap();
 /// assert!(texture_manager.is_texture_loaded(texture_id));
 /// # }

@@ -3,9 +3,26 @@ use super::{ShapeBufferLocation, ShapeDrawResources, ShapeExecutionResources};
 use crate::commands::ShapeDrawId;
 use crate::core::vertex::{InstanceTransform, TextureUvTransform};
 use crate::core::{
-    BorderRadii, DrawMode, Shape, ShapeDrawOptions, ShapeInstance, StrokeGeometryOptions, Viewport,
+    BorderRadii, Color, DrawMode, Fill, Shape, ShapeDrawOptions, ShapeInstance,
+    StrokeGeometryOptions, Viewport,
 };
 use crate::scene_state::{SceneState, SceneStateContext};
+
+#[test]
+fn transparent_hdr_solids_prepare_finite_black_for_upload() {
+    for red in [-1e17, 1e17] {
+        let color = Color::rgba_f32(red, 0.0, 0.0, 0.0);
+        assert_eq!(
+            preparation::prepare_solid_fill_color(Some(&Fill::Solid(color))),
+            [0.0; 4]
+        );
+    }
+    let color = Color::rgba_f32(2.0, -0.5, 0.25, 0.5);
+    assert_eq!(
+        preparation::prepare_solid_fill_color(Some(&Fill::Solid(color))),
+        color.normalize()
+    );
+}
 
 fn insert_draw(resources: &mut ShapeExecutionResources, id: usize, shape: &ShapeInstance) {
     let geometry_range = preparation::append_aggregated_geometry_for_shape(
