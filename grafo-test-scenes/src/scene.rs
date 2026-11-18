@@ -7965,6 +7965,127 @@ fn tile_99_gradient_stop_normalization(scene: &mut Scene) -> Vec<PixelExpectatio
     .collect()
 }
 
+/// Solid/gradient pairs share premultiplication across plain, textured, and under-fill draws.
+fn tile_80_color_preparation(scene: &mut Scene) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(80);
+    let transparent_texture_id = 100_001;
+    scene
+        .texture_manager()
+        .allocate_texture_with_data(transparent_texture_id, (1, 1), &[0; 4]);
+    scene
+        .add_shape(
+            Shape::rect([
+                (origin_x + 6.0, origin_y + 6.0),
+                (origin_x + 74.0, origin_y + 76.0),
+            ]),
+            None,
+            None,
+            ShapeDrawOptions::new().color(Color::rgb(32, 32, 32)),
+        )
+        .unwrap();
+    let mut expectations = Vec::new();
+    // Straight linear RGB overflows f32, while CSS premultiplication gives about 0.555.
+    let color = Color::rgba_f32(1e17, 1e17, 1e17, 1e-41);
+    for row in 0..3 {
+        for column in 0..2 {
+            let left = origin_x + 10.0 + column as f32 * 32.0;
+            let top = origin_y + 8.0 + row as f32 * 14.0;
+            let fill = if column == 0 {
+                Fill::Solid(color)
+            } else {
+                Fill::Gradient(
+                    Gradient::linear(LinearGradientDesc::new(
+                        LinearGradientLine {
+                            start: [left, top],
+                            end: [left + 28.0, top],
+                        },
+                        [GradientStop::auto(color)],
+                    ))
+                    .unwrap(),
+                )
+            };
+            let mut options = ShapeDrawOptions::new().fill(fill);
+            if row > 0 {
+                options = options
+                    .background_texture_id(transparent_texture_id)
+                    .foreground_texture_id(transparent_texture_id);
+            }
+            let panel = scene
+                .add_shape(
+                    Shape::rect([(left, top), (left + 28.0, top + 12.0)]),
+                    None,
+                    None,
+                    options,
+                )
+                .unwrap();
+            if row == 2 {
+                scene
+                    .set_backdrop_effect(
+                        panel,
+                        PASSTHROUGH_EFFECT_ID,
+                        &[],
+                        BackdropEffectConfig::new(),
+                    )
+                    .unwrap();
+            }
+            expectations.push(PixelExpectation::opaque_approx(
+                left as u32 + 14,
+                top as u32 + 6,
+                199,
+                199,
+                199,
+                2,
+                "t80_hdr_solid_gradient_premultiplication",
+            ));
+        }
+    }
+    // CSS uses equal stop spacing at zero period and interval weights for positive periods.
+    for (top, middle, end, gray) in [
+        (52.0, f32::from_bits(1), f32::from_bits(3), 64),
+        (64.0, f32::from_bits(1 << 17), f32::from_bits(1 << 19), 96),
+    ] {
+        let gradient = Gradient::conic(
+            ConicGradientDesc::new(
+                [origin_x + 40.0, origin_y + top + 5.0],
+                0.0,
+                [
+                    (0.0, Color::BLACK),
+                    (middle, Color::BLACK),
+                    (end, Color::WHITE),
+                ]
+                .map(|(position, color)| {
+                    GradientStop::at_position(GradientStopOffset::conic_radians(position), color)
+                }),
+            )
+            .with_spread(SpreadMode::Repeat),
+        )
+        .unwrap();
+        scene
+            .add_shape(
+                Shape::rect([
+                    (origin_x + 10.0, origin_y + top),
+                    (origin_x + 70.0, origin_y + top + 10.0),
+                ]),
+                None,
+                None,
+                ShapeDrawOptions::new().fill(Fill::Gradient(gradient)),
+            )
+            .unwrap();
+        for x in [20, 40, 60] {
+            expectations.push(PixelExpectation::opaque_approx(
+                origin_x as u32 + x,
+                origin_y as u32 + top as u32 + 5,
+                gray,
+                gray,
+                gray,
+                2,
+                "t80_degenerate_conic_css_average",
+            ));
+        }
+    }
+    expectations
+}
+
 /// Queues the tile grid and returns its expected pixel colors.
 /// The headless regression test and visual_test_grid example share this scene.
 pub fn build_main_scene(scene: &mut Scene) -> Vec<PixelExpectation> {
@@ -8095,6 +8216,7 @@ pub fn build_main_scene(scene: &mut Scene) -> Vec<PixelExpectation> {
     expectations.extend(tile_97_stroke_clipping(scene));
     expectations.extend(tile_98_extended_polar_gradients(scene));
     expectations.extend(tile_99_gradient_stop_normalization(scene));
+    expectations.extend(tile_80_color_preparation(scene));
 
     expectations
 }

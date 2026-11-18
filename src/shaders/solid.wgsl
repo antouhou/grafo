@@ -49,5 +49,5 @@ fn fs_solid(
     @location(9) @interpolate(flat) coverage_origin: vec2<f32>,
 ) -> @location(0) vec4<f32> {
     let pixel_coverage = resolve_path_coverage(coverage_start, coverage_origin, fragment_position);
-    return vec4<f32>(color.rgb * color.a, color.a) * pixel_coverage;
+    return color * pixel_coverage;
 }

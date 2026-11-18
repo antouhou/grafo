@@ -5,6 +5,11 @@ use std::f32::consts::TAU;
 
 const NORMALIZED_INLINE_STOP_CAPACITY: usize = 8;
 const NORMALIZED_INLINE_SEGMENT_CAPACITY: usize = 8;
+// Skia's sweep factory uses kDegenerateThreshold = 1 / 32768 degree, inclusive.
+// Express the same cutoff in the turns used to evaluate conic gradients.
+// https://skia.googlesource.com/skia/+/d2b9e48baf1697760afc1dc8ea3ad40110b8cacc/src/shaders/gradients/SkGradientBaseShader.h
+// https://skia.googlesource.com/skia/+/d2b9e48baf1697760afc1dc8ea3ad40110b8cacc/src/shaders/gradients/SkSweepGradient.cpp#110
+const CONIC_DEGENERATE_THRESHOLD_TURNS: f32 = 1.0 / (32768.0 * 360.0);
 
 #[derive(Debug, Clone, Copy)]
 struct AuthoredGradientItem {
@@ -12,7 +17,7 @@ struct AuthoredGradientItem {
     raw_position: Option<f32>,
 }
 
-/// A gradient stop after resolving its CSS position.
+/// A gradient stop after CSS position resolution, retaining authored units and conic radians.
 #[derive(Debug, Clone)]
 pub(crate) struct NormalizedStop {
     pub(crate) position: f32,
@@ -49,9 +54,10 @@ pub(crate) struct NormalizedGradient {
     pub(crate) spread: SpreadMode,
     pub(crate) stops: SmallVec<[NormalizedStop; NORMALIZED_INLINE_STOP_CAPACITY]>,
     pub(crate) segments: SmallVec<[NormalizedSegment; NORMALIZED_INLINE_SEGMENT_CAPACITY]>,
+    /// Evaluation coordinates use normalized positions, or turns for conics.
     pub(crate) period_start: f32,
     pub(crate) period_len: f32,
-    zero_period_color: Option<[f32; 4]>,
+    constant_color: Option<[f32; 4]>,
 }
 
 impl NormalizedGradient {
@@ -110,7 +116,7 @@ impl NormalizedGradient {
         let is_conic = kind == GradientKind::Conic;
 
         // CSS Images 4 section 3.5.1 expands double positions before considering constants.
-        // Hints participate in the same position fixup and implicit spacing as color stops.
+        // Hints participate in the same position resolution and implicit spacing as color stops.
         // https://www.w3.org/TR/css-images-4/#color-stop-syntax
         // https://www.w3.org/TR/css-images-4/#color-stop-fixup
         let authored_item_count = common
@@ -204,24 +210,43 @@ impl NormalizedGradient {
             }
         }
 
-        // Skia removes duplicate outer colors used only by clamp padding for non-clamp modes.
-        // Do this before segments and cache keys so a repeating seam cannot inherit padding colors.
-        // https://skia.googlesource.com/skia/+/d2b9e48baf1697760afc1dc8ea3ad40110b8cacc/src/shaders/gradients/SkGradientBaseShader.cpp#281
         let first_position = stops.first().unwrap().position;
         let last_position = stops.last().unwrap().position;
-        let period_len = last_position - first_position;
-        // A conic period can round to zero in turns. CSS's equally spaced average must
-        // include the authored colors before Skia's non-clamp seam simplification.
+        let period_start = if is_conic {
+            first_position / TAU
+        } else {
+            first_position
+        };
+        let period_len = if is_conic {
+            // Convert the span once so turn rounding cannot move shifted stops across the cutoff.
+            ((f64::from(last_position) - f64::from(first_position)) / f64::from(TAU)) as f32
+        } else {
+            last_position - first_position
+        };
+        // Resolve constants before seam simplification can discard authored stop weights.
+        // CSS uses equally spaced stops for a period that rounds to zero, and actual
+        // interval weights for an unresolvable positive period. Skia's sweep cutoff
+        // resolves those tiny spans to a constant, losing their angular variation.
         // https://www.w3.org/TR/css-images-3/#repeating-gradients
-        let zero_period_color = if is_conic
-            && common.spread == SpreadMode::Repeat
-            && period_len > 0.0
-            && period_len / TAU == 0.0
-        {
+        let constant_color = if stops.len() == 1 {
+            Some(stops[0].color.to_linear_premultiplied_rgba())
+        } else if common.spread == SpreadMode::Repeat && period_len == 0.0 {
             Some(Self::average_color(&stops, 0.0))
+        } else if common.spread == SpreadMode::Repeat
+            && is_conic
+            && period_len <= CONIC_DEGENERATE_THRESHOLD_TURNS
+        {
+            Some(Self::average_color(
+                &stops,
+                f64::from(last_position) - f64::from(first_position),
+            ))
         } else {
             None
         };
+
+        // Skia removes duplicate outer colors used only by clamp padding for non-clamp modes.
+        // Do this before segments and cache keys so a repeating seam cannot inherit padding colors.
+        // https://skia.googlesource.com/skia/+/d2b9e48baf1697760afc1dc8ea3ad40110b8cacc/src/shaders/gradients/SkGradientBaseShader.cpp#281
         if common.spread == SpreadMode::Repeat && first_position < last_position {
             let first_kept = stops.partition_point(|stop| stop.position == first_position) - 1;
             let last_kept = stops.partition_point(|stop| stop.position < last_position);
@@ -245,16 +270,10 @@ impl NormalizedGradient {
             spread: common.spread,
             stops,
             segments,
-            period_start: first_position,
+            period_start,
             period_len,
-            zero_period_color,
+            constant_color,
         }
-    }
-
-    /// Averages equally spaced stops when a period is zero in the destination representation.
-    pub(crate) fn zero_period_constant_color(&self) -> [f32; 4] {
-        self.zero_period_color
-            .unwrap_or_else(|| Self::average_color(&self.stops, 0.0))
     }
 
     /// Resolves degenerate padding to the final color and repeats to their average.
@@ -272,13 +291,9 @@ impl NormalizedGradient {
         Self::average_color(&self.stops, span)
     }
 
-    /// Returns a constant color for a single stop or a zero-period repeating gradient.
+    /// Returns the constant resolved before stop simplification and sampling.
     pub(crate) fn constant_color(&self) -> Option<[f32; 4]> {
-        if self.stops.len() == 1 || (self.spread == SpreadMode::Repeat && self.period_len == 0.0) {
-            Some(self.degenerate_constant_color())
-        } else {
-            None
-        }
+        self.constant_color
     }
 }
 

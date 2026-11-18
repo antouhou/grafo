@@ -58,7 +58,7 @@ impl CustomVertex {
     }
 }
 
-/// Per-instance color payload
+/// Per-instance linear premultiplied RGBA.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub struct InstanceColor {

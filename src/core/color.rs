@@ -260,7 +260,11 @@ impl Color {
 
     /// Creates a color from 8-bit sRGB channel values and alpha.
     pub fn rgba(r: u8, g: u8, b: u8, a: u8) -> Self {
-        Self([r, g, b, a].map(|channel| f32::from(channel) / 255.0))
+        Self::from_rgba_array([r, g, b, a])
+    }
+
+    pub fn from_rgba_array(arr: [u8; 4]) -> Self {
+        Self(arr.map(|channel| f32::from(channel) / 255.0))
     }
 
     /// Creates a color from floating-point encoded sRGB channel values and alpha.

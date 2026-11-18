@@ -10,7 +10,7 @@ use std::f32::consts::{FRAC_PI_2, PI, TAU};
 use std::sync::Arc;
 
 #[test]
-fn conic_periods_rounded_to_zero_use_css_average_in_gpu_params() {
+fn conic_periods_resolve_in_core_before_gpu_parameter_packing() {
     for (stops, expected) in [
         (
             vec![
@@ -39,6 +39,27 @@ fn conic_periods_rounded_to_zero_use_css_average_in_gpu_params() {
         (
             vec![
                 GradientStop::at_position(GradientStopOffset::conic_radians(0.0), Color::BLACK),
+                GradientStop::at_position(GradientStopOffset::conic_radians(1e-40), Color::WHITE),
+            ],
+            [0.21404114, 0.21404114, 0.21404114, 1.0],
+        ),
+        (
+            vec![
+                GradientStop::at_position(GradientStopOffset::conic_radians(0.0), Color::BLACK),
+                GradientStop::at_position(
+                    GradientStopOffset::conic_radians(f32::from_bits(1 << 17)),
+                    Color::BLACK,
+                ),
+                GradientStop::at_position(
+                    GradientStopOffset::conic_radians(f32::from_bits(1 << 19)),
+                    Color::WHITE,
+                ),
+            ],
+            [0.116016135, 0.116016135, 0.116016135, 1.0],
+        ),
+        (
+            vec![
+                GradientStop::at_position(GradientStopOffset::conic_radians(0.0), Color::BLACK),
                 GradientStop::at_position(GradientStopOffset::conic_radians(0.0), Color::BLACK),
                 GradientStop::at_position(
                     GradientStopOffset::conic_radians(f32::from_bits(1)),
@@ -52,9 +73,12 @@ fn conic_periods_rounded_to_zero_use_css_average_in_gpu_params() {
             ConicGradientDesc::new([0.0, 0.0], 0.0, stops).with_spread(SpreadMode::Repeat),
         )
         .unwrap();
-        assert!(matches!(gradient.data().ramp, GradientRamp::Pending(_)));
+        let GradientRamp::Constant(color) = &gradient.data().ramp else {
+            panic!("core must resolve degenerate conic periods before sampling");
+        };
+        assert_eq!(*color, expected);
         let params = GpuGradientColorParams::from_gradient_data(gradient.data());
-        assert_eq!(params.period_len, 0.0);
+        assert_eq!(params.period_len, gradient.data().period_len);
         assert_eq!(params.is_constant, 1);
         assert_eq!(params.constant_color, expected);
     }
@@ -402,6 +426,8 @@ fn conic_gpu_parameters_use_turns_for_stops_and_radians_for_the_start_angle() {
     .unwrap();
 
     let params = GpuGradientColorParams::from_gradient_data(gradient.data());
+    assert_eq!(gradient.data().period_start, 0.5);
+    assert_eq!(gradient.data().period_len, 0.5);
     assert_eq!(params.gradient_type, 3);
     assert_eq!(params.units, 1);
     assert_eq!(params.spread_mode, 1);

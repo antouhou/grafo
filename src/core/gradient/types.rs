@@ -462,8 +462,8 @@ impl GradientRamp {
 
 #[derive(Debug, Clone)]
 pub struct GradientRampSource {
-    pub(crate) interpolation: ColorInterpolation,
-    pub(crate) normalized: NormalizedGradient,
+    pub(super) interpolation: ColorInterpolation,
+    pub(super) normalized: NormalizedGradient,
 }
 
 impl GradientRampSource {
@@ -488,8 +488,9 @@ pub struct GradientData {
     pub ramp_cache_key: GradientRampCacheKey,
     /// Pending source, a constant color, or a sampled linear premultiplied RGBA ramp.
     pub ramp: GradientRamp,
-    /// For repeating: period_start and period_len in the t/theta domain
+    /// Start of the ramp and repeating period in normalized coordinates, or turns for conics.
     pub period_start: f32,
+    /// Length of the ramp and repeating period in normalized coordinates, or turns for conics.
     pub period_len: f32,
 }
 
@@ -625,9 +626,6 @@ impl Gradient {
         }
 
         let normalized = NormalizedGradient::from_common(&desc.common, GradientKind::Conic);
-        let is_degenerate =
-            desc.common.spread == SpreadMode::Repeat && normalized.period_len == 0.0;
-
         Ok(Gradient {
             data: Arc::new(GradientData::new(
                 &desc.common,
@@ -636,7 +634,7 @@ impl Gradient {
                     start_angle: desc.start_angle_radians,
                 },
                 normalized,
-                is_degenerate,
+                false,
             )),
         })
     }

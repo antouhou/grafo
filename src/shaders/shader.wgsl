@@ -296,10 +296,9 @@ fn compute_fragment_color(
     coverage: f32,
     texture_flags: f32,
 ) -> vec4<f32> {
-    // The CPU converts the fill to linear RGB; premultiply it before compositing.
-    let fill_pma = vec4<f32>(color.rgb * color.a, color.a);
+    // Instance colors arrive as linear premultiplied RGBA.
     return composite_texture_layers(
-        fill_pma, shape_tex_coords, layer0_uv_transform, layer1_uv_transform, coverage, texture_flags,
+        color, shape_tex_coords, layer0_uv_transform, layer1_uv_transform, coverage, texture_flags,
     );
 }
 
@@ -410,8 +409,7 @@ fn fs_texture_material(
     @location(9) @interpolate(flat) coverage_origin: vec2<f32>,
 ) -> @location(0) vec4<f32> {
     let pixel_coverage = resolve_path_coverage(coverage_start, coverage_origin, fragment_position);
-    let fill_pma = vec4<f32>(color.rgb * color.a, color.a);
-    let base_pma = composite_under_fill_texture(fill_pma, fragment_position, shape_tex_coords);
+    let base_pma = composite_under_fill_texture(color, fragment_position, shape_tex_coords);
     return composite_texture_layers(base_pma, shape_tex_coords, layer0_uv_transform, layer1_uv_transform, pixel_coverage, texture_flags);
 }
 

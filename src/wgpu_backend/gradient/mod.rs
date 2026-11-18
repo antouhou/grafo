@@ -4,7 +4,6 @@ use crate::core::gradient::types::{
 use crate::wgpu_backend::execution::shapes::TextureSamplingUniform;
 use half::f16;
 use lru::LruCache;
-use std::f32::consts::TAU;
 use std::hash::Hash;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
@@ -94,20 +93,6 @@ impl GpuGradientColorParams {
                 params.gradient_type = 3;
                 params.conic_center = center;
                 params.conic_start_angle = start_angle;
-                // The shader evaluates conic stops in turns; normalization uses radians.
-                params.period_start /= TAU;
-                params.period_len /= TAU;
-                match &data.ramp {
-                    GradientRamp::Pending(source)
-                        if data.spread == SpreadMode::Repeat && params.period_len == 0.0 =>
-                    {
-                        // CSS treats periods that round to zero like authored zero periods.
-                        // https://www.w3.org/TR/css-images-3/#repeating-gradients
-                        params.is_constant = 1;
-                        params.constant_color = source.normalized.zero_period_constant_color();
-                    }
-                    _ => {}
-                }
             }
         }
         params.ramp_start = params.period_start;

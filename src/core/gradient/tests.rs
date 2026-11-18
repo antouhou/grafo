@@ -7,6 +7,7 @@ use super::types::{
     LinearGradientLine, RadialGradientDesc, RadialGradientSize, SpreadMode,
 };
 use crate::core::Color;
+use std::f32::consts::TAU;
 
 fn single_stop_common() -> GradientCommonDesc {
     GradientCommonDesc::new([GradientStop::auto(Color::rgb(255, 0, 0))])
@@ -145,32 +146,90 @@ fn degenerate_repeat_average_preserves_interval_ratios_before_division() {
 }
 
 #[test]
-fn repeating_conic_gradients_keep_positive_stop_intervals() {
-    let gradient = Gradient::conic(
-        ConicGradientDesc::new(
-            [0.0, 0.0],
-            0.0,
-            [
-                GradientStop::at_position(
-                    GradientStopOffset::conic_radians(0.25),
-                    Color::rgb(255, 0, 0),
-                ),
-                GradientStop::at_position(
-                    GradientStopOffset::conic_radians(0.2500005),
-                    Color::rgb(0, 0, 255),
-                ),
-            ],
+fn repeating_conic_gradients_resolve_skia_sweep_cutoff_before_sampling() {
+    // Adjacent f32 radians straddle Skia's 1 / 32768 degree sweep cutoff.
+    for (start, end, is_constant) in [
+        (0.0, f32::from_bits(0x350e_fa35), true),
+        (0.0, f32::from_bits(0x350e_fa36), false),
+        (2.0, f32::from_bits(0x4000_0002), true),
+        (
+            f32::from_bits(0x3e80_001b),
+            f32::from_bits(0x3e80_002d),
+            false,
+        ),
+        (0.25, 0.250002, false),
+    ] {
+        let gradient = Gradient::conic(
+            ConicGradientDesc::new(
+                [0.0, 0.0],
+                0.0,
+                [
+                    GradientStop::at_position(
+                        GradientStopOffset::conic_radians(start),
+                        Color::rgb(255, 0, 0),
+                    ),
+                    GradientStop::at_position(
+                        GradientStopOffset::conic_radians(end),
+                        Color::rgb(0, 0, 255),
+                    ),
+                ],
+            )
+            .with_spread(SpreadMode::Repeat)
+            .with_interpolation(ColorInterpolation::SrgbLinear),
         )
-        .with_spread(SpreadMode::Repeat)
-        .with_interpolation(ColorInterpolation::SrgbLinear),
-    )
-    .unwrap();
-    let GradientRamp::Pending(source) = &gradient.data().ramp else {
-        panic!("positive conic intervals must retain their interpolation source");
-    };
-    let ramp = source.bake();
-    assert_eq!(ramp.as_slice().first().unwrap(), &[1.0, 0.0, 0.0, 1.0]);
-    assert_eq!(ramp.as_slice().last().unwrap(), &[0.0, 0.0, 1.0, 1.0]);
+        .unwrap();
+        assert_eq!(gradient.data().period_start, start / TAU);
+        assert_eq!(
+            gradient.data().period_len,
+            ((f64::from(end) - f64::from(start)) / f64::from(TAU)) as f32
+        );
+        if is_constant {
+            assert!(matches!(gradient.data().ramp, GradientRamp::Constant(..)));
+            assert_eq!(
+                gradient.data().ramp.as_slice(),
+                &[[0.21404114, 0.0, 0.21404114, 1.0]]
+            );
+        } else {
+            let GradientRamp::Pending(source) = &gradient.data().ramp else {
+                panic!("a usable conic interval must retain its interpolation source");
+            };
+            let ramp = source.bake();
+            assert_eq!(ramp.as_slice().first().unwrap(), &[1.0, 0.0, 0.0, 1.0]);
+            assert_eq!(ramp.as_slice().last().unwrap(), &[0.0, 0.0, 1.0, 1.0]);
+        }
+    }
+}
+
+#[test]
+fn conic_ramp_baking_preserves_distinct_authored_angles() {
+    for (start_bits, end_bits) in [(0x40c9_0fdc, 0x40c9_0fde), (0x4049_0fdc, 0x4049_0fdf)] {
+        let gradient = Gradient::conic(
+            ConicGradientDesc::new(
+                [0.0, 0.0],
+                0.0,
+                [
+                    (start_bits, Color::BLACK),
+                    (start_bits + 1, Color::WHITE),
+                    (end_bits, Color::WHITE),
+                ]
+                .map(|(bits, color)| {
+                    GradientStop::at_position(
+                        GradientStopOffset::conic_radians(f32::from_bits(bits)),
+                        color,
+                    )
+                }),
+            )
+            .with_spread(SpreadMode::Repeat)
+            .with_interpolation(ColorInterpolation::SrgbLinear),
+        )
+        .unwrap();
+        let GradientRamp::Pending(source) = &gradient.data().ramp else {
+            panic!("the conic period exceeds Skia's sweep cutoff");
+        };
+        let ramp = source.bake();
+        assert_eq!(ramp.as_slice()[0], [0.0, 0.0, 0.0, 1.0]);
+        assert_eq!(ramp.as_slice()[682], [1.0; 4]);
+    }
 }
 
 #[test]

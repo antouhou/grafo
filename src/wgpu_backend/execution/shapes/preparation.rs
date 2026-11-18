@@ -20,18 +20,12 @@ pub(crate) struct InstanceTextureData {
     pub(crate) texture_uv_transforms: [TextureUvTransform; 2],
 }
 
-/// Prepares straight linear solid RGB for later premultiplication.
-/// Nonzero-alpha colors require decoded RGB to fit the instance buffer's f32 channels.
+/// Prepares linear premultiplied RGBA for instance color uploads.
 pub(super) fn prepare_solid_fill_color(fill: Option<&Fill>) -> [f32; 4] {
     let Some(Fill::Solid(color)) = fill else {
         return [0.0; 4];
     };
-    // CSS premultiplication makes every finite channel zero at zero alpha.
-    // https://www.w3.org/TR/2026/CRD-css-color-4-20261112/#interpolation-alpha
-    if color.to_array_f32()[3] == 0.0 {
-        return [0.0; 4];
-    }
-    color.normalize()
+    color.to_linear_premultiplied_rgba()
 }
 
 fn append_aggregated_geometry(

@@ -234,7 +234,7 @@ fn endpoint_hints_keep_their_limiting_interpolation_weights() {
 }
 
 #[test]
-fn hints_participate_in_css_position_fixup_and_implicit_spacing() {
+fn hints_participate_in_css_position_resolution_and_implicit_spacing() {
     let common = GradientCommonDesc::new([
         GradientStop::at_position(GradientStopOffset::linear_radial(0.0), Color::BLACK)
             .with_hint_to_next_segment(GradientStopOffset::linear_radial(0.6)),

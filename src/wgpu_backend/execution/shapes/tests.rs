@@ -3,10 +3,31 @@ use super::{ShapeBufferLocation, ShapeDrawResources, ShapeExecutionResources};
 use crate::commands::ShapeDrawId;
 use crate::core::vertex::{InstanceTransform, TextureUvTransform};
 use crate::core::{
-    BorderRadii, Color, DrawMode, Fill, Shape, ShapeDrawOptions, ShapeInstance,
-    StrokeGeometryOptions, Viewport,
+    BorderRadii, Color, DrawMode, Fill, Gradient, GradientStop, LinearGradientDesc,
+    LinearGradientLine, Shape, ShapeDrawOptions, ShapeInstance, StrokeGeometryOptions, Viewport,
 };
 use crate::scene_state::{SceneState, SceneStateContext};
+
+#[test]
+fn hdr_solid_uploads_match_single_stop_gradient_premultiplication() {
+    for sign in [-1.0, 1.0] {
+        let color = Color::rgba_f32(sign * 1e17, 0.0, 0.0, 1e-30);
+        let gradient = Gradient::linear(LinearGradientDesc::new(
+            LinearGradientLine {
+                start: [0.0, 0.0],
+                end: [1.0, 0.0],
+            },
+            [GradientStop::auto(color)],
+        ))
+        .unwrap();
+        let expected = [sign * f32::from_bits(0x514e_b4df), 0.0, 0.0, 1e-30];
+        assert_eq!(gradient.data().ramp.as_slice(), &[expected]);
+        assert_eq!(
+            preparation::prepare_solid_fill_color(Some(&Fill::Solid(color))),
+            expected
+        );
+    }
+}
 
 #[test]
 fn transparent_hdr_solids_prepare_finite_black_for_upload() {
@@ -20,7 +41,7 @@ fn transparent_hdr_solids_prepare_finite_black_for_upload() {
     let color = Color::rgba_f32(2.0, -0.5, 0.25, 0.5);
     assert_eq!(
         preparation::prepare_solid_fill_color(Some(&Fill::Solid(color))),
-        color.normalize()
+        color.to_linear_premultiplied_rgba()
     );
 }
 
