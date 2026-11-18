@@ -5,27 +5,26 @@ use crate::wgpu_backend::metrics::PipelineSwitchCounts;
 use smallvec::SmallVec;
 use std::ops::Range;
 use wgpu::{
-    BindGroup, Buffer, BufferBinding, BufferSize, BufferSlice, IndexFormat,
-    RenderPass as WgpuRenderPass, RenderPipeline,
+    BindGroup, Buffer, BufferSlice, IndexFormat, RenderPass as WgpuRenderPass, RenderPipeline,
 };
 
 struct BufferBindingState {
     buffer: Buffer,
     offset: u64,
-    size: Option<BufferSize>,
+    size: u64,
 }
 
 impl BufferBindingState {
-    fn new(binding: &BufferBinding<'_>) -> Self {
+    fn new(slice: BufferSlice<'_>) -> Self {
         Self {
-            buffer: binding.buffer.clone(),
-            offset: binding.offset,
-            size: binding.size,
+            buffer: slice.buffer().clone(),
+            offset: slice.offset(),
+            size: slice.size(),
         }
     }
 
-    fn matches(&self, binding: &BufferBinding<'_>) -> bool {
-        self.buffer == *binding.buffer && self.offset == binding.offset && self.size == binding.size
+    fn matches(&self, slice: BufferSlice<'_>) -> bool {
+        self.buffer == *slice.buffer() && self.offset == slice.offset() && self.size == slice.size()
     }
 }
 
@@ -118,31 +117,29 @@ impl<'encoder> RenderPass<'encoder> {
     }
 
     pub fn set_vertex_buffer(&mut self, slot: u32, slice: BufferSlice<'_>) {
-        let binding = BufferBinding::from(slice);
         let current = &mut self.vertex_buffers[slot as usize];
         if current
             .as_ref()
-            .is_some_and(|current| current.matches(&binding))
+            .is_some_and(|current| current.matches(slice))
         {
             return;
         }
         self.pass.set_vertex_buffer(slot, slice);
-        *current = Some(BufferBindingState::new(&binding));
+        *current = Some(BufferBindingState::new(slice));
     }
 
     pub fn set_index_buffer(&mut self, slice: BufferSlice<'_>, format: IndexFormat) {
-        let binding = BufferBinding::from(slice);
         if self
             .index_buffer
             .as_ref()
             .is_some_and(|(current, current_format)| {
-                current.matches(&binding) && *current_format == format
+                current.matches(slice) && *current_format == format
             })
         {
             return;
         }
         self.pass.set_index_buffer(slice, format);
-        self.index_buffer = Some((BufferBindingState::new(&binding), format));
+        self.index_buffer = Some((BufferBindingState::new(slice), format));
     }
 
     pub fn set_scissor(&mut self, scissor: UnsignedPhysicalRect) {
