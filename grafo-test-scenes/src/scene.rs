@@ -3655,26 +3655,26 @@ fn tile_41_conic_gradient(scene: &mut Scene) -> Vec<PixelExpectation> {
             stops: vec![
                 GradientStop {
                     positions: GradientStopPositions::Single(GradientStopOffset::ConicRadians(0.0)),
-                    color: Color::rgba_f32(1.0, 0.0, 0.0, 1.0),
+                    color: Color::from_srgba_f32(1.0, 0.0, 0.0, 1.0),
                     hint_to_next_segment: None,
                 },
                 GradientStop {
                     positions: GradientStopPositions::Single(GradientStopOffset::ConicRadians(
                         tau / 3.0,
                     )),
-                    color: Color::rgba_f32(0.0, 1.0, 0.0, 1.0),
+                    color: Color::from_srgba_f32(0.0, 1.0, 0.0, 1.0),
                     hint_to_next_segment: None,
                 },
                 GradientStop {
                     positions: GradientStopPositions::Single(GradientStopOffset::ConicRadians(
                         2.0 * tau / 3.0,
                     )),
-                    color: Color::rgba_f32(0.0, 0.0, 1.0, 1.0),
+                    color: Color::from_srgba_f32(0.0, 0.0, 1.0, 1.0),
                     hint_to_next_segment: None,
                 },
                 GradientStop {
                     positions: GradientStopPositions::Single(GradientStopOffset::ConicRadians(tau)),
-                    color: Color::rgba_f32(1.0, 0.0, 0.0, 1.0),
+                    color: Color::from_srgba_f32(1.0, 0.0, 0.0, 1.0),
                     hint_to_next_segment: None,
                 },
             ]
@@ -3719,17 +3719,17 @@ fn tile_42_repeating_linear_gradient(scene: &mut Scene) -> Vec<PixelExpectation>
             stops: vec![
                 GradientStop {
                     positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(0.0)),
-                    color: Color::rgba_f32(0.9, 0.1, 0.1, 1.0),
+                    color: Color::from_srgba_f32(0.9, 0.1, 0.1, 1.0),
                     hint_to_next_segment: None,
                 },
                 GradientStop {
                     positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(0.5)),
-                    color: Color::rgba_f32(0.1, 0.1, 0.9, 1.0),
+                    color: Color::from_srgba_f32(0.1, 0.1, 0.9, 1.0),
                     hint_to_next_segment: None,
                 },
                 GradientStop {
                     positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(1.0)),
-                    color: Color::rgba_f32(0.9, 0.1, 0.1, 1.0),
+                    color: Color::from_srgba_f32(0.9, 0.1, 0.1, 1.0),
                     hint_to_next_segment: None,
                 },
             ]
@@ -3787,22 +3787,22 @@ fn tile_43_gradient_hard_stops(scene: &mut Scene) -> Vec<PixelExpectation> {
             stops: vec![
                 GradientStop {
                     positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(0.0)),
-                    color: Color::rgba_f32(0.86, 0.2, 0.2, 1.0),
+                    color: Color::from_srgba_f32(0.86, 0.2, 0.2, 1.0),
                     hint_to_next_segment: None,
                 },
                 GradientStop {
                     positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(0.5)),
-                    color: Color::rgba_f32(0.86, 0.2, 0.2, 1.0),
+                    color: Color::from_srgba_f32(0.86, 0.2, 0.2, 1.0),
                     hint_to_next_segment: None,
                 },
                 GradientStop {
                     positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(0.5)),
-                    color: Color::rgba_f32(0.12, 0.12, 0.86, 1.0),
+                    color: Color::from_srgba_f32(0.12, 0.12, 0.86, 1.0),
                     hint_to_next_segment: None,
                 },
                 GradientStop {
                     positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(1.0)),
-                    color: Color::rgba_f32(0.12, 0.12, 0.86, 1.0),
+                    color: Color::from_srgba_f32(0.12, 0.12, 0.86, 1.0),
                     hint_to_next_segment: None,
                 },
             ]
@@ -4253,31 +4253,31 @@ fn tile_49_conic_quadrant_colors(scene: &mut Scene) -> Vec<PixelExpectation> {
             stops: vec![
                 GradientStop {
                     positions: GradientStopPositions::Single(GradientStopOffset::ConicRadians(0.0)),
-                    color: Color::rgba_f32(1.0, 0.0, 0.0, 1.0),
+                    color: Color::from_srgba_f32(1.0, 0.0, 0.0, 1.0),
                     hint_to_next_segment: None,
                 },
                 GradientStop {
                     positions: GradientStopPositions::Single(GradientStopOffset::ConicRadians(
                         FRAC_PI_2,
                     )),
-                    color: Color::rgba_f32(0.0, 1.0, 0.0, 1.0),
+                    color: Color::from_srgba_f32(0.0, 1.0, 0.0, 1.0),
                     hint_to_next_segment: None,
                 },
                 GradientStop {
                     positions: GradientStopPositions::Single(GradientStopOffset::ConicRadians(PI)),
-                    color: Color::rgba_f32(0.0, 0.0, 1.0, 1.0),
+                    color: Color::from_srgba_f32(0.0, 0.0, 1.0, 1.0),
                     hint_to_next_segment: None,
                 },
                 GradientStop {
                     positions: GradientStopPositions::Single(GradientStopOffset::ConicRadians(
                         3.0 * FRAC_PI_2,
                     )),
-                    color: Color::rgba_f32(1.0, 1.0, 0.0, 1.0),
+                    color: Color::from_srgba_f32(1.0, 1.0, 0.0, 1.0),
                     hint_to_next_segment: None,
                 },
                 GradientStop {
                     positions: GradientStopPositions::Single(GradientStopOffset::ConicRadians(TAU)),
-                    color: Color::rgba_f32(1.0, 0.0, 0.0, 1.0),
+                    color: Color::from_srgba_f32(1.0, 0.0, 0.0, 1.0),
                     hint_to_next_segment: None,
                 },
             ]
@@ -7744,8 +7744,8 @@ fn tile_98_extended_polar_gradients(scene: &mut Scene) -> Vec<PixelExpectation> 
             ShapeDrawOptions::new().color(Color::rgb(32, 32, 32)),
         )
         .unwrap();
-    let singular = Color::rgb_f32(1.5, 0.5, 0.5);
-    let near_singular = Color::rgb_f32(1.5, 0.500001, 0.500001);
+    let singular = Color::from_srgb_f32(1.5, 0.5, 0.5);
+    let near_singular = Color::from_srgb_f32(1.5, 0.500001, 0.500001);
     let green = Color::rgb(0, 255, 0);
     let hsl = ColorInterpolation::Hsl {
         hue: HueInterpolationMethod::Shorter,
@@ -7757,8 +7757,8 @@ fn tile_98_extended_polar_gradients(scene: &mut Scene) -> Vec<PixelExpectation> 
         (
             60.0,
             68.0,
-            Color::rgb_f32(0.25, 0.25, 1e15),
-            Color::rgb_f32(0.25, 0.25, 2e15),
+            Color::from_srgb_f32(0.25, 0.25, 1e15),
+            Color::from_srgb_f32(0.25, 0.25, 2e15),
             ColorInterpolation::Hwb {
                 hue: HueInterpolationMethod::Shorter,
             },
@@ -7766,7 +7766,7 @@ fn tile_98_extended_polar_gradients(scene: &mut Scene) -> Vec<PixelExpectation> 
         (
             70.0,
             76.0,
-            Color::rgb_f32(0.0, 0.0, 1e-8),
+            Color::from_srgb_f32(0.0, 0.0, 1e-8),
             Color::rgb(255, 0, 0),
             ColorInterpolation::Hwb {
                 hue: HueInterpolationMethod::Shorter,
@@ -7985,7 +7985,7 @@ fn tile_80_color_preparation(scene: &mut Scene) -> Vec<PixelExpectation> {
         .unwrap();
     let mut expectations = Vec::new();
     // Straight linear RGB overflows f32, while CSS premultiplication gives about 0.555.
-    let color = Color::rgba_f32(1e17, 1e17, 1e17, 1e-41);
+    let color = Color::from_srgba_f32(1e17, 1e17, 1e17, 1e-41);
     for row in 0..3 {
         for column in 0..2 {
             let left = origin_x + 10.0 + column as f32 * 32.0;

@@ -11,7 +11,7 @@ use crate::scene_state::{SceneState, SceneStateContext};
 #[test]
 fn hdr_solid_uploads_match_single_stop_gradient_premultiplication() {
     for sign in [-1.0, 1.0] {
-        let color = Color::rgba_f32(sign * 1e17, 0.0, 0.0, 1e-30);
+        let color = Color::from_srgba_f32(sign * 1e17, 0.0, 0.0, 1e-30);
         let gradient = Gradient::linear(LinearGradientDesc::new(
             LinearGradientLine {
                 start: [0.0, 0.0],
@@ -32,13 +32,13 @@ fn hdr_solid_uploads_match_single_stop_gradient_premultiplication() {
 #[test]
 fn transparent_hdr_solids_prepare_finite_black_for_upload() {
     for red in [-1e17, 1e17] {
-        let color = Color::rgba_f32(red, 0.0, 0.0, 0.0);
+        let color = Color::from_srgba_f32(red, 0.0, 0.0, 0.0);
         assert_eq!(
             preparation::prepare_solid_fill_color(Some(&Fill::Solid(color))),
             [0.0; 4]
         );
     }
-    let color = Color::rgba_f32(2.0, -0.5, 0.25, 0.5);
+    let color = Color::from_srgba_f32(2.0, -0.5, 0.25, 0.5);
     assert_eq!(
         preparation::prepare_solid_fill_color(Some(&Fill::Solid(color))),
         color.to_linear_premultiplied_rgba()

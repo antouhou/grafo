@@ -88,21 +88,21 @@ fn conic_periods_resolve_in_core_before_gpu_parameter_packing() {
 fn repeating_endpoint_hints_use_interval_limits_and_distinct_cache_entries() {
     let red = Color::rgb(255, 0, 0);
     let blue = Color::rgb(0, 0, 255);
-    let pink = Color::rgb_f32(1.5, 0.5, 0.5);
+    let pink = Color::from_srgb_f32(1.5, 0.5, 0.5);
     for (interpolation, start, end, hint, expected) in [
         (
             ColorInterpolation::SrgbLinear,
             red,
             blue,
             Some(0.0),
-            blue.normalize(),
+            blue.to_linear_rgba(),
         ),
         (
             ColorInterpolation::SrgbLinear,
             red,
             blue,
             Some(1.0),
-            red.normalize(),
+            red.to_linear_rgba(),
         ),
         (
             ColorInterpolation::Hsl {
@@ -196,12 +196,12 @@ fn non_padding_ramps_discard_duplicate_outer_stop_colors_before_caching() {
     let mut cache = GradientCache::new();
     let pad = cache.get_or_create_ramp(make_gradient(SpreadMode::Pad).data());
     let repeat = cache.get_or_create_ramp(make_gradient(SpreadMode::Repeat).data());
-    assert_eq!(pad.as_slice()[0], Color::rgb(255, 0, 0).normalize());
-    assert_eq!(pad.as_slice()[1023], Color::rgb(0, 0, 255).normalize());
+    assert_eq!(pad.as_slice()[0], Color::rgb(255, 0, 0).to_linear_rgba());
+    assert_eq!(pad.as_slice()[1023], Color::rgb(0, 0, 255).to_linear_rgba());
     assert!(repeat
         .as_slice()
         .iter()
-        .all(|texel| *texel == Color::BLACK.normalize()));
+        .all(|texel| *texel == Color::BLACK.to_linear_rgba()));
     let (GradientRamp::Sampled(pad), GradientRamp::Sampled(repeat)) = (pad, repeat) else {
         panic!("sampled ramps required");
     };
@@ -217,8 +217,8 @@ fn hsl_ramp_upload_preserves_finite_half_float_values_for_both_signs() {
                 end: [100.0, 0.0],
             },
             [
-                GradientStop::auto(Color::rgb_f32(0.349, -0.351, -0.351)),
-                GradientStop::auto(Color::rgb_f32(1.349, 0.649, 0.649)),
+                GradientStop::auto(Color::from_srgb_f32(0.349, -0.351, -0.351)),
+                GradientStop::auto(Color::from_srgb_f32(1.349, 0.649, 0.649)),
             ],
         )
         .with_interpolation(ColorInterpolation::Hsl {
@@ -329,7 +329,7 @@ fn gradient_cache_distinguishes_float_channels_and_interpolation() {
         )
         .unwrap()
     };
-    let base_color = Color::rgba_f32(0.5, 0.3, 0.6, 0.75);
+    let base_color = Color::from_srgba_f32(0.5, 0.3, 0.6, 0.75);
     let reference = make_gradient(base_color, ColorInterpolation::Srgb);
     let mut cache = GradientCache::new();
     let GradientRamp::Sampled(reference_ramp) = cache.get_or_create_ramp(reference.data()) else {
@@ -337,10 +337,11 @@ fn gradient_cache_distinguishes_float_channels_and_interpolation() {
     };
 
     for channel_index in 0..4 {
-        let mut channels = base_color.to_array_f32();
+        let mut channels = base_color.to_srgba_f32();
         channels[channel_index] += 0.0001;
-        let distinct_color = Color(channels);
-        assert_eq!(distinct_color.to_array(), base_color.to_array());
+        let [red, green, blue, alpha] = channels;
+        let distinct_color = Color::from_srgba_f32(red, green, blue, alpha);
+        assert_eq!(distinct_color.to_rgba8(), base_color.to_rgba8());
         let distinct = make_gradient(distinct_color, ColorInterpolation::Srgb);
         let GradientRamp::Sampled(distinct_ramp) = cache.get_or_create_ramp(distinct.data()) else {
             panic!("expected sampled ramp");
@@ -388,8 +389,8 @@ fn degenerate_linear_gradient_uses_the_last_stop_color() {
             end: [2.0, 3.0],
         },
         [
-            GradientStop::auto(Color::rgba_f32(1.0, 0.0, 0.0, 1.0)),
-            GradientStop::auto(Color::rgba_f32(0.0, 1.0, 0.0, 0.25)),
+            GradientStop::auto(Color::from_srgba_f32(1.0, 0.0, 0.0, 1.0)),
+            GradientStop::auto(Color::from_srgba_f32(0.0, 1.0, 0.0, 0.25)),
         ],
     ))
     .unwrap();
@@ -457,7 +458,7 @@ fn degenerate_radial_gradient_uses_the_last_stop_color() {
             size,
             [
                 GradientStop::auto(Color::rgb(255, 0, 0)),
-                GradientStop::auto(Color::rgba_f32(0.0, 1.0, 0.0, 0.25)),
+                GradientStop::auto(Color::from_srgba_f32(0.0, 1.0, 0.0, 0.25)),
             ],
         ))
         .unwrap();

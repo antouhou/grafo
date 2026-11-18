@@ -84,7 +84,7 @@ impl NormalizedGradient {
                 f64::from(pair[1].position) - f64::from(pair[0].position)
             };
             for stop in pair {
-                let [red, green, blue, alpha] = stop.color.to_array_f32().map(f64::from);
+                let [red, green, blue, alpha] = stop.color.to_srgba_f32().map(f64::from);
                 let alpha = alpha.clamp(0.0, 1.0);
                 // Retain small CSS sum terms when signed HDR contributions later cancel.
                 add_compensated_rgba(

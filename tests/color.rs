@@ -9,12 +9,7 @@ struct LinearRgba([f32; 4]);
 impl From<LinearRgba> for Color {
     fn from(value: LinearRgba) -> Self {
         let [red, green, blue, alpha] = value.0;
-        Color::rgba_f32(
-            color::linear_to_srgb(red),
-            color::linear_to_srgb(green),
-            color::linear_to_srgb(blue),
-            alpha,
-        )
+        Color::from_linear_rgba(red, green, blue, alpha)
     }
 }
 
@@ -52,11 +47,11 @@ fn rgba8_premultiplication_matches_css_transfer_rounding() {
 #[test]
 fn linear_colors_keep_css_encoding_before_hsl_interpolation() {
     let other_channels = f32::from_bits(0x3ec0_73be);
-    let color = Color::from(LinearRgba([2.0, other_channels, other_channels, 1.0]));
+    let color = Color::from(LinearRgba([2.0, other_channels, other_channels, 0.25]));
     // CSS's encoder rounded once to Color's f32 storage.
     assert_eq!(
-        color.to_array_f32().map(f32::to_bits),
-        [0x3fad_377e, 0x3f25_9254, 0x3f25_9254, 0x3f80_0000]
+        color.to_srgba_f32().map(f32::to_bits),
+        [0x3fad_377e, 0x3f25_9254, 0x3f25_9254, 0.25_f32.to_bits()]
     );
     assert_eq!(color::linear_to_srgb(1.0), 1.0);
     let gradient = Gradient::linear(
@@ -84,18 +79,20 @@ fn linear_colors_keep_css_encoding_before_hsl_interpolation() {
 fn float_colors_preserve_byte_roundtrips_and_nearest_rounding() {
     for channel in u8::MIN..=u8::MAX {
         let bytes = [channel, u8::MAX - channel, channel / 2, channel];
-        let color = Color::rgba(bytes[0], bytes[1], bytes[2], bytes[3]);
-        assert_eq!(color.to_array(), bytes);
+        let color = Color::from(bytes);
+        assert_eq!(color.to_rgba8(), bytes);
+        let [red, green, blue, alpha] = bytes;
+        assert_eq!(Color::rgba(red, green, blue, alpha), color);
     }
     let below_half_byte = f32::from_bits(0x3f01_0101);
     assert_eq!(
-        Color::rgba_f32(
+        Color::from_srgba_f32(
             below_half_byte,
             below_half_byte,
             below_half_byte,
             below_half_byte
         )
-        .to_array(),
+        .to_rgba8(),
         [128; 4]
     );
 }
@@ -103,12 +100,12 @@ fn float_colors_preserve_byte_roundtrips_and_nearest_rounding() {
 #[test]
 fn extended_colors_decode_without_clipping_or_premultiplication() {
     let encoded = [-0.5, 0.04045, 1.5, 0.25];
-    let color = Color::rgba_f32(encoded[0], encoded[1], encoded[2], encoded[3]);
-    assert_eq!(color.to_array_f32(), encoded);
+    let color = Color::from_srgba_f32(encoded[0], encoded[1], encoded[2], encoded[3]);
+    assert_eq!(color.to_srgba_f32(), encoded);
 
     // Reference values from the extended sRGB transfer function.
     let expected = [-0.214_041_14, 0.003_130_805, 2.537_155_4, 0.25];
-    for (actual, expected) in color.normalize().into_iter().zip(expected) {
+    for (actual, expected) in color.to_linear_rgba().into_iter().zip(expected) {
         assert!((actual - expected).abs() < 1e-6);
     }
     let premultiplied = [-0.053_510_286, 0.000_782_701_25, 0.634_288_85, 0.25];
@@ -119,15 +116,15 @@ fn extended_colors_decode_without_clipping_or_premultiplication() {
     {
         assert!((actual - expected).abs() < 1e-6);
     }
-    assert_eq!(color.to_array(), [0, 10, 255, 64]);
+    assert_eq!(color.to_rgba8(), [0, 10, 255, 64]);
 }
 
 #[test]
 fn premultiplication_preserves_representable_results_for_very_large_rgb() {
     for sign in [-1.0, 1.0] {
-        let transparent = Color::rgba_f32(sign * 1e17, 0.0, 0.0, 0.0);
+        let transparent = Color::from_srgba_f32(sign * 1e17, 0.0, 0.0, 0.0);
         assert_eq!(transparent.to_linear_premultiplied_rgba(), [0.0; 4]);
-        let translucent = Color::rgba_f32(sign * 1e17, 0.0, 0.0, 1e-30);
+        let translucent = Color::from_srgba_f32(sign * 1e17, 0.0, 0.0, 1e-30);
         // Extended sRGB decoding and multiplication in double precision, rounded to f32.
         let expected = sign * f32::from_bits(0x514e_b4df);
         assert_eq!(
@@ -141,11 +138,11 @@ fn premultiplication_preserves_representable_results_for_very_large_rgb() {
 fn solid_and_gradient_decoding_preserve_finite_values_near_the_linear_limit() {
     for sign in [-1.0, 1.0] {
         let encoded = sign * f32::from_bits(0x5a2a_23b6);
-        let color = Color::rgb_f32(encoded, 0.0, 0.0);
+        let color = Color::from_srgb_f32(encoded, 0.0, 0.0);
         let expected = sign * 3.4028121e38;
         assert_eq!(color::srgb_to_linear(encoded), expected);
-        assert_eq!(color.normalize(), [expected, 0.0, 0.0, 1.0]);
-        assert_eq!(color.normalize(), color.to_linear_premultiplied_rgba());
+        assert_eq!(color.to_linear_rgba(), [expected, 0.0, 0.0, 1.0]);
+        assert_eq!(color.to_linear_rgba(), color.to_linear_premultiplied_rgba());
     }
 }
 
@@ -161,7 +158,10 @@ fn extended_srgb_decoding_stays_monotonic_at_the_linear_limit() {
             let encoded = sign * f32::from_bits(encoded_bits);
             let expected = sign * f32::from_bits(linear_bits);
             assert_eq!(color::srgb_to_linear(encoded), expected);
-            assert_eq!(Color::rgb_f32(encoded, 0.0, 0.0).normalize()[0], expected);
+            assert_eq!(
+                Color::from_srgb_f32(encoded, 0.0, 0.0).to_linear_rgba()[0],
+                expected
+            );
         }
     }
 }
@@ -180,7 +180,7 @@ fn sampled_gradients_handle_extreme_rgb_with_zero_or_small_alpha() {
         },
     ] {
         for alpha in [0.0, 1e-30] {
-            let start = Color::rgba_f32(1e17, 0.0, 0.0, alpha);
+            let start = Color::from_srgba_f32(1e17, 0.0, 0.0, alpha);
             let gradient = Gradient::linear(
                 LinearGradientDesc::new(
                     LinearGradientLine {
@@ -231,8 +231,8 @@ fn hwb_hdr_gradients_preserve_a_constant_blue_hue() {
                     end: [100.0, 0.0],
                 },
                 [
-                    GradientStop::auto(Color::rgb_f32(0.0, 0.0, 1e15)),
-                    GradientStop::auto(Color::rgb_f32(0.0, 0.0, 2e15)),
+                    GradientStop::auto(Color::from_srgb_f32(0.0, 0.0, 1e15)),
+                    GradientStop::auto(Color::from_srgb_f32(0.0, 0.0, 2e15)),
                 ],
             )
             .with_interpolation(ColorInterpolation::Hwb { hue }),
@@ -258,7 +258,7 @@ fn srgb_ramps_combine_signed_channels_before_dividing_weights() {
         (-1.0, Some(0.5)),
         (1.0, Some(0.5)),
     ] {
-        let start = GradientStop::auto(Color::rgb_f32(sign * 12.0 * unit, 0.0, 0.0));
+        let start = GradientStop::auto(Color::from_srgb_f32(sign * 12.0 * unit, 0.0, 0.0));
         let start = match hint {
             Some(position) => {
                 start.with_hint_to_next_segment(GradientStopOffset::linear_radial(position))
@@ -273,7 +273,7 @@ fn srgb_ramps_combine_signed_channels_before_dividing_weights() {
                 },
                 [
                     start,
-                    GradientStop::auto(Color::rgb_f32(sign * -19.0 * unit, 0.0, 0.0)),
+                    GradientStop::auto(Color::from_srgb_f32(sign * -19.0 * unit, 0.0, 0.0)),
                 ],
             )
             .with_interpolation(ColorInterpolation::Srgb),
@@ -293,7 +293,7 @@ fn srgb_ramps_combine_signed_channels_before_dividing_weights() {
 
 #[test]
 fn sampled_positions_do_not_round_onto_lossy_hsl_stops() {
-    let pink = Color::rgb_f32(1.5, 0.5, 0.5);
+    let pink = Color::from_srgb_f32(1.5, 0.5, 0.5);
     let stops = [2.0_f32.powi(-80), 1.0 / 1024.0, 1023.0 / 1024.0].map(|position| {
         GradientStop::at_position(GradientStopOffset::linear_radial(position), pink)
     });

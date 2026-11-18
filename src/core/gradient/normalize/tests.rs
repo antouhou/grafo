@@ -134,11 +134,11 @@ fn hinted_intervals_with_tiny_endpoint_distances_remain_finite() {
             .all(|channel| channel.is_finite()));
         assert_eq!(
             ramp.as_slice()[RAMP_RESOLUTION / 2],
-            Color::BLACK.normalize()
+            Color::BLACK.to_linear_rgba()
         );
         assert_eq!(
             ramp.as_slice()[RAMP_RESOLUTION - 1],
-            Color::WHITE.normalize()
+            Color::WHITE.to_linear_rgba()
         );
     }
 }
@@ -161,7 +161,7 @@ fn hinted_intervals_preserve_the_half_color_at_the_authored_hint() {
 
 #[test]
 fn automatic_hsl_stops_preserve_exact_alignment_with_explicit_positions() {
-    let pink = Color::rgb_f32(1.5, 0.5, 0.5);
+    let pink = Color::from_srgb_f32(1.5, 0.5, 0.5);
     let mut stops = vec![GradientStop::at_position(
         GradientStopOffset::linear_radial(-63.0 / 128.0),
         Color::WHITE,
@@ -204,10 +204,10 @@ fn strictly_interior_hints_keep_the_final_repeat_color() {
         interpolation: common.interpolation,
         normalized,
     });
-    assert_eq!(ramp.as_slice()[0], Color::BLACK.normalize());
+    assert_eq!(ramp.as_slice()[0], Color::BLACK.to_linear_rgba());
     assert_eq!(
         ramp.as_slice()[RAMP_RESOLUTION - 1],
-        Color::WHITE.normalize()
+        Color::WHITE.to_linear_rgba()
     );
 }
 
@@ -225,11 +225,11 @@ fn endpoint_hints_keep_their_limiting_interpolation_weights() {
             normalized: NormalizedGradient::from_common(&common, GradientKind::Linear),
         });
         let samples = ramp.as_slice();
-        assert_eq!(samples[0], Color::BLACK.normalize());
-        assert_eq!(samples[RAMP_RESOLUTION - 1], Color::WHITE.normalize());
+        assert_eq!(samples[0], Color::BLACK.to_linear_rgba());
+        assert_eq!(samples[RAMP_RESOLUTION - 1], Color::WHITE.to_linear_rgba());
         assert!(samples[1..RAMP_RESOLUTION - 1]
             .iter()
-            .all(|sample| *sample == expected.normalize()));
+            .all(|sample| *sample == expected.to_linear_rgba()));
     }
 }
 
@@ -262,8 +262,8 @@ fn automatic_endpoint_stops_span_the_full_gradient() {
         spread: SpreadMode::Pad,
         interpolation: ColorInterpolation::SrgbLinear,
         stops: vec![
-            make_stop(Color::rgb_f32(1.0, 0.0, 0.0), None),
-            make_stop(Color::rgb_f32(0.0, 0.0, 1.0), None),
+            make_stop(Color::from_srgb_f32(1.0, 0.0, 0.0), None),
+            make_stop(Color::from_srgb_f32(0.0, 0.0, 1.0), None),
         ]
         .into(),
     };
@@ -282,8 +282,8 @@ fn two_stop_normalization_keeps_storage_inline() {
         spread: SpreadMode::Pad,
         interpolation: ColorInterpolation::SrgbLinear,
         stops: vec![
-            make_stop(Color::rgb_f32(1.0, 0.0, 0.0), None),
-            make_stop(Color::rgb_f32(0.0, 0.0, 1.0), None),
+            make_stop(Color::from_srgb_f32(1.0, 0.0, 0.0), None),
+            make_stop(Color::from_srgb_f32(0.0, 0.0, 1.0), None),
         ]
         .into(),
     };
@@ -300,9 +300,9 @@ fn implicit_interior_stops_are_evenly_spaced() {
         spread: SpreadMode::Pad,
         interpolation: ColorInterpolation::SrgbLinear,
         stops: vec![
-            make_stop(Color::rgb_f32(1.0, 0.0, 0.0), Some(0.0)),
-            make_stop(Color::rgb_f32(0.0, 1.0, 0.0), None),
-            make_stop(Color::rgb_f32(0.0, 0.0, 1.0), Some(1.0)),
+            make_stop(Color::from_srgb_f32(1.0, 0.0, 0.0), Some(0.0)),
+            make_stop(Color::from_srgb_f32(0.0, 1.0, 0.0), None),
+            make_stop(Color::from_srgb_f32(0.0, 0.0, 1.0), Some(1.0)),
         ]
         .into(),
     };
@@ -319,9 +319,9 @@ fn decreasing_stop_positions_are_clamped_to_the_previous_stop() {
         spread: SpreadMode::Pad,
         interpolation: ColorInterpolation::SrgbLinear,
         stops: vec![
-            make_stop(Color::rgb_f32(1.0, 0.0, 0.0), Some(0.5)),
-            make_stop(Color::rgb_f32(0.0, 1.0, 0.0), Some(0.2)),
-            make_stop(Color::rgb_f32(0.0, 0.0, 1.0), Some(1.0)),
+            make_stop(Color::from_srgb_f32(1.0, 0.0, 0.0), Some(0.5)),
+            make_stop(Color::from_srgb_f32(0.0, 1.0, 0.0), Some(0.2)),
+            make_stop(Color::from_srgb_f32(0.0, 0.0, 1.0), Some(1.0)),
         ]
         .into(),
     };
@@ -369,10 +369,10 @@ fn double_position_stops_expand_into_two_normalized_stops() {
                     GradientStopOffset::LinearRadial(0.2),
                     GradientStopOffset::LinearRadial(0.5),
                 ),
-                color: Color::rgb_f32(1.0, 0.0, 0.0),
+                color: Color::from_srgb_f32(1.0, 0.0, 0.0),
                 hint_to_next_segment: None,
             },
-            make_stop(Color::rgb_f32(0.0, 0.0, 1.0), Some(1.0)),
+            make_stop(Color::from_srgb_f32(0.0, 0.0, 1.0), Some(1.0)),
         ]
         .into(),
     };

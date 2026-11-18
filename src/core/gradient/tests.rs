@@ -57,7 +57,7 @@ fn degenerate_repeating_gradients_use_css_average_colors() {
                 end: [0.0, 0.0],
             },
             [
-                GradientStop::auto(Color::rgba_f32(1.0, 0.0, 0.0, 0.0)),
+                GradientStop::auto(Color::from_srgba_f32(1.0, 0.0, 0.0, 0.0)),
                 GradientStop::auto(Color::rgb(0, 0, 255)),
             ],
         )
@@ -97,7 +97,7 @@ fn degenerate_repeat_average_retains_signed_hdr_cancellation() {
         let stops = [extreme, sign, -extreme].map(|red| {
             GradientStop::at_position(
                 GradientStopOffset::linear_radial(0.0),
-                Color::rgb_f32(red, 0.0, 0.0),
+                Color::from_srgb_f32(red, 0.0, 0.0),
             )
         });
         let gradient = Gradient::linear(
@@ -127,7 +127,7 @@ fn degenerate_repeat_average_preserves_interval_ratios_before_division() {
         let stops = [(0.0, -5.0 * extreme), (1.0, 0.0), (6.0, extreme)].map(|(position, red)| {
             GradientStop::at_position(
                 GradientStopOffset::linear_radial(position),
-                Color::rgb_f32(red * sign, 0.0, 0.0),
+                Color::from_srgb_f32(red * sign, 0.0, 0.0),
             )
         });
         let gradient = Gradient::linear(
@@ -234,7 +234,7 @@ fn conic_ramp_baking_preserves_distinct_authored_angles() {
 
 #[test]
 fn single_authored_color_stops_preserve_linear_premultiplied_color() {
-    let color = Color::rgba_f32(1.0, 0.0, 0.0, 0.5);
+    let color = Color::from_srgba_f32(1.0, 0.0, 0.0, 0.5);
     for stop in [
         GradientStop::auto(color),
         GradientStop::at_position(GradientStopOffset::LinearRadial(0.5), color),
@@ -261,8 +261,8 @@ fn single_authored_color_stops_preserve_linear_premultiplied_color() {
 
 #[test]
 fn float_color_stops_preserve_the_solid_fill_components() {
-    let color = Color::rgba_f32(0.123_456, -0.5, 1.5, 0.25);
-    let [red, green, blue, alpha] = Fill::Solid(color).to_normalized_solid().unwrap();
+    let color = Color::from_srgba_f32(0.123_456, -0.5, 1.5, 0.25);
+    let [red, green, blue, alpha] = Fill::Solid(color).to_solid_linear_rgba().unwrap();
     let gradient = Gradient::linear(LinearGradientDesc::new(
         LinearGradientLine {
             start: [0.0, 0.0],
@@ -281,7 +281,7 @@ fn float_color_stops_preserve_the_solid_fill_components() {
 #[test]
 fn transparent_solid_accessor_preserves_straight_rgb() {
     let fill = Fill::Solid(Color::rgba(255, 0, 0, 0));
-    assert_eq!(fill.to_normalized_solid(), Some([1.0, 0.0, 0.0, 0.0]));
+    assert_eq!(fill.to_solid_linear_rgba(), Some([1.0, 0.0, 0.0, 0.0]));
 }
 
 #[test]
@@ -290,12 +290,14 @@ fn gradients_reject_nonfinite_color_channels() {
         for invalid in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
             let mut channels = [0.2, 0.3, 0.4, 1.0];
             channels[channel_index] = invalid;
+            let [red, green, blue, alpha] = channels;
+            let color = Color::from_srgba_f32(red, green, blue, alpha);
             let gradient = Gradient::linear(LinearGradientDesc::new(
                 LinearGradientLine {
                     start: [0.0, 0.0],
                     end: [10.0, 0.0],
                 },
-                [GradientStop::auto(Color(channels))],
+                [GradientStop::auto(color)],
             ));
             assert!(matches!(
                 gradient,

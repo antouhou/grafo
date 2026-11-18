@@ -417,9 +417,9 @@ impl Fill {
     /// Converts a solid fill to straight linear RGB and alpha; gradients return `None`.
     /// Decoded RGB that exceeds the `f32` range becomes infinite.
     #[inline]
-    pub fn to_normalized_solid(&self) -> Option<[f32; 4]> {
+    pub fn to_solid_linear_rgba(&self) -> Option<[f32; 4]> {
         match self {
-            Fill::Solid(color) => Some(color.normalize()),
+            Fill::Solid(color) => Some(color.to_linear_rgba()),
             _ => None,
         }
     }
@@ -650,7 +650,7 @@ impl GradientRampCacheKey {
             .iter()
             .map(|stop| GradientRampStopKey {
                 position_bits: stop.position.to_bits(),
-                color_bits: stop.color.to_array_f32().map(f32::to_bits),
+                color_bits: stop.color.to_srgba_f32().map(f32::to_bits),
                 hint_bits: stop.hint.map(f32::to_bits),
             })
             .collect();
@@ -749,7 +749,7 @@ fn validate_stop_offset_finite(
 }
 
 fn validate_color_finite(stop_index: usize, color: &Color) -> Result<(), GradientError> {
-    let [red, green, blue, alpha] = color.to_array_f32();
+    let [red, green, blue, alpha] = color.to_srgba_f32();
     check_finite(stop_index, red, "red")?;
     check_finite(stop_index, green, "green")?;
     check_finite(stop_index, blue, "blue")?;

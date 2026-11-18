@@ -14,24 +14,24 @@ fn canonical_color_ramp_source(interpolation: ColorInterpolation) -> GradientRam
     let common = GradientCommonDesc::new([
         GradientStop::at_position(
             GradientStopOffset::linear_radial(0.0),
-            Color::rgba_f32(0.3, 0.1, 0.8, 0.4),
+            Color::from_srgba_f32(0.3, 0.1, 0.8, 0.4),
         )
         .with_hint_to_next_segment(GradientStopOffset::linear_radial(0.1)),
         GradientStop::at_position(
             GradientStopOffset::linear_radial(0.3),
-            Color::rgba_f32(0.2, 0.7, 0.3, 1.0),
+            Color::from_srgba_f32(0.2, 0.7, 0.3, 1.0),
         ),
         GradientStop::at_position(
             GradientStopOffset::linear_radial(0.3),
-            Color::rgba_f32(0.8, 0.2, 0.4, 0.7),
+            Color::from_srgba_f32(0.8, 0.2, 0.4, 0.7),
         ),
         GradientStop::at_position(
             GradientStopOffset::linear_radial(0.6),
-            Color::rgba_f32(0.4, 0.5, 0.6, 0.2),
+            Color::from_srgba_f32(0.4, 0.5, 0.6, 0.2),
         ),
         GradientStop::at_position(
             GradientStopOffset::linear_radial(1.0),
-            Color::rgba_f32(0.1, 0.3, 0.9, 0.8),
+            Color::from_srgba_f32(0.1, 0.3, 0.9, 0.8),
         ),
     ])
     .with_interpolation(interpolation);
@@ -165,7 +165,7 @@ fn rectangular_interpolation_keeps_tiny_hdr_endpoint_contributions() {
     let common = GradientCommonDesc::new([
         GradientStop::at_position(
             GradientStopOffset::linear_radial(-1.0),
-            Color::rgb_f32(1e10, 0.0, 0.0),
+            Color::from_srgb_f32(1e10, 0.0, 0.0),
         ),
         GradientStop::at_position(GradientStopOffset::linear_radial(1e-20), Color::BLACK),
         GradientStop::at_position(GradientStopOffset::linear_radial(2.0), Color::BLACK),
@@ -195,9 +195,9 @@ fn sampled_hard_stops_preserve_exact_dyadic_texel_alignment() {
         interpolation: common.interpolation,
         normalized: NormalizedGradient::from_common(&common, GradientKind::Linear),
     });
-    assert_eq!(ramp.as_slice()[34], Color::BLACK.normalize());
-    assert_eq!(ramp.as_slice()[35], Color::WHITE.normalize());
-    assert_eq!(ramp.as_slice()[36], Color::WHITE.normalize());
+    assert_eq!(ramp.as_slice()[34], Color::BLACK.to_linear_rgba());
+    assert_eq!(ramp.as_slice()[35], Color::WHITE.to_linear_rgba());
+    assert_eq!(ramp.as_slice()[36], Color::WHITE.to_linear_rgba());
 }
 
 #[test]
@@ -207,19 +207,19 @@ fn sampled_hard_stop_uses_the_last_coincident_color() {
     let common = GradientCommonDesc::new([
         GradientStop::at_position(
             GradientStopOffset::linear_radial(0.0),
-            Color::rgb_f32(1.0, 0.0, 0.0),
+            Color::from_srgb_f32(1.0, 0.0, 0.0),
         ),
         GradientStop::at_position(
             GradientStopOffset::linear_radial(boundary_position),
-            Color::rgb_f32(1.0, 0.0, 0.0),
+            Color::from_srgb_f32(1.0, 0.0, 0.0),
         ),
         GradientStop::at_position(
             GradientStopOffset::linear_radial(boundary_position),
-            Color::rgb_f32(0.0, 0.0, 1.0),
+            Color::from_srgb_f32(0.0, 0.0, 1.0),
         ),
         GradientStop::at_position(
             GradientStopOffset::linear_radial((RAMP_RESOLUTION - 1) as f32),
-            Color::rgb_f32(0.0, 0.0, 1.0),
+            Color::from_srgb_f32(0.0, 0.0, 1.0),
         ),
     ]);
     let ramp = bake_gradient_ramp(&GradientRampSource {
@@ -242,7 +242,7 @@ fn sampled_hsl_ramp_keeps_the_last_coincident_stop_when_positions_round_down() {
         ),
         GradientStop::at_position(
             GradientStopOffset::linear_radial(0.01),
-            Color::rgb_f32(1.5, 0.5, 0.5),
+            Color::from_srgb_f32(1.5, 0.5, 0.5),
         ),
     ])
     .with_interpolation(ColorInterpolation::Hsl {
@@ -254,17 +254,17 @@ fn sampled_hsl_ramp_keeps_the_last_coincident_stop_when_positions_round_down() {
     });
     assert_eq!(
         ramp.as_slice()[RAMP_RESOLUTION - 1],
-        Color::rgb_f32(1.5, 0.5, 0.5).to_linear_premultiplied_rgba()
+        Color::from_srgb_f32(1.5, 0.5, 0.5).to_linear_premultiplied_rgba()
     );
 }
 
 #[test]
 fn hsl_short_segments_keep_high_saturation_interpolation() {
-    let end_color = Color::rgb_f32(0.55, 0.45, 0.45);
+    let end_color = Color::from_srgb_f32(0.55, 0.45, 0.45);
     let common = GradientCommonDesc::new([
         GradientStop::at_position(
             GradientStopOffset::linear_radial(0.0),
-            Color::rgb_f32(10.0, -9.999979, -9.999979),
+            Color::from_srgb_f32(10.0, -9.999979, -9.999979),
         ),
         GradientStop::at_position(GradientStopOffset::linear_radial(5e-7), end_color),
         GradientStop::at_position(
@@ -288,11 +288,11 @@ fn hsl_short_segments_keep_high_saturation_interpolation() {
 
 #[test]
 fn hinted_hsl_segments_keep_high_saturation_contributions_before_the_end_stop() {
-    let end_color = Color::rgb_f32(0.55, 0.45, 0.45);
+    let end_color = Color::from_srgb_f32(0.55, 0.45, 0.45);
     let common = GradientCommonDesc::new([
         GradientStop::at_position(
             GradientStopOffset::linear_radial(0.0),
-            Color::rgb_f32(50.0, -49.999973, -49.999973),
+            Color::from_srgb_f32(50.0, -49.999973, -49.999973),
         )
         .with_hint_to_next_segment(GradientStopOffset::linear_radial(0.01)),
         GradientStop::at_position(GradientStopOffset::linear_radial(0.33333337), end_color),
@@ -324,7 +324,7 @@ fn hinted_rectangular_segments_preserve_small_hdr_contributions() {
         let common = GradientCommonDesc::new([
             GradientStop::at_position(
                 GradientStopOffset::linear_radial(0.0),
-                Color::rgb_f32(red, 0.0, 0.0),
+                Color::from_srgb_f32(red, 0.0, 0.0),
             )
             .with_hint_to_next_segment(GradientStopOffset::linear_radial(0.01)),
             GradientStop::at_position(GradientStopOffset::linear_radial(0.33333337), Color::BLACK),
@@ -341,9 +341,9 @@ fn hinted_rectangular_segments_preserve_small_hdr_contributions() {
 
 #[test]
 fn hsl_ramps_preserve_authored_colors_at_stops() {
-    let first = Color::rgb_f32(1.5, 0.5, 0.5);
-    let middle = Color::rgb_f32(2.0, 1.0, 0.0);
-    let last = Color::rgb_f32(0.5, 1.5, 0.5);
+    let first = Color::from_srgb_f32(1.5, 0.5, 0.5);
+    let middle = Color::from_srgb_f32(2.0, 1.0, 0.0);
+    let last = Color::from_srgb_f32(0.5, 1.5, 0.5);
     let middle_index = RAMP_RESOLUTION / 3;
     // Integer offsets place this authored interior stop exactly on its sampled texel.
     let middle_position = middle_index as f32;
@@ -381,24 +381,24 @@ fn hsl_ramps_preserve_authored_colors_at_stops() {
 fn hwb_powerless_stops_borrow_the_other_color_hue() {
     for (neutral, other, midpoint) in [
         (
-            Color::rgb_f32(0.0, 0.0, 1e-8),
+            Color::from_srgb_f32(0.0, 0.0, 1e-8),
             Color::rgb(255, 0, 0),
             [0.21404114, 0.0, 0.0, 1.0],
         ),
         (
-            Color::rgb_f32(0.500002, 0.5, 0.5),
+            Color::from_srgb_f32(0.500002, 0.5, 0.5),
             Color::rgb(0, 0, 255),
             [0.05087609, 0.05087609, 0.52252156, 1.0],
         ),
         (
             // Computing B = 1 - W rounds W + B below one; hue must stay missing.
-            Color::rgb_f32(-2.0_f32.powi(-53), -2.0_f32.powi(-53), 1e-8),
+            Color::from_srgb_f32(-2.0_f32.powi(-53), -2.0_f32.powi(-53), 1e-8),
             Color::rgb(0, 0, 255),
             [-4.2965287e-18, -4.2965287e-18, 0.21404114, 1.0],
         ),
         (
             // Exact gray still has missing hue when W + B loses its unit offset.
-            Color::rgba_f32(1e17, 1e17, 1e17, 1e-18),
+            Color::from_srgba_f32(1e17, 1e17, 1e17, 1e-18),
             Color::rgb(0, 0, 255),
             [0.0050114132, 0.0050114132, 0.62138516, 0.5],
         ),
@@ -439,9 +439,9 @@ fn short_segments_prepare_colors_only_when_the_segment_changes() {
         preparations.get(),
         normalized.segments.len()
     );
-    assert_eq!(ramp.as_slice()[0], first.normalize());
-    assert_eq!(ramp.as_slice()[1], middle.normalize());
-    assert_eq!(ramp.as_slice()[RAMP_RESOLUTION / 2], last.normalize());
+    assert_eq!(ramp.as_slice()[0], first.to_linear_rgba());
+    assert_eq!(ramp.as_slice()[1], middle.to_linear_rgba());
+    assert_eq!(ramp.as_slice()[RAMP_RESOLUTION / 2], last.to_linear_rgba());
 }
 
 #[test]
@@ -475,46 +475,46 @@ fn hsl_green_converts_to_srgb_green() {
 
 #[test]
 fn polar_interpolation_preserves_borrowed_hues_and_opposite_hue_directions() {
-    let red = Color::rgb_f32(1.0, 0.0, 0.0);
-    let cyan = Color::rgb_f32(0.0, 1.0, 1.0);
-    let gray = Color::rgb_f32(0.5, 0.5, 0.5);
-    let blue = Color::rgb_f32(0.0, 0.0, 1.0);
+    let red = Color::from_srgb_f32(1.0, 0.0, 0.0);
+    let cyan = Color::from_srgb_f32(0.0, 1.0, 1.0);
+    let gray = Color::from_srgb_f32(0.5, 0.5, 0.5);
+    let blue = Color::from_srgb_f32(0.0, 0.0, 1.0);
     let cases = [
         (
             red,
             cyan,
             HueInterpolationMethod::Shorter,
-            Color::rgb_f32(0.5, 1.0, 0.0),
+            Color::from_srgb_f32(0.5, 1.0, 0.0),
         ),
         (
             cyan,
             red,
             HueInterpolationMethod::Shorter,
-            Color::rgb_f32(0.5, 1.0, 0.0),
+            Color::from_srgb_f32(0.5, 1.0, 0.0),
         ),
         (
             red,
             cyan,
             HueInterpolationMethod::Longer,
-            Color::rgb_f32(0.5, 1.0, 0.0),
+            Color::from_srgb_f32(0.5, 1.0, 0.0),
         ),
         (
             cyan,
             red,
             HueInterpolationMethod::Longer,
-            Color::rgb_f32(0.5, 1.0, 0.0),
+            Color::from_srgb_f32(0.5, 1.0, 0.0),
         ),
         (
             red,
             gray,
             HueInterpolationMethod::Decreasing,
-            Color::rgb_f32(0.75, 0.25, 0.25),
+            Color::from_srgb_f32(0.75, 0.25, 0.25),
         ),
         (
             gray,
             blue,
             HueInterpolationMethod::Decreasing,
-            Color::rgb_f32(0.25, 0.25, 0.75),
+            Color::from_srgb_f32(0.25, 0.25, 0.75),
         ),
     ];
 
@@ -541,9 +541,9 @@ fn interior_gray_stops_borrow_hue_independently_on_each_side() {
         },
     ] {
         let common = GradientCommonDesc::new([
-            GradientStop::auto(Color::rgb_f32(1.0, 0.0, 0.0)),
-            GradientStop::auto(Color::rgb_f32(0.5, 0.5, 0.5)),
-            GradientStop::auto(Color::rgb_f32(0.0, 0.0, 1.0)),
+            GradientStop::auto(Color::from_srgb_f32(1.0, 0.0, 0.0)),
+            GradientStop::auto(Color::from_srgb_f32(0.5, 0.5, 0.5)),
+            GradientStop::auto(Color::from_srgb_f32(0.0, 0.0, 1.0)),
         ])
         .with_interpolation(interpolation);
         let ramp = bake_gradient_ramp(&GradientRampSource {
@@ -551,10 +551,13 @@ fn interior_gray_stops_borrow_hue_independently_on_each_side() {
             normalized: NormalizedGradient::from_common(&common, GradientKind::Linear),
         });
         for (index, expected) in [
-            (341, Color::rgb_f32(2.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0)),
-            (682, Color::rgb_f32(1.0 / 3.0, 1.0 / 3.0, 2.0 / 3.0)),
+            (341, Color::from_srgb_f32(2.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0)),
+            (682, Color::from_srgb_f32(1.0 / 3.0, 1.0 / 3.0, 2.0 / 3.0)),
         ] {
-            for (actual, expected) in ramp.as_slice()[index].into_iter().zip(expected.normalize()) {
+            for (actual, expected) in ramp.as_slice()[index]
+                .into_iter()
+                .zip(expected.to_linear_rgba())
+            {
                 assert!(
                     (actual - expected).abs() < 1e-6,
                     "{interpolation:?}, sample {index}"
@@ -566,9 +569,9 @@ fn interior_gray_stops_borrow_hue_independently_on_each_side() {
 
 #[test]
 fn rectangular_ramps_preserve_extended_rgb_with_varying_alpha() {
-    let opaque = Color::rgba_f32(1.5, -0.5, 0.25, 1.0);
-    let translucent = Color::rgba_f32(1.5, -0.5, 0.25, 0.5);
-    let [red, green, blue, _] = opaque.normalize();
+    let opaque = Color::from_srgba_f32(1.5, -0.5, 0.25, 1.0);
+    let translucent = Color::from_srgba_f32(1.5, -0.5, 0.25, 0.5);
+    let [red, green, blue, _] = opaque.to_linear_rgba();
     for interpolation in [
         ColorInterpolation::Srgb,
         ColorInterpolation::SrgbLinear,
@@ -601,8 +604,8 @@ fn oklab_ramps_preserve_hdr_green_without_visible_channel_leakage() {
         (4000.0, 5000.0, [469223584.0, 560692032.0]),
     ] {
         let common = GradientCommonDesc::new([
-            GradientStop::auto(Color::rgb_f32(0.0, start, 0.0)),
-            GradientStop::auto(Color::rgb_f32(0.0, end, 0.0)),
+            GradientStop::auto(Color::from_srgb_f32(0.0, start, 0.0)),
+            GradientStop::auto(Color::from_srgb_f32(0.0, end, 0.0)),
         ])
         .with_interpolation(ColorInterpolation::Oklab);
         let ramp = bake_gradient_ramp(&GradientRampSource {
@@ -610,12 +613,8 @@ fn oklab_ramps_preserve_hdr_green_without_visible_channel_leakage() {
             normalized: NormalizedGradient::from_common(&common, GradientKind::Linear),
         });
         for (index, texel) in ramp.as_slice().iter().enumerate() {
-            let leakage = Color::rgb_f32(
-                color::linear_to_srgb(texel[0].abs()),
-                0.0,
-                color::linear_to_srgb(texel[2].abs()),
-            );
-            assert_eq!(leakage.to_array(), [0, 0, 0, 255], "sample {index}");
+            let leakage = Color::from_linear_rgba(texel[0].abs(), 0.0, texel[2].abs(), 1.0);
+            assert_eq!(leakage.to_rgba8(), [0, 0, 0, 255], "sample {index}");
             assert_eq!(texel[3], 1.0);
         }
         // CSS Oklab interpolation on a pure-green ray cubes the interpolated cube-root intensity.
@@ -632,13 +631,13 @@ fn hwb_ramps_preserve_extended_neutrals_and_extremal_channels() {
     let midpoint_position = midpoint_index as f32;
     for (start, end, expected) in [
         (
-            Color::rgb_f32(magnitude, magnitude, magnitude),
-            Color::rgb_f32(-magnitude, -magnitude, -magnitude),
+            Color::from_srgb_f32(magnitude, magnitude, magnitude),
+            Color::from_srgb_f32(-magnitude, -magnitude, -magnitude),
             [0.0, 0.0, 0.0, 1.0],
         ),
         (
-            Color::rgb_f32(1.0, -magnitude, -magnitude),
-            Color::rgb_f32(2.0, -magnitude, -magnitude),
+            Color::from_srgb_f32(1.0, -magnitude, -magnitude),
+            Color::from_srgb_f32(2.0, -magnitude, -magnitude),
             [2.5371552, -1.7187375e38, -1.7187375e38, 1.0],
         ),
     ] {
@@ -681,34 +680,37 @@ fn hsl_ramps_follow_css_achromatic_conversion_rules() {
     };
 
     for (start_color, neutral_color) in [
-        (Color::rgb_f32(2.0, 1.0, 0.0), Color::rgb_f32(1.0, 1.0, 1.0)),
         (
-            Color::rgb_f32(-1.0, 0.0, 1.0),
-            Color::rgb_f32(0.0, 0.0, 0.0),
+            Color::from_srgb_f32(2.0, 1.0, 0.0),
+            Color::from_srgb_f32(1.0, 1.0, 1.0),
         ),
         (
-            Color::rgb_f32(1.5, 0.500001, 0.500001),
-            Color::rgb_f32(1.0000005, 1.0000005, 1.0000005),
+            Color::from_srgb_f32(-1.0, 0.0, 1.0),
+            Color::from_srgb_f32(0.0, 0.0, 0.0),
         ),
         (
-            Color::rgb_f32(1.5, 0.499999, 0.499999),
-            Color::rgb_f32(0.9999995, 0.9999995, 0.9999995),
+            Color::from_srgb_f32(1.5, 0.500001, 0.500001),
+            Color::from_srgb_f32(1.0000005, 1.0000005, 1.0000005),
         ),
         (
-            Color::rgb_f32(1.5, 0.5000199, 0.5000199),
-            Color::rgb_f32(1.00001, 1.00001, 1.00001),
+            Color::from_srgb_f32(1.5, 0.499999, 0.499999),
+            Color::from_srgb_f32(0.9999995, 0.9999995, 0.9999995),
         ),
         (
-            Color::rgb_f32(0.5, -0.499999, -0.499999),
-            Color::rgb_f32(0.0000005066395, 0.0000005066395, 0.0000005066395),
+            Color::from_srgb_f32(1.5, 0.5000199, 0.5000199),
+            Color::from_srgb_f32(1.00001, 1.00001, 1.00001),
         ),
         (
-            Color::rgb_f32(0.5, -0.500001, -0.500001),
-            Color::rgb_f32(-0.0000005066395, -0.0000005066395, -0.0000005066395),
+            Color::from_srgb_f32(0.5, -0.499999, -0.499999),
+            Color::from_srgb_f32(0.0000005066395, 0.0000005066395, 0.0000005066395),
         ),
         (
-            Color::rgb_f32(0.500002, 0.5, 0.5),
-            Color::rgb_f32(0.500001, 0.500001, 0.500001),
+            Color::from_srgb_f32(0.5, -0.500001, -0.500001),
+            Color::from_srgb_f32(-0.0000005066395, -0.0000005066395, -0.0000005066395),
+        ),
+        (
+            Color::from_srgb_f32(0.500002, 0.5, 0.5),
+            Color::from_srgb_f32(0.500001, 0.500001, 0.500001),
         ),
     ] {
         for (actual, expected) in [
@@ -751,8 +753,8 @@ fn hsl_ramps_follow_css_achromatic_conversion_rules() {
 #[test]
 fn hsl_ramps_preserve_authored_endpoints_despite_lossy_interpolation() {
     for (color, expected_channel) in [
-        (Color::rgba_f32(1.5, 0.5, 0.5, 0.5), 0.5),
-        (Color::rgba_f32(-0.5, 0.5, 0.5, 0.5), 0.0),
+        (Color::from_srgba_f32(1.5, 0.5, 0.5, 0.5), 0.5),
+        (Color::from_srgba_f32(-0.5, 0.5, 0.5, 0.5), 0.0),
     ] {
         let common = GradientCommonDesc::new([
             GradientStop::at_position(GradientStopOffset::linear_radial(0.25), color),
@@ -781,11 +783,11 @@ fn hsl_ramps_preserve_authored_endpoints_despite_lossy_interpolation() {
 
 #[test]
 fn hsl_ramps_preserve_constant_extended_rgb_with_large_saturation() {
-    let opaque = Color::rgb_f32(1.95, 0.050025, 0.050025);
-    let [red, green, blue, _] = opaque.normalize();
+    let opaque = Color::from_srgb_f32(1.95, 0.050025, 0.050025);
+    let [red, green, blue, _] = opaque.to_linear_rgba();
     for start_alpha in [1.0, 0.25] {
         let common = GradientCommonDesc::new([
-            GradientStop::auto(Color::rgba_f32(1.95, 0.050025, 0.050025, start_alpha)),
+            GradientStop::auto(Color::from_srgba_f32(1.95, 0.050025, 0.050025, start_alpha)),
             GradientStop::auto(opaque),
         ])
         .with_interpolation(ColorInterpolation::Hsl {
@@ -811,8 +813,8 @@ fn hsl_ramps_preserve_constant_extended_rgb_with_large_saturation() {
 
 #[test]
 fn hsl_corrects_negative_saturation_without_changing_hwb_hues() {
-    let start = Color::rgb_f32(2.0, 1.5, 1.5);
-    let end = Color::rgb_f32(0.0, 0.0, 1.0);
+    let start = Color::from_srgb_f32(2.0, 1.5, 1.5);
+    let end = Color::from_srgb_f32(0.0, 0.0, 1.0);
     for hue_method in [
         HueInterpolationMethod::Shorter,
         HueInterpolationMethod::Longer,
@@ -827,9 +829,9 @@ fn hsl_corrects_negative_saturation_without_changing_hwb_hues() {
             (
                 CylindricalColorSpace::Hsl,
                 if follows_shorter_arc {
-                    Color::rgb_f32(29.0 / 24.0, 9.0 / 8.0, 25.0 / 24.0)
+                    Color::from_srgb_f32(29.0 / 24.0, 9.0 / 8.0, 25.0 / 24.0)
                 } else {
-                    Color::rgb_f32(25.0 / 24.0, 9.0 / 8.0, 29.0 / 24.0)
+                    Color::from_srgb_f32(25.0 / 24.0, 9.0 / 8.0, 29.0 / 24.0)
                 },
             ),
             (
@@ -838,9 +840,9 @@ fn hsl_corrects_negative_saturation_without_changing_hwb_hues() {
                     hue_method,
                     HueInterpolationMethod::Shorter | HueInterpolationMethod::Decreasing
                 ) {
-                    Color::rgb_f32(1.5, 0.75, 1.5)
+                    Color::from_srgb_f32(1.5, 0.75, 1.5)
                 } else {
-                    Color::rgb_f32(0.75, 1.5, 0.75)
+                    Color::from_srgb_f32(0.75, 1.5, 0.75)
                 },
             ),
         ] {
@@ -868,12 +870,12 @@ fn bake_gradient_ramp_preserves_degenerate_hard_stop_boundary() {
         stops: vec![
             GradientStop {
                 positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(0.5)),
-                color: Color::rgb_f32(1.0, 0.0, 0.0),
+                color: Color::from_srgb_f32(1.0, 0.0, 0.0),
                 hint_to_next_segment: None,
             },
             GradientStop {
                 positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(0.5)),
-                color: Color::rgb_f32(0.0, 0.0, 1.0),
+                color: Color::from_srgb_f32(0.0, 0.0, 1.0),
                 hint_to_next_segment: None,
             },
         ]
@@ -890,11 +892,11 @@ fn bake_gradient_ramp_preserves_degenerate_hard_stop_boundary() {
 
     assert_eq!(
         ramp[transition_index - 1],
-        Color::rgb_f32(1.0, 0.0, 0.0).to_linear_premultiplied_rgba()
+        Color::from_srgb_f32(1.0, 0.0, 0.0).to_linear_premultiplied_rgba()
     );
     assert_eq!(
         ramp[transition_index],
-        Color::rgb_f32(0.0, 0.0, 1.0).to_linear_premultiplied_rgba()
+        Color::from_srgb_f32(0.0, 0.0, 1.0).to_linear_premultiplied_rgba()
     );
 }
 
@@ -907,14 +909,14 @@ fn bake_gradient_ramp_interpolates_positive_spans() {
         stops: vec![
             GradientStop {
                 positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(0.0)),
-                color: Color::rgb_f32(1.0, 0.0, 0.0),
+                color: Color::from_srgb_f32(1.0, 0.0, 0.0),
                 hint_to_next_segment: None,
             },
             GradientStop {
                 positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(
                     RESOLVED_DEGENERATE_EPSILON * 0.5,
                 )),
-                color: Color::rgb_f32(0.0, 0.0, 1.0),
+                color: Color::from_srgb_f32(0.0, 0.0, 1.0),
                 hint_to_next_segment: None,
             },
         ]
@@ -935,8 +937,8 @@ fn bake_gradient_ramp_interpolates_positive_spans() {
 
 #[test]
 fn cylindrical_interpolation_premultiplies_non_hue_channels() {
-    let color_a = Color::rgb_f32(1.0, 0.0, 0.0);
-    let color_b = Color::rgba_f32(1.0, 1.0, 1.0, 0.0);
+    let color_a = Color::from_srgb_f32(1.0, 0.0, 0.0);
+    let color_b = Color::from_srgba_f32(1.0, 1.0, 1.0, 0.0);
 
     let interpolate = prepare_cylindrical_interpolation(
         &color_a,
@@ -946,7 +948,7 @@ fn cylindrical_interpolation_premultiplies_non_hue_channels() {
     );
     let interpolated = interpolate(0.5, 0.5);
 
-    let expected = Color::rgba_f32(1.0, 0.0, 0.0, 0.5).to_linear_premultiplied_rgba();
+    let expected = Color::from_srgba_f32(1.0, 0.0, 0.0, 0.5).to_linear_premultiplied_rgba();
 
     assert_eq!(interpolated, expected);
 }

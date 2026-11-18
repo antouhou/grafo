@@ -205,45 +205,55 @@ fn srgb_to_hwb_interpolation(red: f64, green: f64, blue: f64) -> (Option<f64>, f
     (srgb_to_hue(red, green, blue), whiteness, maximum)
 }
 
-/// An extended sRGB color with floating-point red, green, blue, and alpha channels.
-/// RGB is encoded, not linear or premultiplied, and may be negative or greater than one.
-/// Channels must be finite. Alpha ranges from zero for transparent to one for opaque.
+/// An extended sRGB color with straight alpha.
+/// Encoded RGB channels may be negative or greater than one. Callers of float
+/// constructors must supply finite channels and alpha in `[0.0, 1.0]`.
+/// Alpha is zero for transparent colors and one for opaque colors.
 ///
 /// # Examples
 ///
 /// ```
-/// use grafo::Color;
+/// use grafo::{Color, Fill, ShapeDrawOptions};
 ///
 /// let red = Color::rgb(255, 0, 0);
-/// let semi_blue = Color::rgba(0, 0, 255, 128);
+/// let semi_blue = Color::from([0, 0, 255, 128]);
+/// let draw_options = ShapeDrawOptions::new().color([0, 0, 255, 128]);
 ///
-/// assert_eq!(red.to_array(), [255, 0, 0, 255]);
-/// assert_eq!(semi_blue.to_array(), [0, 0, 255, 128]);
+/// assert_eq!(red.to_rgba8(), [255, 0, 0, 255]);
+/// assert_eq!(semi_blue.to_rgba8(), [0, 0, 255, 128]);
+/// assert!(matches!(draw_options.fill, Some(Fill::Solid(color)) if color == semi_blue));
 /// ```
 /// `Color` stores HDR values in extended sRGB. Implement [`From`] for your
 /// own type to supply its conversion to encoded extended sRGB with straight alpha.
 /// Shape, group, and gradient stop color builders accept these types through `Into<Color>`.
 ///
 /// ```
-/// use grafo::{core::color, Color, GradientStop, GroupDrawCommandOptions, ShapeDrawOptions};
+/// use grafo::{Color, GradientStop, GroupDrawCommandOptions, ShapeDrawOptions};
 ///
 /// struct LinearRgb([f32; 3]);
 ///
 /// impl From<LinearRgb> for Color {
 ///     fn from(value: LinearRgb) -> Self {
-///         let [red, green, blue] = value.0.map(color::linear_to_srgb);
-///         Color::rgb_f32(red, green, blue)
+///         let [red, green, blue] = value.0;
+///         Color::from_linear_rgba(red, green, blue, 1.0)
 ///     }
 /// }
 ///
 /// # fn main() {
-/// let shape = ShapeDrawOptions::new().color(LinearRgb([0.5, 0.25, 1.5]));
-/// let group = GroupDrawCommandOptions::new().color(LinearRgb([0.1, 0.2, 0.3]));
+/// let shape_options = ShapeDrawOptions::new().color(LinearRgb([0.5, 0.25, 1.5]));
+/// let group_options = GroupDrawCommandOptions::new().color(LinearRgb([0.1, 0.2, 0.3]));
 /// let stop = GradientStop::auto(LinearRgb([0.25, 0.5, 1.0]));
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub struct Color(pub [f32; 4]);
+pub struct Color([f32; 4]);
+
+impl From<[u8; 4]> for Color {
+    /// Creates a color from encoded sRGB and straight alpha bytes in RGBA order.
+    fn from(bytes: [u8; 4]) -> Self {
+        Self(bytes.map(|channel| f32::from(channel) / 255.0))
+    }
+}
 
 impl Color {
     /// Transparent black.
@@ -254,30 +264,39 @@ impl Color {
     pub const WHITE: Self = Self([1.0, 1.0, 1.0, 1.0]);
 
     /// Creates an opaque color from 8-bit sRGB channel values.
-    pub fn rgb(r: u8, g: u8, b: u8) -> Self {
-        Self::rgba(r, g, b, 255)
+    pub fn rgb(red: u8, green: u8, blue: u8) -> Self {
+        Self::rgba(red, green, blue, 255)
     }
 
     /// Creates a color from 8-bit sRGB channel values and alpha.
-    pub fn rgba(r: u8, g: u8, b: u8, a: u8) -> Self {
-        Self::from_rgba_array([r, g, b, a])
-    }
-
-    pub fn from_rgba_array(arr: [u8; 4]) -> Self {
-        Self(arr.map(|channel| f32::from(channel) / 255.0))
+    pub fn rgba(red: u8, green: u8, blue: u8, alpha: u8) -> Self {
+        Self::from([red, green, blue, alpha])
     }
 
     /// Creates a color from floating-point encoded sRGB channel values and alpha.
-    /// Channels must be finite. RGB may be negative or greater than one;
-    /// alpha must be in `[0.0, 1.0]`. Values are stored without clamping.
-    pub const fn rgba_f32(red: f32, green: f32, blue: f32, alpha: f32) -> Self {
+    /// Supply finite RGB values and straight alpha in `[0.0, 1.0]`.
+    /// RGB may be negative or greater than one. All channels are preserved as supplied.
+    pub const fn from_srgba_f32(red: f32, green: f32, blue: f32, alpha: f32) -> Self {
         Self([red, green, blue, alpha])
     }
 
     /// Creates an opaque color from floating-point encoded sRGB channel values.
     /// RGB channels must be finite and may be negative or greater than one.
-    pub const fn rgb_f32(red: f32, green: f32, blue: f32) -> Self {
-        Self::rgba_f32(red, green, blue, 1.0)
+    pub const fn from_srgb_f32(red: f32, green: f32, blue: f32) -> Self {
+        Self::from_srgba_f32(red, green, blue, 1.0)
+    }
+
+    /// Creates a color from linear sRGB and straight alpha.
+    /// Encodes signed and extended-range RGB values and preserves alpha.
+    /// Encoding rounds RGB to `f32`. Decoding a value near the `f32` limits
+    /// can therefore return infinity.
+    pub fn from_linear_rgba(red: f32, green: f32, blue: f32, alpha: f32) -> Self {
+        Self::from_srgba_f32(
+            linear_to_srgb(red),
+            linear_to_srgb(green),
+            linear_to_srgb(blue),
+            alpha,
+        )
     }
 
     /// Converts encoded sRGB channels to linear RGB and leaves alpha unchanged.
@@ -289,11 +308,13 @@ impl Color {
     /// ```
     /// use grafo::Color;
     ///
-    /// let red = Color::rgba(255, 0, 0, 128);
-    /// let normalized = red.normalize();
-    /// assert_eq!(normalized, [1.0, 0.0, 0.0, 128.0 / 255.0]);
+    /// let color = Color::from_srgba_f32(0.5, 0.0, 1.0, 0.25);
+    /// assert_eq!(color.to_srgba_f32(), [0.5, 0.0, 1.0, 0.25]);
+    /// let [red, green, blue, alpha] = color.to_linear_rgba();
+    /// assert!((red - 0.21404114).abs() < 1e-6);
+    /// assert_eq!([green, blue, alpha], [0.0, 1.0, 0.25]);
     /// ```
-    pub fn normalize(&self) -> [f32; 4] {
+    pub fn to_linear_rgba(&self) -> [f32; 4] {
         let [red, green, blue, alpha] = self.0;
         [
             srgb_to_linear(red),
@@ -331,20 +352,20 @@ impl Color {
         ]
     }
 
-    /// Returns `[red, green, blue, alpha]` as bytes.
+    /// Returns encoded sRGB and straight alpha as bytes in RGBA order.
     /// Clamps each channel to `[0.0, 1.0]` and rounds to the nearest byte value.
-    pub fn to_array(&self) -> [u8; 4] {
+    pub fn to_rgba8(&self) -> [u8; 4] {
         self.0.map(normalized_channel_to_u8)
     }
 
     /// Returns the encoded sRGB channels and alpha without clamping or quantization.
-    pub const fn to_array_f32(&self) -> [f32; 4] {
+    pub const fn to_srgba_f32(&self) -> [f32; 4] {
         self.0
     }
 
     /// Converts to the selected interpolation space with alpha clamped to [0,1].
     pub(super) fn to_rectangular_space(self, space: RectangularColorSpace) -> [f64; 4] {
-        let [red, green, blue, alpha] = self.to_array_f32().map(f64::from);
+        let [red, green, blue, alpha] = self.to_srgba_f32().map(f64::from);
         let alpha = alpha.clamp(0.0, 1.0);
 
         match space {
@@ -366,7 +387,7 @@ impl Color {
         self,
         space: CylindricalColorSpace,
     ) -> (f64, f64, f64, f64, bool) {
-        let [red, green, blue, alpha] = self.to_array_f32().map(f64::from);
+        let [red, green, blue, alpha] = self.to_srgba_f32().map(f64::from);
         let alpha = alpha.clamp(0.0, 1.0);
 
         match space {
