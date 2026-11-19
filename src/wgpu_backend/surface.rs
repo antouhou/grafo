@@ -1,16 +1,46 @@
-use super::{WgpuBackend, WgpuBackendError};
+use super::retained_output::SurfacePresentation;
+use super::{BackendCreationError, SurfaceError, WgpuBackend, WgpuBackendError, WgpuContext};
 use crate::core::util::to_logical;
 use crate::core::Viewport;
 use crate::render_backend::render_target::{RenderTargetError, Surface};
 use crate::wgpu_backend::pipeline::{create_and_depth_texture, create_msaa_color_texture};
+use std::sync::Arc;
 use tracing::warn;
-use wgpu::{Device, PresentMode, Surface as SurfaceHandle, SurfaceConfiguration};
+use wgpu::{PresentMode, Surface as WgpuSurface, SurfaceConfiguration, SurfaceTarget};
 
-/// Native resources for a Grafo surface.
-pub struct WgpuSurface {
-    pub(super) surface: SurfaceHandle<'static>,
+/// WGPU handle, configuration, and presentation resources for a Grafo surface.
+pub struct WgpuSurfaceState {
+    pub(super) presentation: SurfacePresentation,
+    pub(super) surface: Option<WgpuSurface<'static>>,
     pub(super) configuration: SurfaceConfiguration,
-    pub(super) device: Device,
+    pub(super) context: Arc<WgpuContext>,
+    pub(super) transparent: bool,
+}
+
+impl WgpuSurfaceState {
+    pub(super) fn handle(&self) -> Result<&WgpuSurface<'static>, SurfaceError> {
+        self.surface.as_ref().ok_or(SurfaceError::Lost)
+    }
+}
+
+impl Surface<WgpuSurfaceState> {
+    /// Recreates a lost surface for the supplied target using the current rendering settings.
+    pub fn recreate(
+        &mut self,
+        target: impl Into<SurfaceTarget<'static>>,
+    ) -> Result<(), BackendCreationError> {
+        // Release the lost surface before binding the target again.
+        drop(self.resource_mut().surface.take());
+        self.invalidate();
+        let resource = self.resource();
+        *self = resource.context.create_surface(
+            target,
+            self.size(),
+            self.vsync(),
+            resource.transparent,
+        )?;
+        Ok(())
+    }
 }
 
 impl WgpuBackend {
@@ -95,7 +125,7 @@ impl WgpuBackend {
             let texture = create_msaa_color_texture(
                 &self.device,
                 self.viewport.physical_size,
-                self.format,
+                self.render_format,
                 self.msaa_sample_count,
             );
             let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -123,13 +153,13 @@ impl WgpuBackend {
 
     pub(super) fn prepare_surface(
         &mut self,
-        surface: &mut Surface<WgpuSurface>,
+        surface: &mut Surface<WgpuSurfaceState>,
     ) -> Result<(), WgpuBackendError> {
         let resource = surface.resource();
-        if self.device.as_ref() != &resource.device {
+        if !Arc::ptr_eq(&self.context, &resource.context) {
             return Err(RenderTargetError::IncompatibleSurface.into());
         }
-        self.set_format(resource.configuration.format);
+        self.set_output_format(resource.configuration.format);
         if !surface.needs_configuration() {
             return Ok(());
         }
@@ -144,7 +174,7 @@ impl WgpuBackend {
         resource.configuration.height = height;
         resource.configuration.present_mode = present_mode;
         resource
-            .surface
+            .handle()?
             .configure(&self.device, &resource.configuration);
         surface.finish_configuration();
         Ok(())

@@ -1,33 +1,59 @@
 //! WGPU constructors for scenes, contexts, and surfaces.
 
-use crate::render_backend::render_target::Surface;
 use crate::render_backend::texture_manager::TextureUpdatePublisher;
 use crate::scene::{Scene, SceneContext};
 use crate::scene_state::SceneStateContext;
-use crate::wgpu_backend::{BackendCreationError, WgpuBackend, WgpuContext, WgpuSurface};
+use crate::wgpu_backend::{BackendCreationError, WgpuBackend, WgpuContext};
+use crate::Surface;
 use std::sync::Arc;
-use wgpu::SurfaceTarget;
+use wgpu::wgt::WgpuHasDisplayHandle;
+use wgpu::{Instance, InstanceDescriptor, Surface as WgpuSurface, SurfaceTarget};
 
 impl SceneContext<Arc<WgpuContext>> {
-    /// Creates a WGPU context and shared CPU shape storage.
-    pub async fn try_new() -> Result<Self, BackendCreationError> {
+    async fn from_instance(
+        instance: Instance,
+        surface: Option<&WgpuSurface<'_>>,
+    ) -> Result<Self, BackendCreationError> {
         let texture_updates = TextureUpdatePublisher::default();
+        let backend = WgpuContext::try_new(texture_updates.clone(), instance, surface).await?;
         Ok(Self {
-            backend: Arc::new(WgpuContext::try_new(texture_updates.clone()).await?),
+            backend: Arc::new(backend),
             state: SceneStateContext::new(texture_updates),
         })
     }
 
-    pub async fn new() -> Self {
-        Self::try_new()
-            .await
-            .expect("Failed to create scene context")
+    /// Creates a WGPU context without a surface.
+    /// Use [`Self::try_new_with_surface`] to select an adapter for a window or canvas.
+    pub async fn try_new() -> Result<Self, BackendCreationError> {
+        Self::from_instance(Instance::default(), None).await
+    }
+
+    /// Creates a context and its first surface on an adapter that can present to the target.
+    /// Pass the display that owns the target, such as `event_loop.owned_display_handle()` with winit.
+    /// Set `transparent` when the native window is configured for compositor transparency.
+    pub async fn try_new_with_surface(
+        display: impl WgpuHasDisplayHandle,
+        target: impl Into<SurfaceTarget<'static>>,
+        physical_size: (u32, u32),
+        vsync: bool,
+        transparent: bool,
+    ) -> Result<(Self, Surface), BackendCreationError> {
+        display.display_handle()?;
+        let descriptor = InstanceDescriptor::new_with_display_handle(Box::new(display));
+        let instance = Instance::new(descriptor);
+        let surface = instance.create_surface(target)?;
+        let context = Self::from_instance(instance, Some(&surface)).await?;
+        let surface = context
+            .backend
+            .wrap_surface(surface, physical_size, vsync, transparent)?;
+        Ok((context, surface))
     }
 }
 
-impl Surface<WgpuSurface> {
-    /// Creates a surface from a window or another platform handle provider.
+impl Surface {
+    /// Creates a surface for a window, canvas, or other supported target.
     /// Render to it with a scene that uses the same context.
+    /// Set `transparent` when the native window is configured for compositor transparency.
     pub fn new(
         context: &SceneContext<Arc<WgpuContext>>,
         target: impl Into<SurfaceTarget<'static>>,
@@ -42,38 +68,8 @@ impl Surface<WgpuSurface> {
 }
 
 impl Scene<WgpuBackend> {
-    /// Creates a scene with a new WGPU context.
-    pub async fn new(physical_size: (u32, u32), scale_factor: f64, msaa_samples: u32) -> Self {
-        Self::try_new(physical_size, scale_factor, msaa_samples)
-            .await
-            .expect("Failed to create scene")
-    }
-
-    pub async fn try_new(
-        physical_size: (u32, u32),
-        scale_factor: f64,
-        msaa_samples: u32,
-    ) -> Result<Self, BackendCreationError> {
-        Self::try_new_with_context(
-            SceneContext::try_new().await?,
-            physical_size,
-            scale_factor,
-            msaa_samples,
-        )
-    }
-
     /// Creates a scene that shares GPU resources and loaded shapes through `context`.
-    pub fn new_with_context(
-        context: SceneContext<Arc<WgpuContext>>,
-        physical_size: (u32, u32),
-        scale_factor: f64,
-        msaa_samples: u32,
-    ) -> Self {
-        Self::try_new_with_context(context, physical_size, scale_factor, msaa_samples)
-            .expect("Failed to create scene")
-    }
-
-    pub fn try_new_with_context(
+    pub fn try_new(
         context: SceneContext<Arc<WgpuContext>>,
         physical_size: (u32, u32),
         scale_factor: f64,

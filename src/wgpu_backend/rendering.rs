@@ -1,4 +1,4 @@
-use super::{SurfaceError, WgpuBackend, WgpuSurface};
+use super::{SurfaceError, WgpuBackend, WgpuSurfaceState};
 use crate::commands::RenderCommand;
 use crate::core::UnsignedPhysicalRect;
 use crate::render_backend::render_target::Surface;
@@ -174,7 +174,7 @@ impl WgpuBackend {
         &mut self,
         root_scissor: Option<UnsignedPhysicalRect>,
         commands: impl Iterator<Item = RenderCommand<'scene>>,
-        surface: &mut Surface<WgpuSurface>,
+        surface: &mut Surface<WgpuSurfaceState>,
     ) -> Result<(), SurfaceError> {
         #[cfg(feature = "render_metrics")]
         let frame_render_loop_started_at = Instant::now();
@@ -183,7 +183,7 @@ impl WgpuBackend {
         #[cfg(feature = "render_metrics")]
         let after_prepare = Instant::now();
 
-        let output = match surface.resource().native_surface()?.get_current_texture() {
+        let output = match surface.resource().handle()?.get_current_texture() {
             CurrentSurfaceTexture::Success(output) => output,
             CurrentSurfaceTexture::Suboptimal(output) => {
                 surface.invalidate();

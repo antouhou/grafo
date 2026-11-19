@@ -12,7 +12,7 @@ use retained_output::{RetainedOutput, RetainedOutputResources};
 use std::sync::{atomic::AtomicBool, Arc};
 #[cfg(feature = "render_metrics")]
 use std::time::Duration;
-pub use surface::WgpuSurface;
+pub use surface::WgpuSurfaceState;
 use texture_manager::WgpuTextureManager;
 pub use types::GeometryBufferError;
 

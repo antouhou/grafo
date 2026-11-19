@@ -64,24 +64,27 @@ loaded shapes, textures, and effect definitions available for reuse.
 Create a surface and scene from the same context:
 
 ```rust,no_run
-use grafo::{Scene, SceneContext, Surface};
+use grafo::{Scene, SceneContext};
 
-let context = SceneContext::new().await;
-let mut surface = Surface::new(&context, platform_target, size, true, false)?;
-let mut scene = Scene::new_with_context(context, size, scale_factor, 1);
+let (context, mut surface) = SceneContext::try_new_with_surface(
+    event_loop.owned_display_handle(), platform_target, size, true, false,
+).await?;
+let mut scene = Scene::try_new(context, size, scale_factor, 1)?;
 scene.render(&mut surface)?;
 ```
 
-Pass a window or an object that provides native display and surface handles to `Surface::new`.
 Use `surface.resize(size)` to resize it and `surface.set_vsync(enabled)` to change vsync.
 `render` borrows the target and uses its dimensions.
 
-For memory output, `Pixmap` owns the buffer and `PixmapMut` borrows a slice:
+To render without a window, create a context with `SceneContext::try_new()` and pass it to the scene.
+`Pixmap` owns the output buffer and `PixmapMut` borrows a slice.
 
 ```rust
-use grafo::{PixelFormat, PixelLayout, Pixmap, PixmapMut};
+use grafo::{PixelFormat, PixelLayout, Pixmap, PixmapMut, Scene, SceneContext};
 
 let size = (640, 480);
+let context = SceneContext::try_new().await?;
+let mut scene = Scene::try_new(context, size, 1.0, 1)?;
 let mut image = Pixmap::new(size, PixelFormat::Bgra8)?;
 scene.render(&mut image)?;
 let bytes = image.pixels();
@@ -112,22 +115,18 @@ RGB is premultiplied in linear space, then encoded as sRGB. Alpha stays linear.
 
 ### Multiple independent windows
 
-Reuse a `SceneContext` to share the WGPU device, queue, and textures across windows:
+Additional windows can share a context's WGPU device, queue, and textures.
 
 ```rust,no_run
 use futures::executor::block_on;
 use grafo::{Scene, SceneContext, Surface};
 
-let context = block_on(SceneContext::new());
-
-let first_surface = Surface::new(&context, first_window, first_size, true, false)?;
+let (context, first_surface) = block_on(SceneContext::try_new_with_surface(
+    event_loop.owned_display_handle(), first_window, first_size, true, false,
+))?;
 let second_surface = Surface::new(&context, second_window, second_size, true, false)?;
-let first_scene = Scene::new_with_context(
-    context.clone(), first_size, first_scale_factor, 1,
-);
-let second_scene = Scene::new_with_context(
-    context, second_size, second_scale_factor, 1,
-);
+let first_scene = Scene::try_new(context.clone(), first_size, first_scale_factor, 1)?;
+let second_scene = Scene::try_new(context, second_size, second_scale_factor, 1)?;
 ```
 
 Create a scene when you open a window and drop it when you close the window.

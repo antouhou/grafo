@@ -1,5 +1,5 @@
 use super::texture_manager::WgpuTextureManager;
-use super::{WgpuBackend, WgpuBackendError, WgpuSurface};
+use super::{WgpuBackend, WgpuBackendError, WgpuSurfaceState};
 use crate::commands::{RenderCommand, ShapeDrawId};
 use crate::core::shape::ShapeInstance;
 use crate::core::Viewport;
@@ -9,7 +9,7 @@ use crate::UnsignedPhysicalRect;
 use wgpu::TextureFormat;
 
 impl RenderBackend for WgpuBackend {
-    type Surface = WgpuSurface;
+    type Surface = WgpuSurfaceState;
     type Error = WgpuBackendError;
     type TextureManager = WgpuTextureManager;
 
