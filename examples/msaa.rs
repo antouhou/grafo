@@ -45,7 +45,7 @@ impl ApplicationHandler for App {
 
         let msaa_samples = if self.msaa_enabled { 4 } else { 1 };
 
-        let (context, surface) = block_on(SceneContext::try_new_with_surface(
+        let (context, surface) = block_on(SceneContext::try_new(
             event_loop.owned_display_handle(),
             window.clone(),
             physical_size,

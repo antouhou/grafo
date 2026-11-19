@@ -40,7 +40,7 @@ impl ApplicationHandler for App {
         );
         let physical_size = (800, 600);
         let scale_factor = 1.0;
-        let (context, surface) = futures::executor::block_on(SceneContext::try_new_with_surface(
+        let (context, surface) = futures::executor::block_on(SceneContext::try_new(
             event_loop.owned_display_handle(),
             window.clone(),
             physical_size,

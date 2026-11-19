@@ -35,7 +35,7 @@ impl ApplicationHandler for App {
         let window_size = window.inner_size();
         let physical_size = (window_size.width, window_size.height);
 
-        let (context, surface) = block_on(SceneContext::try_new_with_surface(
+        let (context, surface) = block_on(SceneContext::try_new(
             event_loop.owned_display_handle(),
             window.clone(),
             physical_size,

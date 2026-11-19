@@ -483,7 +483,7 @@ impl ApplicationHandler for BenchApp {
         let physical_size = (BENCH_WIDTH, BENCH_HEIGHT);
         let scale_factor = window.scale_factor();
 
-        let (context, surface) = block_on(SceneContext::try_new_with_surface(
+        let (context, surface) = block_on(SceneContext::try_new(
             event_loop.owned_display_handle(),
             window.clone(),
             physical_size,

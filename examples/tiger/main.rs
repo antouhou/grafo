@@ -177,7 +177,7 @@ impl TigerWindow {
         let scale_factor = window.scale_factor();
         let physical_size = (size.width, size.height);
         let viewport = logical_size(size, scale_factor);
-        let (context, surface) = block_on(SceneContext::try_new_with_surface(
+        let (context, surface) = block_on(SceneContext::try_new(
             event_loop.owned_display_handle(),
             window.clone(),
             physical_size,
