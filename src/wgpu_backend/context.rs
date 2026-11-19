@@ -251,10 +251,9 @@ impl WgpuContext {
                     &self.device,
                     &self.retained_output_resources,
                     OutputColorFormat::for_surface(
-                        format,
-                        configuration.alpha_mode,
+                        &configuration,
                         self.adapter.get_info().backend,
-                    ),
+                    )?,
                 ),
                 configuration,
                 context: Arc::clone(self),

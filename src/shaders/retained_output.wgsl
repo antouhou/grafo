@@ -13,8 +13,9 @@ fn fs_clear() -> @location(0) vec4<f32> {
 
 @group(0) @binding(0) var retained_image: texture_2d<f32>;
 
-// Plain surface formats expect the sRGB transfer in the fragment output.
-override encode_srgb: bool = false;
+override linear_output: bool = false;
+override clamp_to_sdr: bool = true;
+override attachment_is_srgb: bool = false;
 override straight_alpha: bool = false;
 override premultiplied_alpha: bool = false;
 
@@ -37,25 +38,32 @@ fn srgb_to_linear(encoded: vec3<f32>) -> vec3<f32> {
 }
 
 fn surface_color(color: vec4<f32>) -> vec4<f32> {
-    var linear = color.rgb;
-    if (straight_alpha || premultiplied_alpha) && color.a < 1.0 {
+    var rgb = color.rgb;
+    let premultiply_in_srgb = premultiplied_alpha && !linear_output && color.a < 1.0;
+    if (straight_alpha && color.a < 1.0) || premultiply_in_srgb {
         if color.a == 0.0 {
             return vec4<f32>(0.0);
         }
-        linear = clamp(linear / color.a, vec3<f32>(0.0), vec3<f32>(1.0));
-        if premultiplied_alpha {
-            let encoded = linear_to_srgb(linear) * color.a;
-            if encode_srgb {
-                return vec4<f32>(encoded, color.a);
-            }
-            // The attachment re-encodes this value when storing the pixel.
-            return vec4<f32>(srgb_to_linear(encoded), color.a);
-        }
+        rgb /= color.a;
     }
-    if encode_srgb {
-        return vec4<f32>(linear_to_srgb(linear), color.a);
+    if linear_output {
+        return vec4<f32>(rgb, color.a);
     }
-    return vec4<f32>(linear, color.a);
+    if clamp_to_sdr {
+        rgb = clamp(rgb, vec3<f32>(0.0), vec3<f32>(1.0));
+    }
+    if attachment_is_srgb && !premultiply_in_srgb {
+        return vec4<f32>(rgb, color.a);
+    }
+    var encoded = linear_to_srgb(rgb);
+    if premultiply_in_srgb {
+        encoded *= color.a;
+    }
+    if attachment_is_srgb {
+        // The attachment re-encodes this premultiplied value on write.
+        return vec4<f32>(srgb_to_linear(encoded), color.a);
+    }
+    return vec4<f32>(encoded, color.a);
 }
 
 @fragment
