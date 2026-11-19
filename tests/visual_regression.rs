@@ -6,9 +6,9 @@ use grafo::{
     BackdropCaptureArea, BackdropEffectConfig, BlendMode, BorderRadii, Color, ColorInterpolation,
     ContentEffectConfig, DrawCommandError, EffectError, EffectResourceError, Fill, Gradient,
     GradientStop, GradientStopOffset, LinearGradientDesc, LinearGradientLine, PixelFormat,
-    PixelLayout, Pixmap, PixmapMut, Scene, SceneCreationError, SceneError, Shape, ShapeDrawOptions,
-    ShapeMaskEffectConfig, ShapeTextureFitMode, ShapeTextureOptions, TextureManager,
-    TransformInstance, WgpuBackendError,
+    PixelLayout, Pixmap, PixmapMut, Scene, SceneContext, SceneCreationError, SceneError, Shape,
+    ShapeDrawOptions, ShapeMaskEffectConfig, ShapeTextureFitMode, ShapeTextureOptions,
+    TextureManager, TransformInstance, WgpuBackendError,
 };
 use grafo_test_scenes::shaders::{PASSTHROUGH_WGSL, SHAPE_DROP_WGSL};
 use grafo_test_scenes::{
@@ -37,14 +37,15 @@ fn create_headless_scene_with_size_and_scale(
     physical_size: (u32, u32),
     scale_factor: f64,
 ) -> Option<Scene> {
-    match block_on(Scene::try_new(physical_size, scale_factor, 1)) {
-        Ok(r) => Some(r),
+    let context = match block_on(SceneContext::try_new()) {
+        Ok(context) => context,
         Err(SceneCreationError::AdapterNotAvailable(_)) => {
             println!("Skipping test: no suitable GPU adapter available.");
-            None
+            return None;
         }
-        Err(e) => panic!("Failed to create headless scene: {e}"),
-    }
+        Err(error) => panic!("Failed to create scene context: {error}"),
+    };
+    Some(Scene::try_new(context, physical_size, scale_factor, 1).expect("create headless scene"))
 }
 
 fn assert_pixels_match(pixel_buffer: &[u8], expectations: &[PixelExpectation]) {

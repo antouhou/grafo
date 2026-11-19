@@ -1,5 +1,5 @@
 use super::texture_manager::WgpuTextureManager;
-use super::{WgpuBackend, WgpuBackendError, WgpuSurface};
+use super::{WgpuBackend, WgpuBackendError, WgpuSurfaceState};
 use crate::commands::{RenderCommand, ShapeDrawId};
 use crate::core::shape::ShapeInstance;
 use crate::core::Viewport;
@@ -9,7 +9,7 @@ use crate::UnsignedPhysicalRect;
 use wgpu::TextureFormat;
 
 impl RenderBackend for WgpuBackend {
-    type Surface = WgpuSurface;
+    type Surface = WgpuSurfaceState;
     type Error = WgpuBackendError;
     type TextureManager = WgpuTextureManager;
 
@@ -75,7 +75,7 @@ impl RenderBackend for WgpuBackend {
 
     fn load_effect(&mut self, effect_id: u64, pass_sources: &[&str]) -> Result<bool, Self::Error> {
         self.effect_registry
-            .load(&self.device, self.format, effect_id, pass_sources)
+            .load(&self.device, self.render_format, effect_id, pass_sources)
             .map_err(WgpuBackendError::Effect)
     }
 
@@ -151,7 +151,7 @@ impl RenderBackend for WgpuBackend {
                     PixelFormat::Bgra8 | PixelFormat::Argb32 => TextureFormat::Bgra8UnormSrgb,
                     PixelFormat::Rgba8 => TextureFormat::Rgba8UnormSrgb,
                 };
-                self.set_format(format);
+                self.set_output_format(format);
             }
         }
         Ok(self.retained_output.is_none())
@@ -167,7 +167,7 @@ impl RenderBackend for WgpuBackend {
         self.resources.shape_execution.compact_draw_buffers();
         let result = match target {
             RenderTarget::Surface(surface) => self
-                .render_surface(root_scissor, commands, &surface.resource().surface)
+                .render_surface(root_scissor, commands, surface)
                 .map_err(WgpuBackendError::Surface),
             RenderTarget::Pixmap(mut pixels) => {
                 if pixels.layout().format() == PixelFormat::Argb32 {

@@ -10,8 +10,8 @@ use crate::wgpu_backend::pipeline::Uniforms;
 use std::sync::Arc;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::{
-    AddressMode, BindGroupLayout, BufferUsages, Device, FilterMode, SamplerDescriptor,
-    TextureFormat,
+    AddressMode, BindGroupLayout, BufferUsages, Device, FilterMode, MipmapFilterMode,
+    SamplerDescriptor, TextureFormat,
 };
 
 fn create_transparent_texture_view_and_sampler(
@@ -61,7 +61,7 @@ fn create_transparent_texture_view_and_sampler(
         address_mode_w: wgpu::AddressMode::ClampToEdge,
         mag_filter: wgpu::FilterMode::Linear,
         min_filter: wgpu::FilterMode::Linear,
-        mipmap_filter: wgpu::FilterMode::Linear,
+        mipmap_filter: MipmapFilterMode::Linear,
         ..Default::default()
     });
     (view, sampler)
@@ -120,7 +120,7 @@ impl ShapePipelines {
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: MipmapFilterMode::Nearest,
             ..Default::default()
         });
 
@@ -212,7 +212,7 @@ impl RendererPipelineResources {
                 address_mode_w: AddressMode::ClampToEdge,
                 mag_filter: FilterMode::Linear,
                 min_filter: FilterMode::Linear,
-                mipmap_filter: FilterMode::Linear,
+                mipmap_filter: MipmapFilterMode::Linear,
                 ..Default::default()
             }),
             composite_resources,

@@ -29,10 +29,16 @@ impl ApplicationHandler for App {
         let scale_factor = window.scale_factor();
         let physical_size = (window_size.width, window_size.height);
 
-        let context = block_on(SceneContext::new());
-        let surface = Surface::new(&context, window.clone(), physical_size, true, false)
-            .expect("Failed to create surface");
-        let mut scene = Scene::new_with_context(context, physical_size, scale_factor, 1);
+        let (context, surface) = block_on(SceneContext::try_new_with_surface(
+            event_loop.owned_display_handle(),
+            window.clone(),
+            physical_size,
+            true,
+            false,
+        ))
+        .expect("create window rendering context and surface");
+        let mut scene =
+            Scene::try_new(context, physical_size, scale_factor, 1).expect("create scene");
 
         let rect = Shape::rect([(100.0, 100.0), (300.0, 200.0)]);
         scene
@@ -79,6 +85,7 @@ impl ApplicationHandler for App {
         }
 
         match event {
+            WindowEvent::Occluded(false) => window.request_redraw(),
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(physical_size) => {
                 let new_size = (physical_size.width, physical_size.height);
@@ -87,7 +94,7 @@ impl ApplicationHandler for App {
             }
             WindowEvent::RedrawRequested => {
                 // Keep the static scene queued so later redraws render the same shapes.
-                window_rendering::render(scene, surface, event_loop);
+                window_rendering::render(scene, surface, window, event_loop);
             }
             _ => {}
         }

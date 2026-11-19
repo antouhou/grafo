@@ -219,20 +219,6 @@ fn build_scene(scene: &mut Scene) -> usize {
     total_shapes
 }
 
-fn render_benchmark_frame(
-    scene: &mut Scene,
-    surface: &mut Surface,
-    event_loop: &ActiveEventLoop,
-) -> bool {
-    if window_rendering::render(scene, surface, event_loop) {
-        return true;
-    }
-
-    eprintln!("Stopping benchmark after a failed redraw.");
-    event_loop.exit();
-    false
-}
-
 fn print_results(label: &str, frame_times: &mut [Duration], total_elapsed: Duration) {
     frame_times.sort();
     let count = frame_times.len();
@@ -260,12 +246,12 @@ fn print_results(label: &str, frame_times: &mut [Duration], total_elapsed: Durat
 
 #[cfg(feature = "render_metrics")]
 fn print_phase_breakdown(
-    phase_prepare: Vec<Duration>,
-    phase_encode_submit: Vec<Duration>,
-    phase_present: Vec<Duration>,
-    phase_gpu_wait: Vec<Duration>,
+    phase_prepare: &mut [Duration],
+    phase_encode_submit: &mut [Duration],
+    phase_present: &mut [Duration],
+    phase_gpu_wait: &mut [Duration],
 ) {
-    fn summarize(label: &str, mut durations: Vec<Duration>) {
+    fn summarize(label: &str, durations: &mut [Duration]) {
         durations.sort();
         let n = durations.len();
         let sum: Duration = durations.iter().sum();
@@ -305,134 +291,176 @@ fn print_metrics(scene: &mut Scene) {
     println!("  Total switches:   {}", pc.total_switches);
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
+enum Benchmark {
+    #[default]
+    Static,
+    Dynamic,
+}
+
+struct Measurement {
+    started_at: Instant,
+    frame_times: Vec<Duration>,
+    rebuild_times: Vec<Duration>,
+    #[cfg(feature = "render_metrics")]
+    phase_prepare: Vec<Duration>,
+    #[cfg(feature = "render_metrics")]
+    phase_encode_submit: Vec<Duration>,
+    #[cfg(feature = "render_metrics")]
+    phase_present: Vec<Duration>,
+    #[cfg(feature = "render_metrics")]
+    phase_gpu_wait: Vec<Duration>,
+}
+
+impl Measurement {
+    fn start() -> Self {
+        let samples = || Vec::with_capacity(BENCH_FRAMES as usize);
+        Self {
+            frame_times: samples(),
+            rebuild_times: samples(),
+            #[cfg(feature = "render_metrics")]
+            phase_prepare: samples(),
+            #[cfg(feature = "render_metrics")]
+            phase_encode_submit: samples(),
+            #[cfg(feature = "render_metrics")]
+            phase_present: samples(),
+            #[cfg(feature = "render_metrics")]
+            phase_gpu_wait: samples(),
+            started_at: Instant::now(),
+        }
+    }
+
+    fn print(&mut self, benchmark: Benchmark) {
+        let label = match benchmark {
+            Benchmark::Static => "Benchmark 1: Static Scene",
+            Benchmark::Dynamic => "Benchmark 2: Dynamic Scene (re-add every frame)",
+        };
+        print_results(label, &mut self.frame_times, self.started_at.elapsed());
+        if benchmark == Benchmark::Dynamic {
+            self.rebuild_times.sort();
+            let count = self.rebuild_times.len();
+            let sum: Duration = self.rebuild_times.iter().sum();
+            println!(
+                "Rebuild queue:   avg {:.3}ms  P50 {:.3}ms  P95 {:.3}ms",
+                sum.as_secs_f64() / count as f64 * 1000.0,
+                self.rebuild_times[count / 2].as_secs_f64() * 1000.0,
+                self.rebuild_times[(count as f64 * 0.95) as usize].as_secs_f64() * 1000.0,
+            );
+        }
+        #[cfg(feature = "render_metrics")]
+        print_phase_breakdown(
+            &mut self.phase_prepare,
+            &mut self.phase_encode_submit,
+            &mut self.phase_present,
+            &mut self.phase_gpu_wait,
+        );
+    }
+}
+
 enum Phase {
-    WarmupStatic,
-    MeasureStatic,
-    WarmupDynamic,
-    MeasureDynamic,
+    Warmup(u64),
+    Measure(Measurement),
     Done,
 }
 
+impl Default for Phase {
+    fn default() -> Self {
+        Self::Warmup(0)
+    }
+}
+
+#[derive(Default)]
 struct BenchApp {
     window: Option<Arc<Window>>,
     scene: Option<Scene>,
     surface: Option<Surface>,
+    benchmark: Benchmark,
     phase: Phase,
-    frame_counter: u64,
-    total_shapes: usize,
-    // Static bench data
-    static_frame_times: Vec<Duration>,
-    static_bench_start: Option<Instant>,
-    #[cfg(feature = "render_metrics")]
-    static_phase_prepare: Vec<Duration>,
-    #[cfg(feature = "render_metrics")]
-    static_phase_encode_submit: Vec<Duration>,
-    #[cfg(feature = "render_metrics")]
-    static_phase_present: Vec<Duration>,
-    #[cfg(feature = "render_metrics")]
-    static_phase_gpu_wait: Vec<Duration>,
-    // Dynamic bench data
-    dynamic_frame_times: Vec<Duration>,
-    dynamic_rebuild_times: Vec<Duration>,
-    dynamic_bench_start: Option<Instant>,
-    #[cfg(feature = "render_metrics")]
-    dynamic_phase_prepare: Vec<Duration>,
-    #[cfg(feature = "render_metrics")]
-    dynamic_phase_encode_submit: Vec<Duration>,
-    #[cfg(feature = "render_metrics")]
-    dynamic_phase_present: Vec<Duration>,
-    #[cfg(feature = "render_metrics")]
-    dynamic_phase_gpu_wait: Vec<Duration>,
-}
-
-impl Default for BenchApp {
-    fn default() -> Self {
-        Self {
-            window: None,
-            scene: None,
-            surface: None,
-            phase: Phase::WarmupStatic,
-            frame_counter: 0,
-            total_shapes: 0,
-            static_frame_times: Vec::with_capacity(BENCH_FRAMES as usize),
-            static_bench_start: None,
-            #[cfg(feature = "render_metrics")]
-            static_phase_prepare: Vec::with_capacity(BENCH_FRAMES as usize),
-            #[cfg(feature = "render_metrics")]
-            static_phase_encode_submit: Vec::with_capacity(BENCH_FRAMES as usize),
-            #[cfg(feature = "render_metrics")]
-            static_phase_present: Vec::with_capacity(BENCH_FRAMES as usize),
-            #[cfg(feature = "render_metrics")]
-            static_phase_gpu_wait: Vec::with_capacity(BENCH_FRAMES as usize),
-            dynamic_frame_times: Vec::with_capacity(BENCH_FRAMES as usize),
-            dynamic_rebuild_times: Vec::with_capacity(BENCH_FRAMES as usize),
-            dynamic_bench_start: None,
-            #[cfg(feature = "render_metrics")]
-            dynamic_phase_prepare: Vec::with_capacity(BENCH_FRAMES as usize),
-            #[cfg(feature = "render_metrics")]
-            dynamic_phase_encode_submit: Vec::with_capacity(BENCH_FRAMES as usize),
-            #[cfg(feature = "render_metrics")]
-            dynamic_phase_present: Vec::with_capacity(BENCH_FRAMES as usize),
-            #[cfg(feature = "render_metrics")]
-            dynamic_phase_gpu_wait: Vec::with_capacity(BENCH_FRAMES as usize),
-        }
-    }
+    is_occluded: bool,
 }
 
 impl BenchApp {
-    fn print_static_results(&mut self) {
-        let total_elapsed = self.static_bench_start.unwrap().elapsed();
-        print_results(
-            "Benchmark 1: Static Scene",
-            &mut self.static_frame_times,
-            total_elapsed,
-        );
-        #[cfg(feature = "render_metrics")]
-        {
-            let scene = self.scene.as_mut().unwrap();
-            print_phase_breakdown(
-                std::mem::take(&mut self.static_phase_prepare),
-                std::mem::take(&mut self.static_phase_encode_submit),
-                std::mem::take(&mut self.static_phase_present),
-                std::mem::take(&mut self.static_phase_gpu_wait),
-            );
-            print_metrics(scene);
+    fn interrupt_measurement(&mut self) {
+        if matches!(self.phase, Phase::Measure(_)) {
+            self.phase = Phase::Warmup(0);
         }
-        println!();
     }
 
-    fn print_dynamic_results(&mut self) {
-        let total_elapsed = self.dynamic_bench_start.unwrap().elapsed();
-        print_results(
-            "Benchmark 2: Dynamic Scene (re-add every frame)",
-            &mut self.dynamic_frame_times,
-            total_elapsed,
-        );
-
-        // Rebuild timing
-        self.dynamic_rebuild_times.sort();
-        let rn = self.dynamic_rebuild_times.len();
-        let rebuild_sum: Duration = self.dynamic_rebuild_times.iter().sum();
-        println!(
-            "Rebuild queue:   avg {:.3}ms  P50 {:.3}ms  P95 {:.3}ms",
-            rebuild_sum.as_secs_f64() / rn as f64 * 1000.0,
-            self.dynamic_rebuild_times[rn / 2].as_secs_f64() * 1000.0,
-            self.dynamic_rebuild_times[(rn as f64 * 0.95) as usize].as_secs_f64() * 1000.0,
-        );
-
-        #[cfg(feature = "render_metrics")]
-        {
-            let scene = self.scene.as_mut().unwrap();
-            print_phase_breakdown(
-                std::mem::take(&mut self.dynamic_phase_prepare),
-                std::mem::take(&mut self.dynamic_phase_encode_submit),
-                std::mem::take(&mut self.dynamic_phase_present),
-                std::mem::take(&mut self.dynamic_phase_gpu_wait),
-            );
-            print_metrics(scene);
+    fn redraw(&mut self, event_loop: &ActiveEventLoop) {
+        if self.is_occluded || matches!(self.phase, Phase::Done) {
+            return;
         }
-        println!();
+        let window = self.window.as_ref().expect("window initialized");
+        let scene = self.scene.as_mut().expect("scene initialized");
+        let surface = self.surface.as_mut().expect("surface initialized");
+        let rebuild_time = (self.benchmark == Benchmark::Dynamic).then(|| {
+            let start = Instant::now();
+            build_scene(scene);
+            start.elapsed()
+        });
+        let frame_start = Instant::now();
+        let outcome = window_rendering::render(scene, surface, window, event_loop);
+        let frame_time = frame_start.elapsed();
+        if rebuild_time.is_some() {
+            scene.clear();
+        }
+        match outcome {
+            window_rendering::RenderResult::Presented => {}
+            window_rendering::RenderResult::Occluded => {
+                self.interrupt_measurement();
+                return;
+            }
+            window_rendering::RenderResult::Skipped => {
+                eprintln!("Stopping benchmark after a failed redraw.");
+                event_loop.exit();
+                return;
+            }
+        }
+
+        match &mut self.phase {
+            Phase::Warmup(frames) => {
+                *frames += 1;
+                if *frames >= WARMUP_FRAMES {
+                    eprintln!("  Warmup done, measuring...");
+                    #[cfg(feature = "render_metrics")]
+                    scene.reset_render_loop_metrics();
+                    self.phase = Phase::Measure(Measurement::start());
+                }
+            }
+            Phase::Measure(measurement) => {
+                measurement.frame_times.push(frame_time);
+                if let Some(duration) = rebuild_time {
+                    measurement.rebuild_times.push(duration);
+                }
+                #[cfg(feature = "render_metrics")]
+                {
+                    let timings = scene.backend().last_phase_timings();
+                    measurement.phase_prepare.push(timings.prepare);
+                    measurement
+                        .phase_encode_submit
+                        .push(timings.encode_and_submit);
+                    measurement.phase_present.push(timings.present_or_readback);
+                    measurement.phase_gpu_wait.push(timings.gpu_wait);
+                }
+                if measurement.frame_times.len() == BENCH_FRAMES as usize {
+                    measurement.print(self.benchmark);
+                    #[cfg(feature = "render_metrics")]
+                    print_metrics(scene);
+                    println!();
+                    if self.benchmark == Benchmark::Dynamic {
+                        self.phase = Phase::Done;
+                        event_loop.exit();
+                        return;
+                    }
+                    scene.clear();
+                    self.benchmark = Benchmark::Dynamic;
+                    self.phase = Phase::Warmup(0);
+                    eprintln!("  Dynamic: starting warmup...");
+                }
+            }
+            Phase::Done => return,
+        }
+        window.request_redraw();
     }
 }
 
@@ -455,24 +483,31 @@ impl ApplicationHandler for BenchApp {
         let physical_size = (BENCH_WIDTH, BENCH_HEIGHT);
         let scale_factor = window.scale_factor();
 
-        let context = block_on(SceneContext::new());
-        let surface = Surface::new(&context, window.clone(), physical_size, false, false)
-            .expect("Failed to create surface");
-        let mut scene = Scene::new_with_context(context, physical_size, scale_factor, 1);
+        let (context, surface) = block_on(SceneContext::try_new_with_surface(
+            event_loop.owned_display_handle(),
+            window.clone(),
+            physical_size,
+            false,
+            false,
+        ))
+        .expect("create window rendering context and surface");
+        let mut scene =
+            Scene::try_new(context, physical_size, scale_factor, 1).expect("create scene");
 
         load_shape_geometries(&mut scene);
         load_textures_and_shapes(&mut scene);
-        self.total_shapes = build_scene(&mut scene);
+        let total_shapes = build_scene(&mut scene);
         eprintln!(
             "Benchmark: {} shapes, {}x{}, {} warmup + {} measured frames per test",
-            self.total_shapes, BENCH_WIDTH, BENCH_HEIGHT, WARMUP_FRAMES, BENCH_FRAMES,
+            total_shapes, BENCH_WIDTH, BENCH_HEIGHT, WARMUP_FRAMES, BENCH_FRAMES,
         );
 
         self.scene = Some(scene);
         self.surface = Some(surface);
         self.window = Some(window.clone());
-        self.phase = Phase::WarmupStatic;
-        self.frame_counter = 0;
+        self.benchmark = Benchmark::Static;
+        self.phase = Phase::Warmup(0);
+        self.is_occluded = false;
 
         window.request_redraw();
     }
@@ -485,130 +520,15 @@ impl ApplicationHandler for BenchApp {
     ) {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
-            WindowEvent::RedrawRequested => {
-                let window = self.window.clone().unwrap();
-
-                match self.phase {
-                    Phase::WarmupStatic => {
-                        let scene = self.scene.as_mut().unwrap();
-                        if !render_benchmark_frame(
-                            scene,
-                            self.surface.as_mut().expect("surface initialized"),
-                            event_loop,
-                        ) {
-                            return;
-                        }
-                        self.frame_counter += 1;
-                        if self.frame_counter >= WARMUP_FRAMES {
-                            #[cfg(feature = "render_metrics")]
-                            scene.reset_render_loop_metrics();
-                            self.frame_counter = 0;
-                            self.static_bench_start = Some(Instant::now());
-                            self.phase = Phase::MeasureStatic;
-                            eprintln!("  Static: warmup done, measuring...");
-                        }
-                        window.request_redraw();
-                    }
-                    Phase::MeasureStatic => {
-                        {
-                            let scene = self.scene.as_mut().unwrap();
-                            let frame_start = Instant::now();
-                            if !render_benchmark_frame(
-                                scene,
-                                self.surface.as_mut().expect("surface initialized"),
-                                event_loop,
-                            ) {
-                                return;
-                            }
-                            self.static_frame_times.push(frame_start.elapsed());
-
-                            #[cfg(feature = "render_metrics")]
-                            {
-                                let pt = scene.backend().last_phase_timings();
-                                self.static_phase_prepare.push(pt.prepare);
-                                self.static_phase_encode_submit.push(pt.encode_and_submit);
-                                self.static_phase_present.push(pt.present_or_readback);
-                                self.static_phase_gpu_wait.push(pt.gpu_wait);
-                            }
-                        }
-
-                        self.frame_counter += 1;
-                        if self.frame_counter >= BENCH_FRAMES {
-                            self.print_static_results();
-                            let scene = self.scene.as_mut().unwrap();
-                            scene.clear();
-                            self.frame_counter = 0;
-                            self.phase = Phase::WarmupDynamic;
-                            eprintln!("  Dynamic: starting warmup...");
-                        }
-                        window.request_redraw();
-                    }
-                    Phase::WarmupDynamic => {
-                        let scene = self.scene.as_mut().unwrap();
-                        build_scene(scene);
-                        if !render_benchmark_frame(
-                            scene,
-                            self.surface.as_mut().expect("surface initialized"),
-                            event_loop,
-                        ) {
-                            scene.clear();
-                            return;
-                        }
-                        scene.clear();
-                        self.frame_counter += 1;
-                        if self.frame_counter >= WARMUP_FRAMES {
-                            #[cfg(feature = "render_metrics")]
-                            scene.reset_render_loop_metrics();
-                            self.frame_counter = 0;
-                            self.dynamic_bench_start = Some(Instant::now());
-                            self.phase = Phase::MeasureDynamic;
-                            eprintln!("  Dynamic: warmup done, measuring...");
-                        }
-                        window.request_redraw();
-                    }
-                    Phase::MeasureDynamic => {
-                        {
-                            let scene = self.scene.as_mut().unwrap();
-                            let rebuild_start = Instant::now();
-                            build_scene(scene);
-                            let rebuild_duration = rebuild_start.elapsed();
-
-                            let frame_start = Instant::now();
-                            if !render_benchmark_frame(
-                                scene,
-                                self.surface.as_mut().expect("surface initialized"),
-                                event_loop,
-                            ) {
-                                scene.clear();
-                                return;
-                            }
-                            self.dynamic_rebuild_times.push(rebuild_duration);
-                            self.dynamic_frame_times.push(frame_start.elapsed());
-
-                            #[cfg(feature = "render_metrics")]
-                            {
-                                let pt = scene.backend().last_phase_timings();
-                                self.dynamic_phase_prepare.push(pt.prepare);
-                                self.dynamic_phase_encode_submit.push(pt.encode_and_submit);
-                                self.dynamic_phase_present.push(pt.present_or_readback);
-                                self.dynamic_phase_gpu_wait.push(pt.gpu_wait);
-                            }
-
-                            scene.clear();
-                        }
-
-                        self.frame_counter += 1;
-                        if self.frame_counter >= BENCH_FRAMES {
-                            self.print_dynamic_results();
-                            self.phase = Phase::Done;
-                            event_loop.exit();
-                            return;
-                        }
-                        window.request_redraw();
-                    }
-                    Phase::Done => {}
+            WindowEvent::Occluded(is_occluded) => {
+                self.is_occluded = is_occluded;
+                if is_occluded {
+                    self.interrupt_measurement();
+                } else if let Some(window) = &self.window {
+                    window.request_redraw();
                 }
             }
+            WindowEvent::RedrawRequested => self.redraw(event_loop),
             _ => {}
         }
     }

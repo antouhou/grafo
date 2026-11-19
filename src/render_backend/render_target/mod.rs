@@ -21,7 +21,7 @@ pub enum RenderTargetError {
 }
 
 /// A platform surface with its size and vsync settings.
-/// `Resource` holds the backend's native surface resources.
+/// `Resource` holds the backend's surface resources.
 pub struct Surface<Resource> {
     resource: Resource,
     size: (u32, u32),

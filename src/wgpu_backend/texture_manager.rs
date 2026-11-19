@@ -2,6 +2,7 @@ use super::WgpuBackendError;
 use crate::render_backend::texture_manager::{TextureManager, TextureUpdatePublisher};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
+use wgpu::MipmapFilterMode;
 use wgpu::Texture;
 
 #[derive(Debug, thiserror::Error)]
@@ -93,7 +94,7 @@ impl WgpuTextureManager {
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: MipmapFilterMode::Linear,
             ..Default::default()
         })
     }

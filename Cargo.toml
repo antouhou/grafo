@@ -16,14 +16,13 @@ readme = "README.md"
 
 [dependencies]
 bytemuck = { version = "1.23", features = ["derive"] }
-wgpu = "25.0"
+wgpu = "30.0.2"
 ahash = "0.8"
 lyon = { version = "1.0"}
 easy-tree = { version = "0.7.1" }
 tracing = "0.1.44"
 lru = "0.15"
-naga = { version = "25.0", features = ["wgsl-in"] }
-softbuffer = "0.4.8"
+naga = { version = "30.0", features = ["wgsl-in"] }
 thiserror = "2.0.18"
 smallvec = "1.13"
 half = "2.4"
@@ -34,6 +33,7 @@ swash = { version = "0.2.10", optional = true }
 [dev-dependencies]
 criterion = "0.8"
 winit = "0.30"
+softbuffer = "0.4.8"
 env_logger = "0.11"
 futures = "0.3"
 image = "0.25"

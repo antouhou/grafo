@@ -46,11 +46,11 @@ fn create_mask_pipeline(
     });
     let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
         label: Some("shape_mask_pipeline_layout"),
-        bind_group_layouts: &[bind_group_layout],
-        push_constant_ranges: &[],
+        bind_group_layouts: &[Some(bind_group_layout)],
+        immediate_size: 0,
     });
 
-    let vertex_buffers = [CustomVertex::desc()];
+    let vertex_buffers = [Some(CustomVertex::desc())];
     device.create_render_pipeline(&RenderPipelineDescriptor {
         label: Some("shape_mask_pipeline"),
         layout: Some(&pipeline_layout),
@@ -87,7 +87,7 @@ fn create_mask_pipeline(
         primitive: PrimitiveState::default(),
         depth_stencil: None,
         multisample: MultisampleState::default(),
-        multiview: None,
+        multiview_mask: None,
         cache: None,
     })
 }

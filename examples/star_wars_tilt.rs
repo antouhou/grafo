@@ -53,10 +53,15 @@ impl ApplicationHandler for App {
 
         self.window = Some(window.clone());
 
-        let context = block_on(SceneContext::new());
-        let surface = Surface::new(&context, window.clone(), physical_size, true, false)
-            .expect("Failed to create surface");
-        let scene = Scene::new_with_context(context, physical_size, scale_factor, 1);
+        let (context, surface) = block_on(SceneContext::try_new_with_surface(
+            event_loop.owned_display_handle(),
+            window.clone(),
+            physical_size,
+            true,
+            false,
+        ))
+        .expect("create window rendering context and surface");
+        let scene = Scene::try_new(context, physical_size, scale_factor, 1).expect("create scene");
 
         self.scene = Some(scene);
         self.surface = Some(surface);
@@ -71,11 +76,18 @@ impl ApplicationHandler for App {
         event: WindowEvent,
     ) {
         match event {
+            WindowEvent::Occluded(false) => {
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
+            }
             WindowEvent::CloseRequested => {
                 event_loop.exit();
             }
             WindowEvent::RedrawRequested => {
-                if let (Some(scene), Some(surface)) = (&mut self.scene, &mut self.surface) {
+                if let (Some(window), Some(scene), Some(surface)) =
+                    (&self.window, &mut self.scene, &mut self.surface)
+                {
                     scene.clear();
                     let scale_factor = scene.scale_factor();
                     let (width, height) = surface.size();
@@ -210,7 +222,7 @@ impl ApplicationHandler for App {
                         )
                         .unwrap();
 
-                    window_rendering::render(scene, surface, event_loop);
+                    window_rendering::render(scene, surface, window, event_loop);
                 }
             }
             WindowEvent::Resized(new_size) => {

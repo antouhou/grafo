@@ -1,7 +1,7 @@
 use futures::executor::block_on;
 use grafo::PixmapMut;
 use grafo::Shape;
-use grafo::{Color, Scene, ShapeDrawOptions};
+use grafo::{Color, Scene, SceneContext, ShapeDrawOptions};
 use std::num::NonZeroU32;
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
@@ -33,7 +33,8 @@ impl ApplicationHandler for App {
         let scale_factor = window.scale_factor();
         let physical_size = (window_size.width, window_size.height);
 
-        let scene = block_on(Scene::new(physical_size, scale_factor, 1));
+        let context = block_on(SceneContext::try_new()).expect("create scene context");
+        let scene = Scene::try_new(context, physical_size, scale_factor, 1).expect("create scene");
 
         println!("\n=== Grafo + Softbuffer Hybrid Resize Test ===");
         println!("This renders with GPU to an offscreen texture,");

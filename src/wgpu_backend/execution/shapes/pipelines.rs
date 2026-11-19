@@ -123,10 +123,10 @@ impl ShapePipelineLayouts {
             _ => None,
         };
         let bind_group_layouts = [
-            &self.uniform,
-            &self.background_texture,
-            &self.foreground_texture,
-            material_layout.unwrap_or(&self.uniform),
+            Some(&self.uniform),
+            Some(self.background_texture.as_ref()),
+            Some(self.foreground_texture.as_ref()),
+            material_layout,
         ];
         let layout_count = if is_solid {
             1
@@ -138,7 +138,7 @@ impl ShapePipelineLayouts {
         device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("shape_pipeline_layout"),
             bind_group_layouts: &bind_group_layouts[..layout_count],
-            push_constant_ranges: &[],
+            immediate_size: 0,
         })
     }
 }
@@ -146,28 +146,28 @@ impl ShapePipelineLayouts {
 fn vertex_buffer_layouts(
     geometry_type: ShapeGeometryType,
     is_solid: bool,
-) -> SmallVec<[VertexBufferLayout<'static>; 4]> {
+) -> SmallVec<[Option<VertexBufferLayout<'static>>; 4]> {
     if geometry_type != ShapeGeometryType::Tessellated {
         return smallvec![
-            InstanceColor::desc(),
-            if is_solid {
+            Some(InstanceColor::desc()),
+            Some(if is_solid {
                 InstanceMetadata::coverage_desc()
             } else {
                 InstanceMetadata::desc()
-            },
+            }),
         ];
     }
     let mut layouts = smallvec![
-        if is_solid {
+        Some(if is_solid {
             CustomVertex::solid_desc()
         } else {
             CustomVertex::desc()
-        },
-        InstanceTransform::desc(),
-        InstanceColor::desc(),
+        }),
+        Some(InstanceTransform::desc()),
+        Some(InstanceColor::desc()),
     ];
     if !is_solid {
-        layouts.push(InstanceMetadata::desc());
+        layouts.push(Some(InstanceMetadata::desc()));
     }
     layouts
 }
@@ -232,7 +232,7 @@ impl ShapePipelineCompiler {
                     count: self.sample_count,
                     ..Default::default()
                 },
-                multiview: None,
+                multiview_mask: None,
                 cache: None,
             })
     }

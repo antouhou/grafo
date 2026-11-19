@@ -116,6 +116,7 @@ pub(crate) fn apply_effect_passes(
         let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some(config.label),
             color_attachments: &[Some(RenderPassColorAttachment {
+                depth_slice: None,
                 view: output_view,
                 resolve_target: None,
                 ops: Operations {
@@ -126,6 +127,7 @@ pub(crate) fn apply_effect_passes(
             depth_stencil_attachment: None,
             timestamp_writes: None,
             occlusion_query_set: None,
+            multiview_mask: None,
         });
 
         pass.set_pipeline(&effect_pass.pipeline);

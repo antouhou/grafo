@@ -62,9 +62,9 @@ pub use wgpu_backend::metrics::{PhaseTimings, PipelineSwitchCounts, ShapeMaskEff
 pub use wgpu_backend::texture_manager::WgpuTextureManager;
 pub use wgpu_backend::{
     BackendCreationError as SceneCreationError, EffectResourceError, EffectShaderError,
-    GeometryBufferError, ReadbackError, WgpuBackend, WgpuBackendError,
+    GeometryBufferError, ReadbackError, SurfaceError, WgpuBackend, WgpuBackendError,
 };
-use wgpu_backend::{WgpuContext, WgpuSurface};
+use wgpu_backend::{WgpuContext, WgpuSurfaceState};
 
 pub mod commands;
 pub mod core;
@@ -80,7 +80,7 @@ mod wgpu_scene;
 /// A retained scene of shapes, clipping rectangles, and effects, using WGPU by default.
 pub type Scene<B = WgpuBackend> = scene::Scene<B>;
 /// A platform surface with size and vsync settings, using WGPU by default.
-pub type Surface<Resource = WgpuSurface> = render_backend::render_target::Surface<Resource>;
+pub type Surface<Resource = WgpuSurfaceState> = render_backend::render_target::Surface<Resource>;
 /// Shared CPU shape storage and backend context, using WGPU by default.
 pub type SceneContext<C = Arc<WgpuContext>> = scene::SceneContext<C>;
 /// Scene mutation or backend resource preparation failed.

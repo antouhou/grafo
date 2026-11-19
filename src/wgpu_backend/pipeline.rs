@@ -116,8 +116,8 @@ pub fn create_uniform_bind_group_layout(device: &Device) -> BindGroupLayout {
 pub fn create_equal_increment_depth_state() -> wgpu::DepthStencilState {
     wgpu::DepthStencilState {
         format: wgpu::TextureFormat::Depth24PlusStencil8,
-        depth_write_enabled: false,
-        depth_compare: wgpu::CompareFunction::Always,
+        depth_write_enabled: Some(false),
+        depth_compare: Some(wgpu::CompareFunction::Always),
         stencil: create_equal_increment_stencil_state(),
         bias: wgpu::DepthBiasState::default(),
     }
@@ -126,8 +126,8 @@ pub fn create_equal_increment_depth_state() -> wgpu::DepthStencilState {
 pub fn create_equal_decrement_depth_state() -> wgpu::DepthStencilState {
     wgpu::DepthStencilState {
         format: wgpu::TextureFormat::Depth24PlusStencil8,
-        depth_write_enabled: false,
-        depth_compare: wgpu::CompareFunction::Always,
+        depth_write_enabled: Some(false),
+        depth_compare: Some(wgpu::CompareFunction::Always),
         stencil: create_equal_decrement_stencil_state(),
         bias: wgpu::DepthBiasState::default(),
     }
@@ -142,8 +142,8 @@ pub(in crate::wgpu_backend) fn create_equal_keep_depth_state() -> wgpu::DepthSte
     };
     wgpu::DepthStencilState {
         format: wgpu::TextureFormat::Depth24PlusStencil8,
-        depth_write_enabled: false,
-        depth_compare: wgpu::CompareFunction::Always,
+        depth_write_enabled: Some(false),
+        depth_compare: Some(wgpu::CompareFunction::Always),
         stencil: wgpu::StencilState {
             front: stencil_face,
             back: stencil_face,
@@ -383,8 +383,8 @@ pub fn create_argb_row_packing_pipeline(device: &Device) -> (BindGroupLayout, Co
 
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("argb_row_packing_pl"),
-        bind_group_layouts: &[&bgl],
-        push_constant_ranges: &[],
+        bind_group_layouts: &[Some(&bgl)],
+        immediate_size: 0,
     });
 
     let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {

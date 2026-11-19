@@ -7,15 +7,16 @@
 
 use criterion::{criterion_group, criterion_main, Criterion};
 use futures::executor::block_on;
-use grafo::{PixelFormat, Pixmap, PixmapMut, Scene};
+use grafo::{PixelFormat, Pixmap, PixmapMut, Scene, SceneContext};
 use grafo_test_scenes::{
     build_main_scene, check_pixels, PixelExpectation, CANVAS_HEIGHT, CANVAS_WIDTH,
 };
 use std::hint::black_box;
 
 fn create_scene() -> Scene {
-    block_on(Scene::try_new((CANVAS_WIDTH, CANVAS_HEIGHT), 1.0, 1))
-        .expect("visual-regression benchmark requires a GPU adapter")
+    let context = block_on(SceneContext::try_new())
+        .expect("visual-regression benchmark requires a GPU adapter");
+    Scene::try_new(context, (CANVAS_WIDTH, CANVAS_HEIGHT), 1.0, 1).expect("create benchmark scene")
 }
 
 fn validate_scene(pixel_buffer: &[u8], expectations: &[PixelExpectation]) {
