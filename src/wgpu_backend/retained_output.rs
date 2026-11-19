@@ -63,6 +63,16 @@ impl OutputColorFormat {
             alpha_mode: CompositeAlphaMode::Opaque,
         }
     }
+
+    fn needs_sdr_clamp(self) -> bool {
+        // UNORM clips on write. Premultiplied sRGB needs to clip before multiplying by alpha.
+        let clips_on_write = matches!(
+            self.texture_format.remove_srgb_suffix(),
+            TextureFormat::Rgba8Unorm | TextureFormat::Bgra8Unorm | TextureFormat::Rgb10a2Unorm
+        );
+        self.color_space == SurfaceColorSpace::Srgb
+            && (!clips_on_write || self.alpha_mode == CompositeAlphaMode::PreMultiplied)
+    }
 }
 
 fn create_output_pipeline(
@@ -94,10 +104,7 @@ fn create_output_pipeline(
                             output_format.color_space == SurfaceColorSpace::ExtendedSrgbLinear,
                         ),
                     ),
-                    (
-                        "clamp_to_sdr",
-                        f64::from(output_format.color_space == SurfaceColorSpace::Srgb),
-                    ),
+                    ("clamp_to_sdr", f64::from(output_format.needs_sdr_clamp())),
                     (
                         "attachment_is_srgb",
                         f64::from(output_format.texture_format.is_srgb()),
