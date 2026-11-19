@@ -57,7 +57,7 @@ impl ApplicationHandler for App {
         let scale_factor = window.scale_factor();
         let physical_size = (window_size.width, window_size.height);
 
-        let (context, surface) = block_on(SceneContext::try_new(
+        let (context, surface) = block_on(SceneContext::try_new_with_surface(
             event_loop.owned_display_handle(),
             window.clone(),
             physical_size,
@@ -65,7 +65,7 @@ impl ApplicationHandler for App {
             false,
         ))
         .expect("create window rendering context and surface");
-        let scene = Scene::new_with_context(context, physical_size, scale_factor, 1);
+        let scene = Scene::try_new(context, physical_size, scale_factor, 1).expect("create scene");
         scene.texture_manager().allocate_texture_with_data(
             RUST_LOGO_TEXTURE_ID,
             self.rust_logo_png_dimensions,

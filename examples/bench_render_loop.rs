@@ -483,7 +483,7 @@ impl ApplicationHandler for BenchApp {
         let physical_size = (BENCH_WIDTH, BENCH_HEIGHT);
         let scale_factor = window.scale_factor();
 
-        let (context, surface) = block_on(SceneContext::try_new(
+        let (context, surface) = block_on(SceneContext::try_new_with_surface(
             event_loop.owned_display_handle(),
             window.clone(),
             physical_size,
@@ -491,7 +491,8 @@ impl ApplicationHandler for BenchApp {
             false,
         ))
         .expect("create window rendering context and surface");
-        let mut scene = Scene::new_with_context(context, physical_size, scale_factor, 1);
+        let mut scene =
+            Scene::try_new(context, physical_size, scale_factor, 1).expect("create scene");
 
         load_shape_geometries(&mut scene);
         load_textures_and_shapes(&mut scene);

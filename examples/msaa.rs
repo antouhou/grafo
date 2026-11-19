@@ -45,7 +45,7 @@ impl ApplicationHandler for App {
 
         let msaa_samples = if self.msaa_enabled { 4 } else { 1 };
 
-        let (context, surface) = block_on(SceneContext::try_new(
+        let (context, surface) = block_on(SceneContext::try_new_with_surface(
             event_loop.owned_display_handle(),
             window.clone(),
             physical_size,
@@ -53,7 +53,8 @@ impl ApplicationHandler for App {
             false,
         ))
         .expect("create window rendering context and surface");
-        let scene = Scene::new_with_context(context, physical_size, scale_factor, msaa_samples);
+        let scene = Scene::try_new(context, physical_size, scale_factor, msaa_samples)
+            .expect("create scene");
 
         self.window = Some(window);
         self.scene = Some(scene);

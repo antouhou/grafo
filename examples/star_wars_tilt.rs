@@ -53,7 +53,7 @@ impl ApplicationHandler for App {
 
         self.window = Some(window.clone());
 
-        let (context, surface) = block_on(SceneContext::try_new(
+        let (context, surface) = block_on(SceneContext::try_new_with_surface(
             event_loop.owned_display_handle(),
             window.clone(),
             physical_size,
@@ -61,7 +61,7 @@ impl ApplicationHandler for App {
             false,
         ))
         .expect("create window rendering context and surface");
-        let scene = Scene::new_with_context(context, physical_size, scale_factor, 1);
+        let scene = Scene::try_new(context, physical_size, scale_factor, 1).expect("create scene");
 
         self.scene = Some(scene);
         self.surface = Some(surface);

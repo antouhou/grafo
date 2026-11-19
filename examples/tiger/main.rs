@@ -177,14 +177,14 @@ impl TigerWindow {
         let scale_factor = window.scale_factor();
         let physical_size = (size.width, size.height);
         let viewport = logical_size(size, scale_factor);
-        let (context, surface) = block_on(SceneContext::try_new(
+        let (context, surface) = block_on(SceneContext::try_new_with_surface(
             event_loop.owned_display_handle(),
             window.clone(),
             physical_size,
             false,
             false,
         ))?;
-        let mut scene = Scene::try_new_with_context(context, physical_size, scale_factor, 1)?;
+        let mut scene = Scene::try_new(context, physical_size, scale_factor, 1)?;
         scene.load_shape(
             Shape::rect([(0.0, 0.0), (1.0, 1.0)]),
             BACKGROUND_CACHE_KEY,

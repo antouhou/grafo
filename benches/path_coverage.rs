@@ -1,7 +1,8 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use futures::executor::block_on;
 use grafo::{
-    BorderRadii, Color, PixelFormat, Pixmap, Scene, Shape, ShapeDrawOptions, TransformInstance,
+    BorderRadii, Color, PixelFormat, Pixmap, Scene, SceneContext, Shape, ShapeDrawOptions,
+    TransformInstance,
 };
 
 #[derive(Clone, Copy)]
@@ -114,8 +115,10 @@ fn benchmark_paths(criterion: &mut Criterion) {
     let mut group = criterion.benchmark_group("path_coverage_with_readback");
     group.sample_size(20);
     for workload in workloads {
-        let mut scene = block_on(Scene::try_new(workload.size, 1.0, 1))
-            .expect("path benchmark requires a GPU adapter");
+        let context =
+            block_on(SceneContext::try_new()).expect("path benchmark requires a GPU adapter");
+        let mut scene =
+            Scene::try_new(context, workload.size, 1.0, 1).expect("create benchmark scene");
         let geometry_count = if workload.should_use_distinct_geometry {
             workload.count
         } else {
