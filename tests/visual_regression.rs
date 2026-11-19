@@ -3,12 +3,12 @@
 
 use futures::executor::block_on;
 use grafo::{
-    BackdropCaptureArea, BackdropEffectConfig, BlendMode, BorderRadii, Color, ColorInterpolation,
-    ContentEffectConfig, DrawCommandError, EffectError, EffectResourceError, Fill, Gradient,
-    GradientStop, GradientStopOffset, LinearGradientDesc, LinearGradientLine, PixelFormat,
-    PixelLayout, Pixmap, PixmapMut, Scene, SceneContext, SceneCreationError, SceneError, Shape,
-    ShapeDrawOptions, ShapeMaskEffectConfig, ShapeTextureFitMode, ShapeTextureOptions,
-    TextureManager, TransformInstance, WgpuBackendError,
+    AlphaMode, BackdropCaptureArea, BackdropEffectConfig, BlendMode, BorderRadii, Color,
+    ColorInterpolation, ContentEffectConfig, DrawCommandError, EffectError, EffectResourceError,
+    Fill, Gradient, GradientStop, GradientStopOffset, LinearGradientDesc, LinearGradientLine,
+    PixelFormat, PixelLayout, Pixmap, PixmapMut, Scene, SceneContext, SceneCreationError,
+    SceneError, Shape, ShapeDrawOptions, ShapeMaskEffectConfig, ShapeTextureFitMode,
+    ShapeTextureOptions, TextureManager, TexturePixels, TransformInstance, WgpuBackendError,
 };
 use grafo_test_scenes::shaders::{PASSTHROUGH_WGSL, SHAPE_DROP_WGSL};
 use grafo_test_scenes::{
@@ -1228,7 +1228,11 @@ fn texture_mutations_redraw_retained_layers_and_backdrop_captures() {
                 }
                 TextureMutation::Upload(data) => {
                     manager
-                        .load_data_into_texture(texture_id, (1, 1), &data)
+                        .load_data_into_texture(
+                            texture_id,
+                            (0, 0),
+                            TexturePixels::rgba8_srgb(&data, (1, 1), AlphaMode::Opaque),
+                        )
                         .unwrap();
                 }
                 TextureMutation::Remove => manager.remove_texture(texture_id),

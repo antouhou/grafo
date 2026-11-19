@@ -49,8 +49,10 @@ pub use lyon;
 pub use render_backend::render_target::{
     PixelFormat, PixelLayout, Pixmap, PixmapMut, RenderTarget, RenderTargetError,
 };
-pub use render_backend::texture_manager::TextureManager;
-pub use render_backend::{RenderBackend, RenderContext};
+pub use render_backend::texture_manager::{
+    AlphaMode, RgbEncoding, TextureManager, TexturePixelFormat, TexturePixels, TextureStorageFormat,
+};
+pub use render_backend::{PixelBufferError, RenderBackend, RenderContext};
 pub use scene_state::SceneError;
 use std::sync::Arc;
 #[cfg(feature = "cosmic-text")]

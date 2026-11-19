@@ -1,5 +1,6 @@
 use futures::executor::block_on;
-use grafo::{BorderRadii, Scene, Shape, TextureManager};
+use grafo::core::color;
+use grafo::{AlphaMode, BorderRadii, Scene, Shape, TextureManager, TexturePixels};
 use grafo::{Color, ShapeDrawOptions};
 use grafo::{SceneContext, Surface};
 use image::ImageReader;
@@ -36,7 +37,8 @@ impl Default for App {
             rust_logo_png_dimensions.0 as f32,
             rust_logo_png_dimensions.1 as f32,
         );
-        let rust_logo_png_bytes = rust_logo_rgba.to_vec();
+        let mut rust_logo_png_bytes = rust_logo_rgba.to_vec();
+        color::premultiply_rgba8_srgb_inplace(&mut rust_logo_png_bytes);
 
         Self {
             window: None,
@@ -195,8 +197,12 @@ impl ApplicationHandler for App {
                     .texture_manager()
                     .load_data_into_texture(
                         texture_id,
-                        self.rust_logo_png_dimensions,
-                        &self.rust_logo_png_bytes,
+                        (0, 0),
+                        TexturePixels::rgba8_srgb(
+                            &self.rust_logo_png_bytes,
+                            self.rust_logo_png_dimensions,
+                            AlphaMode::PremultipliedInLinearSpace,
+                        ),
                     )
                     .unwrap();
                 let img_rect1 = Shape::rect([

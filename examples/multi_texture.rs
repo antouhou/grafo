@@ -1,6 +1,7 @@
 //! Composites a background texture and a foreground texture on one shape.
 //! Run with `cargo run --example multi_texture`.
 
+use grafo::core::color;
 use grafo::{Color, Scene, Shape, ShapeDrawOptions, TextureManager};
 use grafo::{SceneContext, Surface};
 use std::sync::Arc;
@@ -92,6 +93,7 @@ impl ApplicationHandler for App {
                 }
             }
         }
+        color::premultiply_rgba8_srgb_inplace(&mut fg);
         tex_mgr.allocate_texture_with_data(self.fg_tex_id, (w, h), &fg);
 
         scene

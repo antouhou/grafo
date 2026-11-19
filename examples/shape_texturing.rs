@@ -1,4 +1,5 @@
 use futures::executor::block_on;
+use grafo::core::color;
 use grafo::{BorderRadii, Scene, Shape, TextureManager};
 use grafo::{Color, ShapeDrawOptions};
 use grafo::{SceneContext, Surface};
@@ -33,7 +34,8 @@ impl Default for App {
             .unwrap();
         let rust_logo_rgba = rust_logo_png.as_rgba8().unwrap();
         let rust_logo_png_dimensions = rust_logo_rgba.dimensions();
-        let rust_logo_png_bytes = rust_logo_rgba.to_vec();
+        let mut rust_logo_png_bytes = rust_logo_rgba.to_vec();
+        color::premultiply_rgba8_srgb_inplace(&mut rust_logo_png_bytes);
 
         Self {
             window: None,

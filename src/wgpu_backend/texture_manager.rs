@@ -1,5 +1,7 @@
 use super::WgpuBackendError;
-use crate::render_backend::texture_manager::{TextureManager, TextureUpdatePublisher};
+use crate::render_backend::texture_manager::{
+    TextureManager, TexturePixels, TextureStorageFormat, TextureUpdatePublisher,
+};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use wgpu::MipmapFilterMode;
@@ -18,8 +20,8 @@ pub enum TextureManagerError {
 /// # Examples
 ///
 /// ```rust,no_run
-/// use grafo::{core::color, Scene, TextureManager};
-/// # fn example(scene: &Scene) {
+/// use grafo::{core::color, AlphaMode, Scene, TextureManager, TexturePixels, WgpuBackendError};
+/// # fn example(scene: &Scene) -> Result<(), WgpuBackendError> {
 /// let texture_manager = scene.texture_manager();
 /// let texture_id = 42;
 /// let texture_dimensions = (256, 256);
@@ -29,8 +31,10 @@ pub enum TextureManagerError {
 ///
 /// data.fill(128);
 /// color::premultiply_rgba8_srgb_inplace(&mut data);
-/// texture_manager.load_data_into_texture(texture_id, texture_dimensions, &data).unwrap();
+/// let pixels = TexturePixels::rgba8_srgb(&data, texture_dimensions, AlphaMode::PremultipliedInLinearSpace);
+/// texture_manager.load_data_into_texture(texture_id, (0, 0), pixels)?;
 /// assert!(texture_manager.is_texture_loaded(texture_id));
+/// # Ok(())
 /// # }
 /// ```
 #[derive(Clone)]
@@ -229,26 +233,31 @@ impl TextureManager for WgpuTextureManager {
         bind_group_cache.clear();
     }
 
-    fn allocate_texture(&self, texture_id: u64, texture_dimensions: (u32, u32)) {
-        self.insert_texture(texture_id, self.create_texture(texture_dimensions));
-    }
-
-    fn allocate_texture_with_data(
+    fn allocate_texture_with_format(
         &self,
         texture_id: u64,
         texture_dimensions: (u32, u32),
-        texture_data: &[u8],
+        _storage: TextureStorageFormat,
     ) {
-        let texture = self.create_texture(texture_dimensions);
-        self.write_pixels_to_texture(&texture, texture_dimensions, texture.size(), texture_data);
+        self.insert_texture(texture_id, self.create_texture(texture_dimensions));
+    }
+
+    fn allocate_texture_with_pixels(
+        &self,
+        texture_id: u64,
+        _storage: TextureStorageFormat,
+        pixels: TexturePixels<'_>,
+    ) {
+        let texture = self.create_texture(pixels.size);
+        self.write_pixels_to_texture(&texture, pixels.size, texture.size(), pixels.bytes);
         self.insert_texture(texture_id, texture);
     }
 
     fn load_data_into_texture(
         &self,
         texture_id: u64,
-        texture_dimensions: (u32, u32),
-        texture_data: &[u8],
+        _origin: (u32, u32),
+        pixels: TexturePixels<'_>,
     ) -> Result<(), Self::Error> {
         let texture_storage = self.texture_storage.read().unwrap();
         let texture = texture_storage
@@ -256,12 +265,12 @@ impl TextureManager for WgpuTextureManager {
             .ok_or(TextureManagerError::TextureNotFound(texture_id))?;
 
         let texture_extent = wgpu::Extent3d {
-            width: texture_dimensions.0,
-            height: texture_dimensions.1,
+            width: pixels.size.0,
+            height: pixels.size.1,
             depth_or_array_layers: 1,
         };
 
-        self.write_pixels_to_texture(texture, texture_dimensions, texture_extent, texture_data);
+        self.write_pixels_to_texture(texture, pixels.size, texture_extent, pixels.bytes);
         self.updates.publish(texture_id);
 
         Ok(())

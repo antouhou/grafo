@@ -10,7 +10,10 @@
 //! cargo run --example bench_render_loop --features render_metrics --release
 //! ```
 use futures::executor::block_on;
-use grafo::{Color, Scene, Shape, ShapeDrawOptions, TextureManager, TransformInstance};
+use grafo::{
+    AlphaMode, Color, Scene, Shape, ShapeDrawOptions, TextureManager, TexturePixels,
+    TransformInstance,
+};
 use grafo::{SceneContext, Surface};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -76,7 +79,11 @@ fn load_textures_and_shapes(scene: &mut Scene) {
             .allocate_texture(tex_id, (tex_w, tex_h));
         scene
             .texture_manager()
-            .load_data_into_texture(tex_id, (tex_w, tex_h), &rgba)
+            .load_data_into_texture(
+                tex_id,
+                (0, 0),
+                TexturePixels::rgba8_srgb(&rgba, (tex_w, tex_h), AlphaMode::Opaque),
+            )
             .unwrap();
     }
 

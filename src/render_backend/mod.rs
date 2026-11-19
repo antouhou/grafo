@@ -3,9 +3,11 @@
 use crate::commands::{RenderCommand, ShapeDrawId};
 use crate::core::{ShapeInstance, Viewport};
 use crate::UnsignedPhysicalRect;
+pub use pixel_buffer::PixelBufferError;
 use render_target::{RenderTarget, RenderTargetError};
 use texture_manager::TextureManager;
 
+mod pixel_buffer;
 pub mod render_target;
 pub mod texture_manager;
 

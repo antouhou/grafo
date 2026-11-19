@@ -1,5 +1,6 @@
 //! Surface and pixmap render targets.
 
+use super::PixelBufferError;
 pub use pixels::{PixelFormat, PixelLayout, Pixmap, PixmapMut};
 use thiserror::Error;
 
@@ -18,6 +19,20 @@ pub enum RenderTargetError {
     SizeLimit { size: (u32, u32), maximum: u32 },
     #[error("The surface belongs to an incompatible backend device")]
     IncompatibleSurface,
+}
+
+impl From<PixelBufferError> for RenderTargetError {
+    fn from(error: PixelBufferError) -> Self {
+        match error {
+            PixelBufferError::InvalidSize => Self::InvalidSize,
+            PixelBufferError::InvalidStride { required, provided } => {
+                Self::InvalidStride { required, provided }
+            }
+            PixelBufferError::StorageTooSmall { required, provided } => {
+                Self::StorageTooSmall { required, provided }
+            }
+        }
+    }
 }
 
 /// A platform surface with its size and vsync settings.
