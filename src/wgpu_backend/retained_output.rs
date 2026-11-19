@@ -1,4 +1,5 @@
 use super::execution::targets::{self, RegionClear};
+use super::BackendCreationError;
 use crate::core::UnsignedPhysicalRect;
 use wgpu::{
     Backend, BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout,
@@ -7,24 +8,37 @@ use wgpu::{
     DepthStencilState, Device, Extent3d, FragmentState, LoadOp, MultisampleState, Operations,
     PipelineCompilationOptions, PipelineLayout, PipelineLayoutDescriptor,
     RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline, RenderPipelineDescriptor,
-    ShaderModule, ShaderModuleDescriptor, ShaderSource, ShaderStages, StoreOp, Texture,
-    TextureDescriptor, TextureDimension, TextureFormat, TextureSampleType, TextureUsages,
-    TextureView, TextureViewDescriptor, TextureViewDimension, VertexState,
+    ShaderModule, ShaderModuleDescriptor, ShaderSource, ShaderStages, StoreOp, SurfaceColorSpace,
+    SurfaceConfiguration, Texture, TextureDescriptor, TextureDimension, TextureFormat,
+    TextureSampleType, TextureUsages, TextureView, TextureViewDescriptor, TextureViewDimension,
+    VertexState,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct OutputColorFormat {
     pub(super) texture_format: TextureFormat,
+    color_space: SurfaceColorSpace,
     alpha_mode: CompositeAlphaMode,
 }
 
 impl OutputColorFormat {
     pub fn for_surface(
-        texture_format: TextureFormat,
-        alpha_mode: CompositeAlphaMode,
+        configuration: &SurfaceConfiguration,
         backend: Backend,
-    ) -> Self {
-        let alpha_mode = match (backend, alpha_mode) {
+    ) -> Result<Self, BackendCreationError> {
+        let supported = match configuration.color_space {
+            SurfaceColorSpace::Srgb => true,
+            // Extended sRGB needs to store negative and above-white RGB values.
+            SurfaceColorSpace::ExtendedSrgbLinear | SurfaceColorSpace::ExtendedSrgb => matches!(
+                configuration.format,
+                TextureFormat::Rgba16Float | TextureFormat::Rgba32Float
+            ),
+            _ => false,
+        };
+        if !supported {
+            return Err(BackendCreationError::UnsupportedSurface);
+        }
+        let alpha_mode = match (backend, configuration.alpha_mode) {
             // wgpu 30.0.2 advertises PostMultiplied for nonopaque CAMetalLayers.
             (Backend::Metal, CompositeAlphaMode::PostMultiplied) => {
                 CompositeAlphaMode::PreMultiplied
@@ -35,15 +49,17 @@ impl OutputColorFormat {
             ) => mode,
             _ => CompositeAlphaMode::Opaque,
         };
-        Self {
-            texture_format,
+        Ok(Self {
+            texture_format: configuration.format,
+            color_space: configuration.color_space,
             alpha_mode,
-        }
+        })
     }
 
     pub fn opaque(texture_format: TextureFormat) -> Self {
         Self {
             texture_format,
+            color_space: SurfaceColorSpace::Srgb,
             alpha_mode: CompositeAlphaMode::Opaque,
         }
     }
@@ -73,8 +89,18 @@ fn create_output_pipeline(
             compilation_options: PipelineCompilationOptions {
                 constants: &[
                     (
-                        "encode_srgb",
-                        f64::from(!output_format.texture_format.is_srgb()),
+                        "linear_output",
+                        f64::from(
+                            output_format.color_space == SurfaceColorSpace::ExtendedSrgbLinear,
+                        ),
+                    ),
+                    (
+                        "clamp_to_sdr",
+                        f64::from(output_format.color_space == SurfaceColorSpace::Srgb),
+                    ),
+                    (
+                        "attachment_is_srgb",
+                        f64::from(output_format.texture_format.is_srgb()),
                     ),
                     (
                         "straight_alpha",
@@ -215,7 +241,7 @@ impl RetainedOutput {
     }
 }
 
-/// Pipelines for the format and alpha mode of one window surface.
+/// Presentation pipelines for one window surface configuration.
 pub(super) struct SurfacePresentation {
     present_pipeline: RenderPipeline,
     dirty_region_overlay_pipeline: RenderPipeline,
