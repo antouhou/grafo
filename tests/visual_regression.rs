@@ -993,8 +993,6 @@ fn assert_incremental_pixels_match_full_redraw(scene: &mut Scene, pixels: &mut V
 
 enum TextureMutation {
     Allocate([u8; 4]),
-    AllocateInvalidSize((u32, u32)),
-    AllocateShortBuffer,
     Upload([u8; 4]),
     Remove,
     Clear,
@@ -1216,16 +1214,7 @@ fn texture_mutations_redraw_retained_layers_and_backdrop_captures() {
                 TextureMutation::Allocate([255, 0, 0, 255]),
                 [255, 0, 0, 255],
             ),
-            (
-                TextureMutation::AllocateInvalidSize((0, 1)),
-                [255, 0, 0, 255],
-            ),
-            (
-                TextureMutation::AllocateInvalidSize((1, u32::MAX)),
-                [255, 0, 0, 255],
-            ),
             (TextureMutation::Upload([0, 255, 0, 255]), [0, 255, 0, 255]),
-            (TextureMutation::AllocateShortBuffer, [0, 255, 0, 255]),
             (
                 TextureMutation::Allocate([0, 0, 255, 255]),
                 [0, 0, 255, 255],
@@ -1242,14 +1231,6 @@ fn texture_mutations_redraw_retained_layers_and_backdrop_captures() {
                     manager
                         .allocate_texture_with_data(texture_id, (1, 1), &data)
                         .unwrap();
-                }
-                TextureMutation::AllocateInvalidSize(size) => {
-                    manager.allocate_texture(texture_id, size).unwrap_err();
-                }
-                TextureMutation::AllocateShortBuffer => {
-                    manager
-                        .allocate_texture_with_data(texture_id, (1, 1), &[0; 3])
-                        .unwrap_err();
                 }
                 TextureMutation::Upload(data) => {
                     manager

@@ -161,7 +161,7 @@ impl<'a> TextureUpload<'a> {
             .ok_or(PixelBufferError::InvalidSize)?;
         let byte_len = (bytes_per_row as usize)
             .checked_mul(height as usize)
-            .filter(|&len| len <= isize::MAX as usize)
+            .filter(|&length| length <= isize::MAX as usize)
             .ok_or(PixelBufferError::InvalidSize)?;
         let mut bytes = Vec::with_capacity(byte_len);
         for row in source.chunks(stride) {

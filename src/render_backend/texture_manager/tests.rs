@@ -4,7 +4,7 @@ use std::sync::{Arc, Barrier};
 use std::thread;
 
 #[test]
-fn strided_float_pixels_end_at_the_last_pixel_of_the_crop() {
+fn strided_float_pixels_validate_crop_boundaries_and_reject_invalid_layouts() {
     let bytes = [0; 96];
     let crop = TexturePixels {
         bytes: &bytes[12..84],
@@ -15,6 +15,12 @@ fn strided_float_pixels_end_at_the_last_pixel_of_the_crop() {
         alpha: AlphaMode::Opaque,
     };
     assert_eq!(crop.validated_bytes(), Ok(&bytes[12..84]));
+    for size in [(0, 2), (2, 0)] {
+        assert_eq!(
+            TexturePixels { size, ..crop }.validated_bytes(),
+            Err(PixelBufferError::InvalidSize),
+        );
+    }
     assert_eq!(
         TexturePixels {
             bytes: &crop.bytes[..71],

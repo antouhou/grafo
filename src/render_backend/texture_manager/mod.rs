@@ -14,6 +14,22 @@ pub trait TextureManager {
     /// Removes all textures and their cached bindings.
     fn clear(&self);
 
+    /// Allocates a texture of the given size and storage format, replacing the entry at this ID.
+    fn allocate_texture_with_format(
+        &self,
+        texture_id: u64,
+        size: (u32, u32),
+        storage: TextureStorageFormat,
+    ) -> Result<(), Self::Error>;
+
+    /// Allocates a texture the size of `pixels` and initializes it, replacing the entry at this ID.
+    fn allocate_texture_with_pixels(
+        &self,
+        texture_id: u64,
+        storage: TextureStorageFormat,
+        pixels: TexturePixels<'_>,
+    ) -> Result<(), Self::Error>;
+
     /// Allocates an RGBA8 sRGB texture, replacing the entry at this ID.
     fn allocate_texture(&self, texture_id: u64, size: (u32, u32)) -> Result<(), Self::Error> {
         self.allocate_texture_with_format(texture_id, size, TextureStorageFormat::Rgba8Srgb)
@@ -31,22 +47,6 @@ pub trait TextureManager {
         let pixels = TexturePixels::rgba8_srgb(bytes, size, AlphaMode::PremultipliedInLinearSpace);
         self.allocate_texture_with_pixels(texture_id, TextureStorageFormat::Rgba8Srgb, pixels)
     }
-
-    /// Allocates a texture of the given size and storage format, replacing the entry at this ID.
-    fn allocate_texture_with_format(
-        &self,
-        texture_id: u64,
-        size: (u32, u32),
-        storage: TextureStorageFormat,
-    ) -> Result<(), Self::Error>;
-
-    /// Allocates a texture the size of `pixels` and initializes it, replacing the entry at this ID.
-    fn allocate_texture_with_pixels(
-        &self,
-        texture_id: u64,
-        storage: TextureStorageFormat,
-        pixels: TexturePixels<'_>,
-    ) -> Result<(), Self::Error>;
 
     /// Writes `pixels` at the given top-left destination in pixel coordinates.
     /// The rectangle must fit inside the allocated texture.
