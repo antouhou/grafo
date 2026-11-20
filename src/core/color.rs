@@ -16,9 +16,9 @@ pub(super) enum CylindricalColorSpace {
     Hwb,
 }
 
-// CSS Color 4's extended transfer function, kept wide until after alpha multiplication.
+/// Converts an extended sRGB channel to linear sRGB in double precision.
 // https://www.w3.org/TR/2026/CRD-css-color-4-20261112/#color-conversion-code
-pub(crate) fn srgb_to_linear_f64(value: f64) -> f64 {
+pub fn srgb_to_linear_f64(value: f64) -> f64 {
     if value.abs() <= 0.04045 {
         value / 12.92
     } else {
@@ -68,7 +68,8 @@ fn srgb_u8_to_linear(value: u8) -> f32 {
     srgb_to_linear(f32::from(value) / 255.0)
 }
 
-fn normalized_channel_to_u8(value: f32) -> u8 {
+/// Clamps a normalized channel to `[0, 1]` and rounds it to the nearest byte value.
+pub fn normalized_channel_to_u8(value: f32) -> u8 {
     // CSS Color 4 preserves authored precision until nearest-integer rounding.
     // f64 holds the exact product of an f32 channel and 255, avoiding artificial ties.
     // https://www.w3.org/TR/2026/CRD-css-color-4-20261112/#rgb-functions

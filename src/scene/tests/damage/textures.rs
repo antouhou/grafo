@@ -4,8 +4,13 @@ use crate::core::{
     BackdropCaptureArea, BackdropEffectConfig, Shape, ShapeDrawOptions, UnsignedPhysicalRect,
 };
 use crate::render_backend::render_target::Surface;
-use crate::render_backend::texture_manager::TextureManager;
+use crate::render_backend::texture_manager::{AlphaMode, TextureManager, TexturePixels};
 use crate::scene_state::SceneStateContext;
+
+const WHITE_PIXEL: TexturePixels<'static> =
+    TexturePixels::rgba8_srgb(&[255; 4], (1, 1), AlphaMode::Opaque);
+const TRANSPARENT_PIXEL: TexturePixels<'static> =
+    TexturePixels::rgba8_srgb(&[0; 4], (1, 1), AlphaMode::PremultipliedInLinearSpace);
 
 fn scene(texture_manager: TestTextureManager) -> (Scene<TestBackend>, Surface<TestSurface>) {
     let size = (128, 96);
@@ -56,19 +61,33 @@ fn rect(min: (u32, u32), max: (u32, u32)) -> Option<UnsignedPhysicalRect> {
 fn texture_mutations_damage_current_users_and_survive_failed_rendering() {
     let manager = TestTextureManager::default();
     let (mut scene, mut surface) = scene(manager.clone());
-    manager.allocate_texture_with_data(11, (1, 1), &[255; 4]);
-    manager.allocate_texture(12, (1, 1));
+    manager
+        .allocate_texture_with_data(11, (1, 1), &[255; 4])
+        .unwrap();
+    manager.allocate_texture(12, (1, 1)).unwrap();
     scene.render(&mut surface).unwrap();
 
-    manager.allocate_texture_with_data(11, (1, 1), &[0; 4]);
-    manager.allocate_texture_with_data(11, (1, 1), &[255; 4]);
+    manager
+        .allocate_texture_with_data(11, (1, 1), &[0; 4])
+        .unwrap();
+    manager
+        .allocate_texture_with_data(11, (1, 1), &[255; 4])
+        .unwrap();
     scene.render(&mut surface).unwrap();
     assert_eq!(scene.backend.root_scissor, rect((8, 8), (48, 24)));
+    assert!(manager.allocate_texture(12, (1, 0)).is_err());
+    assert!(manager
+        .allocate_texture_with_data(11, (1, 1), &[0; 3])
+        .is_err());
     scene.render(&mut surface).unwrap();
     assert_eq!(scene.backend.root_scissor, None);
 
-    manager.load_data_into_texture(11, (1, 1), &[0; 4]).unwrap();
-    manager.load_data_into_texture(12, (1, 1), &[0; 4]).unwrap();
+    manager
+        .load_data_into_texture(11, (0, 0), TRANSPARENT_PIXEL)
+        .unwrap();
+    manager
+        .load_data_into_texture(12, (0, 0), TRANSPARENT_PIXEL)
+        .unwrap();
     scene.backend.should_fail = true;
     assert!(scene.render(&mut surface).is_err());
     assert_eq!(scene.dirty_bounds, rect((8, 8), (108, 72)));
@@ -79,13 +98,15 @@ fn texture_mutations_damage_current_users_and_survive_failed_rendering() {
     manager.remove_texture(11);
     scene.render(&mut surface).unwrap();
     assert_eq!(scene.backend.root_scissor, rect((8, 8), (48, 24)));
-    assert!(manager.load_data_into_texture(11, (1, 1), &[0; 4]).is_err());
+    assert!(manager
+        .load_data_into_texture(11, (0, 0), TRANSPARENT_PIXEL)
+        .is_err());
     manager.remove_texture(11);
-    manager.allocate_texture(99, (1, 1));
+    manager.allocate_texture(99, (1, 1)).unwrap();
     scene.render(&mut surface).unwrap();
     assert_eq!(scene.backend.root_scissor, None);
 
-    manager.allocate_texture(11, (1, 1));
+    manager.allocate_texture(11, (1, 1)).unwrap();
     scene.render(&mut surface).unwrap();
     assert_eq!(scene.backend.root_scissor, rect((8, 8), (48, 24)));
     manager.clear();
@@ -99,14 +120,14 @@ fn texture_mutations_damage_current_users_and_survive_failed_rendering() {
 #[test]
 fn shared_texture_updates_are_consumed_independently_by_scenes() {
     let manager = TestTextureManager::default();
-    manager.allocate_texture(11, (1, 1));
+    manager.allocate_texture(11, (1, 1)).unwrap();
     let (mut first, mut first_surface) = scene(manager.clone());
     let (mut second, mut second_surface) = scene(manager.clone());
     first.render(&mut first_surface).unwrap();
     second.render(&mut second_surface).unwrap();
 
     manager
-        .load_data_into_texture(11, (1, 1), &[255; 4])
+        .load_data_into_texture(11, (0, 0), WHITE_PIXEL)
         .unwrap();
     first.render(&mut first_surface).unwrap();
     assert_eq!(first.backend.root_scissor, rect((8, 8), (48, 24)));
@@ -137,7 +158,9 @@ fn texture_damage_is_expanded_through_chained_backdrop_captures() {
             .unwrap();
     }
     scene.render(&mut surface).unwrap();
-    manager.allocate_texture_with_data(11, (1, 1), &[255; 4]);
+    manager
+        .allocate_texture_with_data(11, (1, 1), &[255; 4])
+        .unwrap();
     scene.render(&mut surface).unwrap();
     assert_eq!(scene.backend.root_scissor, rect((0, 0), (88, 32)));
     scene.render(&mut surface).unwrap();
@@ -161,10 +184,10 @@ fn texture_damage_uses_current_associations_after_node_slot_reuse() {
     assert!([1, 2].contains(&reused));
     scene.render(&mut surface).unwrap();
 
-    manager.allocate_texture(11, (1, 1));
+    manager.allocate_texture(11, (1, 1)).unwrap();
     scene.render(&mut surface).unwrap();
     assert_eq!(scene.backend.root_scissor, None);
-    manager.allocate_texture(12, (1, 1));
+    manager.allocate_texture(12, (1, 1)).unwrap();
     scene.render(&mut surface).unwrap();
     assert_eq!(scene.backend.root_scissor, rect((80, 64), (108, 88)));
 }
@@ -173,7 +196,7 @@ fn texture_damage_uses_current_associations_after_node_slot_reuse() {
 fn updates_during_rendering_remain_pending_for_the_next_render() {
     let manager = TestTextureManager::default();
     let (mut scene, mut surface) = scene(manager.clone());
-    manager.allocate_texture(11, (1, 1));
+    manager.allocate_texture(11, (1, 1)).unwrap();
     scene.render(&mut surface).unwrap();
     scene.backend.texture_upload_during_render = Some(11);
     scene.render(&mut surface).unwrap();
@@ -209,7 +232,7 @@ fn texture_damage_respects_transforms_scale_and_viewport_clipping() {
         .unwrap();
     let mut surface = Surface::from_resource(TestSurface::default(), size, true);
     scene.render(&mut surface).unwrap();
-    manager.allocate_texture(11, (1, 1));
+    manager.allocate_texture(11, (1, 1)).unwrap();
     scene.render(&mut surface).unwrap();
     assert_eq!(scene.backend.root_scissor, rect((48, 16), (64, 32)));
 }

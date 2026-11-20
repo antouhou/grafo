@@ -1,4 +1,5 @@
 use futures::executor::block_on;
+use grafo::core::color;
 use grafo::{BorderRadii, Scene, Shape, TextureManager};
 use grafo::{Color, ShapeDrawOptions};
 use grafo::{SceneContext, Surface};
@@ -33,7 +34,8 @@ impl Default for App {
             .unwrap();
         let rust_logo_rgba = rust_logo_png.as_rgba8().unwrap();
         let rust_logo_png_dimensions = rust_logo_rgba.dimensions();
-        let rust_logo_png_bytes = rust_logo_rgba.to_vec();
+        let mut rust_logo_png_bytes = rust_logo_rgba.to_vec();
+        color::premultiply_rgba8_srgb_inplace(&mut rust_logo_png_bytes);
 
         Self {
             window: None,
@@ -66,11 +68,14 @@ impl ApplicationHandler for App {
         ))
         .expect("create window rendering context and surface");
         let scene = Scene::try_new(context, physical_size, scale_factor, 1).expect("create scene");
-        scene.texture_manager().allocate_texture_with_data(
-            RUST_LOGO_TEXTURE_ID,
-            self.rust_logo_png_dimensions,
-            &self.rust_logo_png_bytes,
-        );
+        scene
+            .texture_manager()
+            .allocate_texture_with_data(
+                RUST_LOGO_TEXTURE_ID,
+                self.rust_logo_png_dimensions,
+                &self.rust_logo_png_bytes,
+            )
+            .expect("allocate Rust logo texture");
 
         self.window = Some(window);
         self.scene = Some(scene);

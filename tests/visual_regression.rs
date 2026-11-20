@@ -3,12 +3,12 @@
 
 use futures::executor::block_on;
 use grafo::{
-    BackdropCaptureArea, BackdropEffectConfig, BlendMode, BorderRadii, Color, ColorInterpolation,
-    ContentEffectConfig, DrawCommandError, EffectError, EffectResourceError, Fill, Gradient,
-    GradientStop, GradientStopOffset, LinearGradientDesc, LinearGradientLine, PixelFormat,
-    PixelLayout, Pixmap, PixmapMut, Scene, SceneContext, SceneCreationError, SceneError, Shape,
-    ShapeDrawOptions, ShapeMaskEffectConfig, ShapeTextureFitMode, ShapeTextureOptions,
-    TextureManager, TransformInstance, WgpuBackendError,
+    AlphaMode, BackdropCaptureArea, BackdropEffectConfig, BlendMode, BorderRadii, Color,
+    ColorInterpolation, ContentEffectConfig, DrawCommandError, EffectError, EffectResourceError,
+    Fill, Gradient, GradientStop, GradientStopOffset, LinearGradientDesc, LinearGradientLine,
+    PixelFormat, PixelLayout, Pixmap, PixmapMut, Scene, SceneContext, SceneCreationError,
+    SceneError, Shape, ShapeDrawOptions, ShapeMaskEffectConfig, ShapeTextureFitMode,
+    ShapeTextureOptions, TextureManager, TexturePixels, TransformInstance, WgpuBackendError,
 };
 use grafo_test_scenes::shaders::{PASSTHROUGH_WGSL, SHAPE_DROP_WGSL};
 use grafo_test_scenes::{
@@ -1118,11 +1118,13 @@ fn retained_texture_fits_follow_allocation_dimensions() {
                 scene.remove_subtrees([discarded], |_| {});
 
                 for size in [(8, 16), (16, 8)] {
-                    manager.allocate_texture_with_data(
-                        texture_id,
-                        size,
-                        &fitted_texture_data(fit_mode, size),
-                    );
+                    manager
+                        .allocate_texture_with_data(
+                            texture_id,
+                            size,
+                            &fitted_texture_data(fit_mode, size),
+                        )
+                        .unwrap();
                     render_bgra(&mut scene, &mut pixels).unwrap();
                     assert_fitted_texture_pixels(&pixels, fit_mode, size);
                     assert_incremental_pixels_match_full_redraw(&mut scene, &mut pixels);
@@ -1130,11 +1132,13 @@ fn retained_texture_fits_follow_allocation_dimensions() {
                 manager.remove_texture(texture_id);
                 render_bgra(&mut scene, &mut pixels).unwrap();
                 assert_eq!(read_pixel_rgba(&pixels, 96, 10, 10), [255; 4]);
-                manager.allocate_texture_with_data(
-                    texture_id,
-                    (8, 16),
-                    &fitted_texture_data(fit_mode, (8, 16)),
-                );
+                manager
+                    .allocate_texture_with_data(
+                        texture_id,
+                        (8, 16),
+                        &fitted_texture_data(fit_mode, (8, 16)),
+                    )
+                    .unwrap();
                 render_bgra(&mut scene, &mut pixels).unwrap();
                 assert_fitted_texture_pixels(&pixels, fit_mode, (8, 16));
             }
@@ -1224,11 +1228,17 @@ fn texture_mutations_redraw_retained_layers_and_backdrop_captures() {
         ] {
             match mutation {
                 TextureMutation::Allocate(data) => {
-                    manager.allocate_texture_with_data(texture_id, (1, 1), &data);
+                    manager
+                        .allocate_texture_with_data(texture_id, (1, 1), &data)
+                        .unwrap();
                 }
                 TextureMutation::Upload(data) => {
                     manager
-                        .load_data_into_texture(texture_id, (1, 1), &data)
+                        .load_data_into_texture(
+                            texture_id,
+                            (0, 0),
+                            TexturePixels::rgba8_srgb(&data, (1, 1), AlphaMode::Opaque),
+                        )
                         .unwrap();
                 }
                 TextureMutation::Remove => manager.remove_texture(texture_id),
@@ -1456,11 +1466,14 @@ fn original_size_texture_fit_uses_physical_pixels_on_hidpi() {
             })
         })
         .collect::<Vec<_>>();
-    scene.texture_manager().allocate_texture_with_data(
-        green_texture_id,
-        (20, 20),
-        &green_texture_with_transparent_border_20x20,
-    );
+    scene
+        .texture_manager()
+        .allocate_texture_with_data(
+            green_texture_id,
+            (20, 20),
+            &green_texture_with_transparent_border_20x20,
+        )
+        .unwrap();
 
     let shape = Shape::rect([(10.0, 10.0), (70.0, 70.0)]);
     scene
@@ -1525,7 +1538,8 @@ fn cover_and_contain_texture_fit_preserve_aspect_ratio() {
         .collect::<Vec<_>>();
     scene
         .texture_manager()
-        .allocate_texture_with_data(texture_id, (20, 10), &texture_data);
+        .allocate_texture_with_data(texture_id, (20, 10), &texture_data)
+        .unwrap();
 
     scene
         .add_shape(

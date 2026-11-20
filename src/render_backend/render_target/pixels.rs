@@ -1,4 +1,5 @@
 use super::RenderTargetError;
+use crate::render_backend::pixel_buffer;
 
 /// RGB is premultiplied in linear space, then encoded as sRGB. Alpha is linear.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,23 +27,7 @@ impl PixelLayout {
         format: PixelFormat,
         stride: usize,
     ) -> Result<Self, RenderTargetError> {
-        if size.0 == 0 || size.1 == 0 {
-            return Err(RenderTargetError::InvalidSize);
-        }
-        let row_bytes = (size.0 as usize)
-            .checked_mul(4)
-            .ok_or(RenderTargetError::InvalidSize)?;
-        if stride < row_bytes {
-            return Err(RenderTargetError::InvalidStride {
-                required: row_bytes,
-                provided: stride,
-            });
-        }
-        let byte_len = stride
-            .checked_mul(size.1 as usize - 1)
-            .and_then(|offset| offset.checked_add(row_bytes))
-            .filter(|length| *length <= isize::MAX as usize)
-            .ok_or(RenderTargetError::InvalidSize)?;
+        let byte_len = pixel_buffer::required_byte_len(size, 4, stride)?;
         Ok(Self {
             size,
             format,
@@ -76,13 +61,7 @@ impl PixelLayout {
     }
 
     fn validate_storage(&self, length: usize) -> Result<(), RenderTargetError> {
-        if length < self.byte_len {
-            return Err(RenderTargetError::StorageTooSmall {
-                required: self.byte_len,
-                provided: length,
-            });
-        }
-        Ok(())
+        Ok(pixel_buffer::validate_storage(self.byte_len, length)?)
     }
 }
 

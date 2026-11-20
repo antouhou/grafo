@@ -7,7 +7,9 @@ use crate::core::{
 use crate::render_backend::render_target::{
     PixelFormat, PixelLayout, Pixmap, PixmapMut, RenderTarget, RenderTargetError, Surface,
 };
-use crate::render_backend::texture_manager::{TextureManager, TextureUpdatePublisher};
+use crate::render_backend::texture_manager::{
+    AlphaMode, TextureManager, TexturePixels, TextureStorageFormat, TextureUpdatePublisher,
+};
 use crate::scene_state::SceneStateContext;
 use ahash::HashSet;
 use lyon::math::{point, Transform};
@@ -57,20 +59,35 @@ impl TextureManager for TestTextureManager {
         }
     }
 
-    fn allocate_texture(&self, texture_id: u64, _: (u32, u32)) {
+    fn allocate_texture_with_format(
+        &self,
+        texture_id: u64,
+        size: (u32, u32),
+        _: TextureStorageFormat,
+    ) -> Result<(), Self::Error> {
+        if size.0 == 0 || size.1 == 0 {
+            return Err(TestBackendError);
+        }
         self.textures.lock().unwrap().insert(texture_id);
         self.updates.publish(texture_id);
+        Ok(())
     }
 
-    fn allocate_texture_with_data(&self, texture_id: u64, dimensions: (u32, u32), _: &[u8]) {
-        self.allocate_texture(texture_id, dimensions);
+    fn allocate_texture_with_pixels(
+        &self,
+        texture_id: u64,
+        storage: TextureStorageFormat,
+        pixels: TexturePixels<'_>,
+    ) -> Result<(), Self::Error> {
+        pixels.validated_bytes().map_err(|_| TestBackendError)?;
+        self.allocate_texture_with_format(texture_id, pixels.size, storage)
     }
 
     fn load_data_into_texture(
         &self,
         texture_id: u64,
         _: (u32, u32),
-        _: &[u8],
+        _: TexturePixels<'_>,
     ) -> Result<(), Self::Error> {
         if !self.is_texture_loaded(texture_id) {
             return Err(TestBackendError);
@@ -214,8 +231,11 @@ impl RenderBackend for TestBackend {
             return Err(TestBackendError);
         }
         if let Some(texture_id) = self.texture_upload_during_render.take() {
-            self.texture_manager
-                .load_data_into_texture(texture_id, (1, 1), &[255; 4])?;
+            self.texture_manager.load_data_into_texture(
+                texture_id,
+                (0, 0),
+                TexturePixels::rgba8_srgb(&[255; 4], (1, 1), AlphaMode::Opaque),
+            )?;
         }
         self.root_scissor = root_scissor;
         let surface = match surface {

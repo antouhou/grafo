@@ -1,39 +1,60 @@
 use ahash::HashSet;
+pub use pixels::{AlphaMode, RgbEncoding, TexturePixelFormat, TexturePixels, TextureStorageFormat};
 use std::sync::{Arc, Mutex, Weak};
 
-/// Textures are addressed by ID. Dimensions are `(width, height)` in pixels
+mod pixels;
+
+/// Textures are addressed by ID. Dimensions are `(width, height)` in pixels.
+/// Use the storage formats, source pixel layouts, and write origins supported by the backend.
+/// Allocation returns an error for invalid dimensions or source layouts and preserves
+/// any existing texture at that ID on failure.
 pub trait TextureManager {
     type Error;
 
     /// Removes all textures and their cached bindings.
     fn clear(&self);
 
-    /// Allocates an RGBA8 sRGB texture, replacing any texture with the same ID.
-    /// Upload pixels with [`Self::load_data_into_texture`].
-    fn allocate_texture(&self, texture_id: u64, texture_dimensions: (u32, u32));
+    /// Allocates a texture of the given size and storage format, replacing the entry at this ID.
+    fn allocate_texture_with_format(
+        &self,
+        texture_id: u64,
+        size: (u32, u32),
+        storage: TextureStorageFormat,
+    ) -> Result<(), Self::Error>;
 
-    /// Allocates and uploads a texture, replacing any texture with the same ID.
-    /// See [`Self::load_data_into_texture`] for the required pixel format.
+    /// Allocates a texture the size of `pixels` and initializes it, replacing the entry at this ID.
+    fn allocate_texture_with_pixels(
+        &self,
+        texture_id: u64,
+        storage: TextureStorageFormat,
+        pixels: TexturePixels<'_>,
+    ) -> Result<(), Self::Error>;
+
+    /// Allocates an RGBA8 sRGB texture, replacing the entry at this ID.
+    fn allocate_texture(&self, texture_id: u64, size: (u32, u32)) -> Result<(), Self::Error> {
+        self.allocate_texture_with_format(texture_id, size, TextureStorageFormat::Rgba8Srgb)
+    }
+
+    /// Allocates an RGBA8 sRGB texture and fills it from tightly packed rows.
+    /// RGB must be premultiplied in linear space, then encoded as sRGB. For straight-alpha
+    /// input, use [`premultiply_rgba8_srgb_inplace`](crate::core::color::premultiply_rgba8_srgb_inplace).
     fn allocate_texture_with_data(
         &self,
         texture_id: u64,
-        texture_dimensions: (u32, u32),
-        texture_data: &[u8],
-    );
+        size: (u32, u32),
+        bytes: &[u8],
+    ) -> Result<(), Self::Error> {
+        let pixels = TexturePixels::rgba8_srgb(bytes, size, AlphaMode::PremultipliedInLinearSpace);
+        self.allocate_texture_with_pixels(texture_id, TextureStorageFormat::Rgba8Srgb, pixels)
+    }
 
-    /// Uploads RGBA8 sRGB pixels to the top-left corner of an allocated texture.
-    ///
-    /// The upload dimensions must fit inside the texture. RGB must be premultiplied by alpha in
-    /// linear space, then encoded as sRGB. Use
-    /// [`premultiply_rgba8_srgb_inplace`](crate::core::color::premultiply_rgba8_srgb_inplace)
-    /// to convert straight-alpha input before uploading.
-    ///
-    /// Returns an error if the texture ID has not been allocated
+    /// Writes `pixels` at the given top-left destination in pixel coordinates.
+    /// The rectangle must fit inside the allocated texture.
     fn load_data_into_texture(
         &self,
         texture_id: u64,
-        texture_dimensions: (u32, u32),
-        texture_data: &[u8],
+        origin: (u32, u32),
+        pixels: TexturePixels<'_>,
     ) -> Result<(), Self::Error>;
 
     /// Removes the texture identified by `texture_id` and its cached bindings.
