@@ -68,11 +68,14 @@ impl ApplicationHandler for App {
         ))
         .expect("create window rendering context and surface");
         let scene = Scene::try_new(context, physical_size, scale_factor, 1).expect("create scene");
-        scene.texture_manager().allocate_texture_with_data(
-            RUST_LOGO_TEXTURE_ID,
-            self.rust_logo_png_dimensions,
-            &self.rust_logo_png_bytes,
-        );
+        scene
+            .texture_manager()
+            .allocate_texture_with_data(
+                RUST_LOGO_TEXTURE_ID,
+                self.rust_logo_png_dimensions,
+                &self.rust_logo_png_bytes,
+            )
+            .expect("allocate Rust logo texture");
 
         self.window = Some(window);
         self.scene = Some(scene);

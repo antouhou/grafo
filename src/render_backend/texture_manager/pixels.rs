@@ -3,6 +3,8 @@ use crate::render_backend::{pixel_buffer, PixelBufferError};
 /// Channel order and sample type in an interleaved pixel buffer.
 /// Multibyte samples use native byte order. Integer channels are unsigned and
 /// normalized to [0, 1]. Floating-point channels use IEEE binary16 or binary32.
+/// Floating-point RGB may be negative or greater than one. Supply finite channels
+/// and alpha in [0, 1].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TexturePixelFormat {
     Rgb8,
@@ -42,7 +44,7 @@ pub enum RgbEncoding {
 /// How alpha is represented in the source pixels. RGB-only formats are opaque.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AlphaMode {
-    /// Every pixel has full opacity.
+    /// Every pixel has full opacity. Ignore any stored alpha channel.
     Opaque,
     /// RGB is independent of alpha.
     Straight,
@@ -53,6 +55,7 @@ pub enum AlphaMode {
 }
 
 /// Borrowed rows of decoded pixels, starting at the top-left pixel.
+/// The buffer may end immediately after the last pixel of the final row.
 #[derive(Clone, Copy, Debug)]
 pub struct TexturePixels<'a> {
     pub bytes: &'a [u8],
@@ -79,14 +82,15 @@ impl<'a> TexturePixels<'a> {
         }
     }
 
-    /// Checks dimensions, stride, and buffer length. Padding after the final row is optional.
-    pub fn validate(&self) -> Result<(), PixelBufferError> {
+    /// Checks dimensions, stride, and buffer length. Returns the bytes through the final pixel.
+    pub fn validated_bytes(&self) -> Result<&'a [u8], PixelBufferError> {
         let required = pixel_buffer::required_byte_len(
             self.size,
             self.format.bytes_per_pixel(),
             self.bytes_per_row,
         )?;
-        pixel_buffer::validate_storage(required, self.bytes.len())
+        pixel_buffer::validate_storage(required, self.bytes.len())?;
+        Ok(&self.bytes[..required])
     }
 }
 

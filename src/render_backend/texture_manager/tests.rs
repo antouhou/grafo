@@ -14,13 +14,13 @@ fn strided_float_pixels_end_at_the_last_pixel_of_the_crop() {
         encoding: RgbEncoding::LinearSrgb,
         alpha: AlphaMode::Opaque,
     };
-    assert_eq!(crop.validate(), Ok(()));
+    assert_eq!(crop.validated_bytes(), Ok(&bytes[12..84]));
     assert_eq!(
         TexturePixels {
             bytes: &crop.bytes[..71],
             ..crop
         }
-        .validate(),
+        .validated_bytes(),
         Err(PixelBufferError::StorageTooSmall {
             required: 72,
             provided: 71
@@ -31,7 +31,7 @@ fn strided_float_pixels_end_at_the_last_pixel_of_the_crop() {
             bytes_per_row: 23,
             ..crop
         }
-        .validate(),
+        .validated_bytes(),
         Err(PixelBufferError::InvalidStride {
             required: 24,
             provided: 23
@@ -42,7 +42,7 @@ fn strided_float_pixels_end_at_the_last_pixel_of_the_crop() {
             bytes_per_row: usize::MAX,
             ..crop
         }
-        .validate(),
+        .validated_bytes(),
         Err(PixelBufferError::InvalidSize),
     );
 }

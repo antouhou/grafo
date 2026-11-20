@@ -185,11 +185,14 @@ impl ApplicationHandler for App {
         // Premultiply to avoid fringes when minifying near transparent edges
         color::premultiply_rgba8_srgb_inplace(&mut rust_logo_png_bytes);
         let rust_logo_texture_id = 1u64;
-        scene.texture_manager().allocate_texture_with_data(
-            rust_logo_texture_id,
-            rust_logo_png_dimensions,
-            &rust_logo_png_bytes,
-        );
+        scene
+            .texture_manager()
+            .allocate_texture_with_data(
+                rust_logo_texture_id,
+                rust_logo_png_dimensions,
+                &rust_logo_png_bytes,
+            )
+            .expect("allocate Rust logo texture");
 
         self.red_path = build_rect_path(200.0, 100.0);
         self.green_path = build_rect_path(200.0, 100.0);

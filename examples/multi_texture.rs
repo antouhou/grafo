@@ -70,7 +70,9 @@ impl ApplicationHandler for App {
                 bg[idx + 3] = 255;
             }
         }
-        tex_mgr.allocate_texture_with_data(self.bg_tex_id, (w, h), &bg);
+        tex_mgr
+            .allocate_texture_with_data(self.bg_tex_id, (w, h), &bg)
+            .expect("allocate checkerboard texture");
 
         // White circle with a soft edge on a transparent foreground.
         let mut fg = vec![0u8; (w * h * 4) as usize];
@@ -94,7 +96,9 @@ impl ApplicationHandler for App {
             }
         }
         color::premultiply_rgba8_srgb_inplace(&mut fg);
-        tex_mgr.allocate_texture_with_data(self.fg_tex_id, (w, h), &fg);
+        tex_mgr
+            .allocate_texture_with_data(self.fg_tex_id, (w, h), &fg)
+            .expect("allocate circle texture");
 
         scene
             .add_shape(

@@ -192,7 +192,8 @@ impl ApplicationHandler for App {
                 let texture_id = 1;
                 scene
                     .texture_manager()
-                    .allocate_texture(texture_id, self.rust_logo_png_dimensions);
+                    .allocate_texture(texture_id, self.rust_logo_png_dimensions)
+                    .expect("allocate Rust logo texture");
                 scene
                     .texture_manager()
                     .load_data_into_texture(

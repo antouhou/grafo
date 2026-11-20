@@ -11,13 +11,14 @@ use grafo::core::color;
 use grafo::lyon::math::Box2D;
 use grafo::lyon::path::{Path, PathEvent, Winding};
 use grafo::{
-    BackdropCaptureArea, BackdropEffectConfig, BorderRadii, Color, ColorInterpolation,
+    AlphaMode, BackdropCaptureArea, BackdropEffectConfig, BorderRadii, Color, ColorInterpolation,
     ConicGradientDesc, ContentEffectConfig, DrawMode, Fill, GlyphContent, Gradient,
     GradientCommonDesc, GradientStop, GradientStopOffset, GradientStopPositions, GradientUnits,
     HueInterpolationMethod, LineCap, LinearGradientDesc, LinearGradientLine, PositionedGlyph,
-    RadialGradientDesc, RadialGradientSize, Scene, Shape, ShapeDrawOptions, ShapeMaskEffectConfig,
-    ShapeTextureFitMode, ShapeTextureOptions, SpreadMode, StrokeGeometryOptions, TextSource,
-    TextureManager, TransformInstance,
+    RadialGradientDesc, RadialGradientSize, RgbEncoding, Scene, Shape, ShapeDrawOptions,
+    ShapeMaskEffectConfig, ShapeTextureFitMode, ShapeTextureOptions, SpreadMode,
+    StrokeGeometryOptions, TextSource, TextureManager, TexturePixelFormat, TexturePixels,
+    TextureStorageFormat, TransformInstance,
 };
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
 use std::slice;
@@ -39,7 +40,7 @@ const COLOR_CHANNEL_EFFECT_ID: u64 = 5;
 const WAVE_DISTORTION_EFFECT_ID: u64 = 6;
 const CHECKERBOARD_TEXTURE_ID: u64 = 100;
 const SOLID_GREEN_TEXTURE_ID: u64 = 101;
-const SOLID_GREEN_20X20_TEXTURE_ID: u64 = 102;
+const BANDED_20X20_TEXTURE_ID: u64 = 102;
 const SOLID_RED_TEXTURE_ID: u64 = 103;
 const TRANSLUCENT_CHECKERBOARD_TEXTURE_ID: u64 = 104;
 const TRANSLUCENT_RED_TEXTURE_ID: u64 = 105;
@@ -1335,16 +1336,43 @@ fn load_shared_resources(scene: &mut Scene) {
     scene
         .load_effect(COLOR_CHANNEL_EFFECT_ID, &[ROTATE_COLOR_CHANNELS_WGSL])
         .unwrap();
-    let mut red = [255, 0, 0, 128];
-    color::premultiply_rgba8_srgb_inplace(&mut red);
-    scene
-        .texture_manager()
-        .allocate_texture_with_data(TRANSLUCENT_RED_TEXTURE_ID, (1, 1), &red);
-    let mut green = [0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 0, 128, 0, 255, 0, 128];
-    color::premultiply_rgba8_srgb_inplace(&mut green);
-    scene
-        .texture_manager()
-        .allocate_texture_with_data(HALF_GREEN_TEXTURE_ID, (4, 1), &green);
+    let manager = scene.texture_manager();
+    manager
+        .allocate_texture_with_pixels(
+            TRANSLUCENT_RED_TEXTURE_ID,
+            TextureStorageFormat::Rgba8Srgb,
+            TexturePixels {
+                bytes: &[0, 0, 255, 128],
+                size: (1, 1),
+                bytes_per_row: 4,
+                format: TexturePixelFormat::Bgra8,
+                encoding: RgbEncoding::Srgb,
+                alpha: AlphaMode::Straight,
+            },
+        )
+        .unwrap();
+    manager
+        .allocate_texture_with_format(
+            HALF_GREEN_TEXTURE_ID,
+            (4, 1),
+            TextureStorageFormat::Rgba16Float,
+        )
+        .unwrap();
+    let green = [[0.0_f32, 1.0, 0.0, 128.0 / 255.0]; 2];
+    manager
+        .load_data_into_texture(
+            HALF_GREEN_TEXTURE_ID,
+            (2, 0),
+            TexturePixels {
+                bytes: bytemuck::cast_slice(&green),
+                size: (2, 1),
+                bytes_per_row: 32,
+                format: TexturePixelFormat::Rgba32Float,
+                encoding: RgbEncoding::LinearSrgb,
+                alpha: AlphaMode::Straight,
+            },
+        )
+        .unwrap();
 
     scene
         .load_effect(BLUR_EFFECT_ID, &[HORIZONTAL_BLUR_WGSL, VERTICAL_BLUR_WGSL])
@@ -1375,47 +1403,55 @@ fn load_shared_resources(scene: &mut Scene) {
             checkerboard[offset + 3] = 255;
         }
     }
-    scene.texture_manager().allocate_texture_with_data(
-        CHECKERBOARD_TEXTURE_ID,
-        (4, 4),
-        &checkerboard,
-    );
+    scene
+        .texture_manager()
+        .allocate_texture_with_data(CHECKERBOARD_TEXTURE_ID, (4, 4), &checkerboard)
+        .unwrap();
     for pixel in checkerboard.as_chunks_mut::<4>().0 {
         pixel[3] = 128;
     }
     color::premultiply_rgba8_srgb_inplace(&mut checkerboard);
-    scene.texture_manager().allocate_texture_with_data(
-        TRANSLUCENT_CHECKERBOARD_TEXTURE_ID,
-        (4, 4),
-        &checkerboard,
-    );
-    scene.texture_manager().allocate_texture_with_data(
-        SOLID_GREEN_TEXTURE_ID,
-        (1, 1),
-        &[0, 255, 0, 255],
-    );
-    scene.texture_manager().allocate_texture_with_data(
-        SOLID_RED_TEXTURE_ID,
-        (1, 1),
-        &[255, 0, 0, 255],
-    );
+    scene
+        .texture_manager()
+        .allocate_texture_with_data(TRANSLUCENT_CHECKERBOARD_TEXTURE_ID, (4, 4), &checkerboard)
+        .unwrap();
+    scene
+        .texture_manager()
+        .allocate_texture_with_data(SOLID_GREEN_TEXTURE_ID, (1, 1), &[0, 255, 0, 255])
+        .unwrap();
+    scene
+        .texture_manager()
+        .allocate_texture_with_data(SOLID_RED_TEXTURE_ID, (1, 1), &[255, 0, 0, 255])
+        .unwrap();
 
-    let solid_green_20x20 = (0..20u32)
-        .flat_map(|y| {
-            (0..20u32).flat_map(move |x| {
-                if x == 0 || x == 19 || y == 0 || y == 19 {
-                    [0u8, 0u8, 0u8, 0u8]
-                } else {
-                    [0u8, 255u8, 0u8, 255u8]
-                }
-            })
-        })
-        .collect::<Vec<_>>();
-    scene.texture_manager().allocate_texture_with_data(
-        SOLID_GREEN_20X20_TEXTURE_ID,
-        (20, 20),
-        &solid_green_20x20,
-    );
+    let mut padded_rows = [[[255u8, 0, 0, 255]; 19]; 18];
+    for (y, row) in padded_rows.iter_mut().enumerate() {
+        let color = if y < 3 {
+            [0, 0, 255, 255]
+        } else {
+            [0, 255, 0, 255]
+        };
+        row[..18].fill(color);
+    }
+    scene
+        .texture_manager()
+        .allocate_texture(BANDED_20X20_TEXTURE_ID, (20, 20))
+        .unwrap();
+    scene
+        .texture_manager()
+        .load_data_into_texture(
+            BANDED_20X20_TEXTURE_ID,
+            (1, 1),
+            TexturePixels {
+                bytes_per_row: 19 * 4,
+                ..TexturePixels::rgba8_srgb(
+                    bytemuck::cast_slice(&padded_rows),
+                    (18, 18),
+                    AlphaMode::PremultipliedInLinearSpace,
+                )
+            },
+        )
+        .unwrap();
 }
 
 // Basic shapes
@@ -4573,7 +4609,7 @@ fn tile_53_texture_original_size(scene: &mut Scene) -> Vec<PixelExpectation> {
             ShapeDrawOptions::new()
                 .background_texture(ShapeTextureOptions::new(SOLID_RED_TEXTURE_ID))
                 .foreground_texture(
-                    ShapeTextureOptions::new(SOLID_GREEN_20X20_TEXTURE_ID)
+                    ShapeTextureOptions::new(BANDED_20X20_TEXTURE_ID)
                         .fit_mode(ShapeTextureFitMode::OriginalSize),
                 )
                 .color(Color::WHITE),
@@ -4582,12 +4618,20 @@ fn tile_53_texture_original_size(scene: &mut Scene) -> Vec<PixelExpectation> {
 
     vec![
         PixelExpectation::opaque(
-            ox as u32 + 20,
+            ox as u32 + 19,
             oy as u32 + 20,
             0,
             255,
             0,
             "t53_original_size_texture_visible",
+        ),
+        PixelExpectation::opaque(
+            ox as u32 + 18,
+            oy as u32 + 13,
+            0,
+            0,
+            255,
+            "t53_offset_upload_blue_band",
         ),
         PixelExpectation::opaque(
             ox as u32 + 45,
@@ -4610,7 +4654,7 @@ fn tile_54_texture_original_size_scaled(scene: &mut Scene) -> Vec<PixelExpectati
             None,
             ShapeDrawOptions::new()
                 .background_texture(
-                    ShapeTextureOptions::new(SOLID_GREEN_20X20_TEXTURE_ID)
+                    ShapeTextureOptions::new(BANDED_20X20_TEXTURE_ID)
                         .fit_mode(ShapeTextureFitMode::OriginalSize),
                 )
                 .color(Color::WHITE)
@@ -7430,7 +7474,8 @@ fn tile_93_stroke_paints(scene: &mut Scene) -> Vec<PixelExpectation> {
     }
     scene
         .texture_manager()
-        .allocate_texture_with_data(93_000, (64, 16), &stripes);
+        .allocate_texture_with_data(93_000, (64, 16), &stripes)
+        .unwrap();
     scene
         .add_cached_shape(93_000, None, options.clone().fill(Fill::Gradient(gradient)))
         .unwrap();
@@ -7601,7 +7646,8 @@ fn tile_96_stroke_backdrop(scene: &mut Scene) -> Vec<PixelExpectation> {
     }
     scene
         .texture_manager()
-        .allocate_texture_with_data(96_000, (16, 16), &checkerboard);
+        .allocate_texture_with_data(96_000, (16, 16), &checkerboard)
+        .unwrap();
     let options =
         ShapeDrawOptions::new().transform(TransformInstance::translation(origin_x, origin_y));
     scene
@@ -7971,7 +8017,8 @@ fn tile_80_color_preparation(scene: &mut Scene) -> Vec<PixelExpectation> {
     let transparent_texture_id = 100_001;
     scene
         .texture_manager()
-        .allocate_texture_with_data(transparent_texture_id, (1, 1), &[0; 4]);
+        .allocate_texture_with_data(transparent_texture_id, (1, 1), &[0; 4])
+        .unwrap();
     scene
         .add_shape(
             Shape::rect([

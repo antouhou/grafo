@@ -76,7 +76,8 @@ fn load_textures_and_shapes(scene: &mut Scene) {
         let tex_id = TEXTURE_ID_BASE + i as u64;
         scene
             .texture_manager()
-            .allocate_texture(tex_id, (tex_w, tex_h));
+            .allocate_texture(tex_id, (tex_w, tex_h))
+            .expect("allocate benchmark texture");
         scene
             .texture_manager()
             .load_data_into_texture(

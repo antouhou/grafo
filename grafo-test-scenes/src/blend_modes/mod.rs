@@ -335,11 +335,10 @@ pub fn build_blend_modes_scene(scene: &mut Scene) -> BlendModesScene {
         .load_effect(PASSTHROUGH_EFFECT, &[PASSTHROUGH_WGSL])
         .unwrap();
     scene.load_effect(MASK_EFFECT, &[SHAPE_DROP_WGSL]).unwrap();
-    scene.texture_manager().allocate_texture_with_data(
-        FOREGROUND_TEXTURE,
-        (1, 1),
-        &[0, 255, 0, 255],
-    );
+    scene
+        .texture_manager()
+        .allocate_texture_with_data(FOREGROUND_TEXTURE, (1, 1), &[0, 255, 0, 255])
+        .unwrap();
     let root = scene.add_group(None, Default::default()).unwrap();
     let mut expectations = Vec::new();
     add_blend_mode_grid(scene, root, &mut expectations);

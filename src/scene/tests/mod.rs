@@ -62,11 +62,15 @@ impl TextureManager for TestTextureManager {
     fn allocate_texture_with_format(
         &self,
         texture_id: u64,
-        _: (u32, u32),
+        size: (u32, u32),
         _: TextureStorageFormat,
-    ) {
+    ) -> Result<(), Self::Error> {
+        if size.0 == 0 || size.1 == 0 {
+            return Err(TestBackendError);
+        }
         self.textures.lock().unwrap().insert(texture_id);
         self.updates.publish(texture_id);
+        Ok(())
     }
 
     fn allocate_texture_with_pixels(
@@ -74,8 +78,9 @@ impl TextureManager for TestTextureManager {
         texture_id: u64,
         storage: TextureStorageFormat,
         pixels: TexturePixels<'_>,
-    ) {
-        self.allocate_texture_with_format(texture_id, pixels.size, storage);
+    ) -> Result<(), Self::Error> {
+        pixels.validated_bytes().map_err(|_| TestBackendError)?;
+        self.allocate_texture_with_format(texture_id, pixels.size, storage)
     }
 
     fn load_data_into_texture(
