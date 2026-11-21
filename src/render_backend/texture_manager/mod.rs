@@ -5,9 +5,7 @@ use std::sync::{Arc, Mutex, Weak};
 mod pixels;
 
 /// Textures are addressed by ID. Dimensions are `(width, height)` in pixels.
-/// Use the storage formats, source pixel layouts, and write origins supported by the backend.
-/// Allocation returns an error for invalid dimensions or source layouts and preserves
-/// any existing texture at that ID on failure.
+/// Allocation returns preserves any existing texture at that ID on failure.
 pub trait TextureManager {
     type Error;
 
