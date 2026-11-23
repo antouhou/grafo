@@ -16,6 +16,8 @@ jobs:
           toolchain: stable
           profile: minimal
           override: true
+      - name: Install WASM target
+        run: rustup target add wasm32-unknown-unknown
       - name: Run tests
         run: cargo test
   lint:
