@@ -1,5 +1,7 @@
 use super::{TextureTransferError, MAX_PENDING_UPLOAD_BATCHES};
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 use futures_util::FutureExt;
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 use std::pin::pin;
 use std::sync::Arc;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, SetOnce};
@@ -19,10 +21,15 @@ impl UploadCapacity {
         })
     }
 
-    pub(super) async fn acquire_async(&self) -> Result<OwnedSemaphorePermit, TextureTransferError> {
-        if let Some(error) = self.failure.get() {
-            return Err(error.clone());
+    pub(super) fn check(&self) -> Result<(), TextureTransferError> {
+        match self.failure.get() {
+            Some(error) => Err(error.clone()),
+            None => Ok(()),
         }
+    }
+
+    pub(super) async fn acquire_async(&self) -> Result<OwnedSemaphorePermit, TextureTransferError> {
+        self.check()?;
         let acquire = Arc::clone(&self.permits).acquire_owned();
         // A blocking executor nested inside Tokio cannot yield to renew the task's budget.
         #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
@@ -34,6 +41,7 @@ impl UploadCapacity {
         }
     }
 
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     pub(super) fn acquire(&self) -> Result<OwnedSemaphorePermit, TextureTransferError> {
         let mut acquire = pin!(self.acquire_async());
         // Only a pending acquisition needs a blocking waker.

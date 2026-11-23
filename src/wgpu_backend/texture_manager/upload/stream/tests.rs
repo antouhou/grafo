@@ -1,6 +1,6 @@
 use super::{feed_texture_stream, TextureBatchWriter};
 use crate::render_backend::texture_manager::{
-    AlphaMode, TexturePixelLayout, TextureStorageFormat, TextureStreamError,
+    AlphaMode, TexturePixelFormat, TexturePixelLayout, TextureStorageFormat, TextureStreamError,
 };
 use crate::render_backend::PixelBufferError;
 use crate::wgpu_backend::texture_manager::operations::TextureUploadOperations;
@@ -11,10 +11,14 @@ use crate::wgpu_backend::texture_manager::{TextureManagerError, TextureTransferE
 use crate::wgpu_backend::WgpuBackendError;
 use futures::channel::oneshot;
 use futures::executor::block_on;
+use futures::future;
 use futures::stream;
 use futures::StreamExt;
+use std::cell::RefCell;
 use std::future::Future;
+use std::ops::Range;
 use std::pin::pin;
+use std::rc::Rc;
 use std::sync::{mpsc, Arc};
 use std::task::{Context, Poll, Wake, Waker};
 
@@ -26,6 +30,37 @@ struct RecordedTextureBatch {
     origin: (u32, u32),
     size: (u32, u32),
     bytes_per_row: u32,
+}
+
+struct LocalPixelChunk {
+    pixels: Rc<[u8]>,
+    range: Range<usize>,
+}
+
+impl AsRef<[u8]> for LocalPixelChunk {
+    fn as_ref(&self) -> &[u8] {
+        &self.pixels[self.range.clone()]
+    }
+}
+
+struct LocalTextureBatchWriter {
+    batches: Rc<RefCell<Vec<RecordedTextureBatch>>>,
+    resume: Option<oneshot::Receiver<()>>,
+}
+
+impl TextureBatchWriter for LocalTextureBatchWriter {
+    async fn write(&mut self, batch: TextureUploadBatch<'_>) -> Result<(), WgpuBackendError> {
+        if let Some(resume) = self.resume.take() {
+            resume.await.map_err(|_| WgpuBackendError::DeviceLost)?;
+        }
+        self.batches.borrow_mut().push(RecordedTextureBatch {
+            bytes: batch.bytes.to_vec(),
+            origin: batch.origin,
+            size: batch.size,
+            bytes_per_row: batch.bytes_per_row,
+        });
+        Ok(())
+    }
 }
 
 #[derive(Default)]
@@ -64,6 +99,62 @@ fn wake_channel() -> (Waker, mpsc::Receiver<()>) {
 
 fn rgba_layout(size: (u32, u32)) -> TexturePixelLayout {
     TexturePixelLayout::rgba8_srgb(size, AlphaMode::PremultipliedInLinearSpace)
+}
+
+#[test]
+fn local_sources_and_writers_preserve_fragmented_conversion_across_batches() {
+    let operations = TextureUploadOperations::default();
+    let operation = operations.begin(42).unwrap();
+    let size = (1024, 769);
+    let pixels: Rc<[u8]> = (0..size.0 * size.1)
+        .flat_map(|_| [3, 7, 11, 255])
+        .collect::<Vec<_>>()
+        .into();
+    let byte_length = pixels.len();
+    let source = stream::iter((0..byte_length).step_by(65_537).map(move |start| {
+        Ok::<_, SourceFailure>(LocalPixelChunk {
+            pixels: Rc::clone(&pixels),
+            range: start..(start + 65_537).min(byte_length),
+        })
+    }));
+    let batches = Rc::new(RefCell::new(Vec::new()));
+    let (resume_sender, resume_receiver) = oneshot::channel();
+    let mut writer = LocalTextureBatchWriter {
+        batches: Rc::clone(&batches),
+        resume: Some(resume_receiver),
+    };
+    let layout = TexturePixelLayout {
+        format: TexturePixelFormat::Bgra8,
+        ..rgba_layout(size)
+    };
+    let (result, ()) = block_on(future::join(
+        feed_texture_stream(
+            &operation,
+            TextureStorageFormat::Rgba8Srgb,
+            layout,
+            source,
+            &mut writer,
+        ),
+        async move {
+            resume_sender.send(()).unwrap();
+        },
+    ));
+    assert!(result.is_ok());
+    let batches = batches.borrow();
+    assert_eq!(batches.len(), 4);
+    for (index, batch) in batches.iter().enumerate() {
+        let rows = if index == 3 { 1 } else { 256 };
+        assert_eq!(batch.origin, (0, index as u32 * 256));
+        assert_eq!(batch.size, (1024, rows));
+        assert_eq!(batch.bytes_per_row, 4096);
+        assert_eq!(batch.bytes.len(), rows as usize * 4096);
+        assert!(batch
+            .bytes
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|pixel| *pixel == [11, 7, 3, 255]));
+    }
 }
 
 #[test]

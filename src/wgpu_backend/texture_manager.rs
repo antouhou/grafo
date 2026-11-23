@@ -51,14 +51,16 @@ struct ManagedTexture {
     storage: TextureStorageFormat,
 }
 
-/// GPU textures that can be allocated and updated from multiple threads.
+/// Allocates and updates GPU textures.
 ///
-/// Cloned managers share texture storage. All dimensions are `(width, height)` in pixels.
+/// Cloned managers share textures. All dimensions are `(width, height)` in pixels.
+/// Native managers can be shared between threads. Browser managers must stay on their creating thread.
 /// Uploads to [`TextureStorageFormat::Rgba16Float`] clamp converted colors to the finite binary16 range.
-/// Uploads use bounded batches. Synchronous calls can block while waiting for capacity.
+/// Synchronous uploads may block on native targets.
+/// Prefer streaming methods for large browser uploads to reduce temporary memory use.
 /// For concurrent uploads on a single-threaded executor, await the streaming methods
 /// so earlier uploads can resume.
-/// Success means the complete upload is submitted before subsequent rendering, not that the GPU is idle.
+/// Successful uploads are available to subsequent rendering. GPU execution may still be in progress.
 /// Only one upload can target an ID at a time. Removing or clearing textures cancels pending uploads.
 ///
 /// # Examples
@@ -359,9 +361,8 @@ impl TextureManager for WgpuTextureManager {
         source: Source,
     ) -> Result<(), TextureStreamError<Self::Error, SourceError>>
     where
-        Source: Stream<Item = Result<Chunk, SourceError>> + Send,
-        Chunk: AsRef<[u8]> + Send,
-        SourceError: Send,
+        Source: Stream<Item = Result<Chunk, SourceError>>,
+        Chunk: AsRef<[u8]>,
     {
         self.allocate_stream(texture_id, storage, layout, source)
             .await
@@ -375,9 +376,8 @@ impl TextureManager for WgpuTextureManager {
         source: Source,
     ) -> Result<(), TextureStreamError<Self::Error, SourceError>>
     where
-        Source: Stream<Item = Result<Chunk, SourceError>> + Send,
-        Chunk: AsRef<[u8]> + Send,
-        SourceError: Send,
+        Source: Stream<Item = Result<Chunk, SourceError>>,
+        Chunk: AsRef<[u8]>,
     {
         self.update_stream(texture_id, origin, layout, source).await
     }

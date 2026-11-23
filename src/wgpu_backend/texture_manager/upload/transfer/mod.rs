@@ -1,20 +1,19 @@
 use super::TextureUploadBatch;
 use capacity::UploadCapacity;
+use completion::TextureUploadCompletion;
 use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Arc, Mutex};
-use std::thread;
+use std::sync::Arc;
 use thiserror::Error;
-use tokio::sync::{OwnedSemaphorePermit, SetOnce};
+use tokio::sync::SetOnce;
 use wgpu::{
-    Device, Extent3d, Origin3d, PollError, PollType, Queue, SubmissionIndex, TexelCopyBufferLayout,
-    Texture,
+    Device, Extent3d, Origin3d, PollError, Queue, SubmissionIndex, TexelCopyBufferLayout, Texture,
 };
 
 const MAX_PENDING_UPLOAD_BATCHES: usize = 2;
 
 mod capacity;
+mod completion;
 
 #[derive(Clone, Debug, Error)]
 pub enum TextureTransferError {
@@ -28,51 +27,11 @@ pub enum TextureTransferError {
     GpuWait(#[source] Arc<PollError>),
 }
 
-struct PendingUploadCompletion {
-    submission: SubmissionIndex,
-    capacity_permit: OwnedSemaphorePermit,
-}
-
-struct UploadCompletionWorker {
-    device: Arc<Device>,
-    device_lost: Arc<AtomicBool>,
-    capacity: Arc<UploadCapacity>,
-    receiver: Receiver<PendingUploadCompletion>,
-}
-
-impl UploadCompletionWorker {
-    fn run(self) {
-        while let Ok(pending) = self.receiver.recv() {
-            let result = self.device.poll(PollType::Wait {
-                submission_index: Some(pending.submission),
-                timeout: None,
-            });
-            if self.device_lost.load(Ordering::Acquire) {
-                self.capacity.fail(TextureTransferError::DeviceLost);
-                break;
-            }
-            if let Err(error) = result {
-                self.capacity
-                    .fail(TextureTransferError::GpuWait(Arc::new(error)));
-                break;
-            }
-            drop(pending.capacity_permit);
-        }
-    }
-}
-
-impl Drop for UploadCompletionWorker {
-    fn drop(&mut self) {
-        self.capacity.fail(TextureTransferError::WorkerStopped);
-    }
-}
-
 pub(in super::super) struct TextureUploadQueue {
-    device: Arc<Device>,
     queue: Arc<Queue>,
     device_lost: Arc<AtomicBool>,
     capacity: Arc<UploadCapacity>,
-    completion_sender: Mutex<Option<Sender<PendingUploadCompletion>>>,
+    completion: TextureUploadCompletion,
 }
 
 impl TextureUploadQueue {
@@ -82,12 +41,18 @@ impl TextureUploadQueue {
         device_lost: Arc<AtomicBool>,
         failure_signal: Arc<SetOnce<TextureTransferError>>,
     ) -> Self {
-        Self {
+        let capacity = UploadCapacity::new(failure_signal);
+        let completion = TextureUploadCompletion::new(
             device,
+            Arc::clone(&queue),
+            Arc::clone(&device_lost),
+            Arc::clone(&capacity),
+        );
+        Self {
             queue,
             device_lost,
-            capacity: UploadCapacity::new(failure_signal),
-            completion_sender: Mutex::new(None),
+            capacity,
+            completion,
         }
     }
 
@@ -102,55 +67,17 @@ impl TextureUploadQueue {
         }
     }
 
-    fn completion_sender(&self) -> Result<Sender<PendingUploadCompletion>, TextureTransferError> {
-        if self.device_lost.load(Ordering::Acquire) {
-            self.capacity.fail(TextureTransferError::DeviceLost);
-            return Err(TextureTransferError::DeviceLost);
-        }
-        let mut sender = self
-            .completion_sender
-            .lock()
-            .expect("upload completion sender lock poisoned");
-        if let Some(sender) = sender.as_ref() {
-            return Ok(sender.clone());
-        }
-
-        let (new_sender, receiver) = mpsc::channel();
-        let device = Arc::clone(&self.device);
-        let device_lost = Arc::clone(&self.device_lost);
-        let capacity = Arc::clone(&self.capacity);
-        if let Err(error) = thread::Builder::new()
-            .name("grafo-texture-uploads".into())
-            .spawn(move || {
-                UploadCompletionWorker {
-                    device,
-                    device_lost,
-                    capacity,
-                    receiver,
-                }
-                .run();
-            })
-        {
-            let error = TextureTransferError::WorkerStart(Arc::new(error));
-            self.capacity.fail(error.clone());
-            return Err(error);
-        }
-        *sender = Some(new_sender.clone());
-        Ok(new_sender)
-    }
-
     fn submit_batch(
         &self,
         texture: &Texture,
         origin: (u32, u32),
         batch: TextureUploadBatch<'_>,
-        permit: OwnedSemaphorePermit,
-        sender: Sender<PendingUploadCompletion>,
-    ) -> Result<(), TextureTransferError> {
+    ) -> Result<SubmissionIndex, TextureTransferError> {
         if self.device_lost.load(Ordering::Acquire) {
             self.capacity.fail(TextureTransferError::DeviceLost);
             return Err(TextureTransferError::DeviceLost);
         }
+        self.capacity.check()?;
         let mut destination = texture.as_image_copy();
         destination.origin = Origin3d {
             x: origin.0 + batch.origin.0,
@@ -171,18 +98,7 @@ impl TextureUploadQueue {
                 depth_or_array_layers: 1,
             },
         );
-        let submission = self.queue.submit([]);
-        match sender.send(PendingUploadCompletion {
-            submission,
-            capacity_permit: permit,
-        }) {
-            Ok(()) => Ok(()),
-            Err(pending) => {
-                self.capacity.fail(TextureTransferError::WorkerStopped);
-                drop(pending);
-                Err(TextureTransferError::WorkerStopped)
-            }
-        }
+        Ok(self.queue.submit([]))
     }
 
     pub(in super::super) fn write(
@@ -191,9 +107,9 @@ impl TextureUploadQueue {
         origin: (u32, u32),
         batch: TextureUploadBatch<'_>,
     ) -> Result<(), TextureTransferError> {
-        let sender = self.completion_sender()?;
-        let permit = self.capacity.acquire()?;
-        self.submit_batch(texture, origin, batch, permit, sender)
+        let reservation = self.completion.reserve()?;
+        let submission = self.submit_batch(texture, origin, batch)?;
+        self.completion.submitted(submission, reservation)
     }
 
     pub(in super::super) async fn write_async(
@@ -202,8 +118,8 @@ impl TextureUploadQueue {
         origin: (u32, u32),
         batch: TextureUploadBatch<'_>,
     ) -> Result<(), TextureTransferError> {
-        let sender = self.completion_sender()?;
-        let permit = self.capacity.acquire_async().await?;
-        self.submit_batch(texture, origin, batch, permit, sender)
+        let reservation = self.completion.reserve_async().await?;
+        let submission = self.submit_batch(texture, origin, batch)?;
+        self.completion.submitted(submission, reservation)
     }
 }

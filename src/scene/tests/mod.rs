@@ -29,6 +29,7 @@ mod removal;
 mod replacement;
 mod strokes;
 mod text;
+mod texture_streams;
 
 #[derive(Default)]
 struct TestSurface {
@@ -52,9 +53,8 @@ async fn consume_texture_stream<Source, Chunk, SourceError>(
     source: Source,
 ) -> Result<(), TextureStreamError<TestBackendError, SourceError>>
 where
-    Source: Stream<Item = Result<Chunk, SourceError>> + Send,
-    Chunk: AsRef<[u8]> + Send,
-    SourceError: Send,
+    Source: Stream<Item = Result<Chunk, SourceError>>,
+    Chunk: AsRef<[u8]>,
 {
     let required = layout
         .required_byte_len()
@@ -138,9 +138,8 @@ impl TextureManager for TestTextureManager {
         source: Source,
     ) -> Result<(), TextureStreamError<Self::Error, SourceError>>
     where
-        Source: Stream<Item = Result<Chunk, SourceError>> + Send,
-        Chunk: AsRef<[u8]> + Send,
-        SourceError: Send,
+        Source: Stream<Item = Result<Chunk, SourceError>>,
+        Chunk: AsRef<[u8]>,
     {
         consume_texture_stream(layout, source).await?;
         self.allocate_texture_with_format(texture_id, layout.size, storage)
@@ -167,9 +166,8 @@ impl TextureManager for TestTextureManager {
         source: Source,
     ) -> Result<(), TextureStreamError<Self::Error, SourceError>>
     where
-        Source: Stream<Item = Result<Chunk, SourceError>> + Send,
-        Chunk: AsRef<[u8]> + Send,
-        SourceError: Send,
+        Source: Stream<Item = Result<Chunk, SourceError>>,
+        Chunk: AsRef<[u8]>,
     {
         self.validate_texture_region(texture_id, origin, layout.size)
             .map_err(TextureStreamError::Backend)?;

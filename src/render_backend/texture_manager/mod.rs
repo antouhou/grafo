@@ -53,11 +53,10 @@ pub trait TextureManager {
         storage: TextureStorageFormat,
         layout: TexturePixelLayout,
         source: Source,
-    ) -> impl Future<Output = Result<(), TextureStreamError<Self::Error, SourceError>>> + Send
+    ) -> impl Future<Output = Result<(), TextureStreamError<Self::Error, SourceError>>>
     where
-        Source: Stream<Item = Result<Chunk, SourceError>> + Send,
-        Chunk: AsRef<[u8]> + Send,
-        SourceError: Send;
+        Source: Stream<Item = Result<Chunk, SourceError>>,
+        Chunk: AsRef<[u8]>;
 
     /// Allocates an RGBA8 sRGB texture, replacing the entry at this ID.
     fn allocate_texture(&self, texture_id: u64, size: (u32, u32)) -> Result<(), Self::Error> {
@@ -97,11 +96,10 @@ pub trait TextureManager {
         origin: (u32, u32),
         layout: TexturePixelLayout,
         source: Source,
-    ) -> impl Future<Output = Result<(), TextureStreamError<Self::Error, SourceError>>> + Send
+    ) -> impl Future<Output = Result<(), TextureStreamError<Self::Error, SourceError>>>
     where
-        Source: Stream<Item = Result<Chunk, SourceError>> + Send,
-        Chunk: AsRef<[u8]> + Send,
-        SourceError: Send;
+        Source: Stream<Item = Result<Chunk, SourceError>>,
+        Chunk: AsRef<[u8]>;
 
     /// Removes the texture identified by `texture_id` and its cached bindings.
     fn remove_texture(&self, texture_id: u64);

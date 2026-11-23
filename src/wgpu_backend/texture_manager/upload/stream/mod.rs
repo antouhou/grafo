@@ -14,7 +14,7 @@ pub(in super::super) trait TextureBatchWriter {
     fn write(
         &mut self,
         batch: TextureUploadBatch<'_>,
-    ) -> impl Future<Output = Result<(), WgpuBackendError>> + Send;
+    ) -> impl Future<Output = Result<(), WgpuBackendError>>;
 }
 
 pub(in super::super) async fn feed_texture_stream<Source, Chunk, SourceError, Writer>(
@@ -25,10 +25,9 @@ pub(in super::super) async fn feed_texture_stream<Source, Chunk, SourceError, Wr
     writer: &mut Writer,
 ) -> Result<(), TextureStreamError<WgpuBackendError, SourceError>>
 where
-    Source: Stream<Item = Result<Chunk, SourceError>> + Send,
-    Chunk: AsRef<[u8]> + Send,
-    SourceError: Send,
-    Writer: TextureBatchWriter + Send,
+    Source: Stream<Item = Result<Chunk, SourceError>>,
+    Chunk: AsRef<[u8]>,
+    Writer: TextureBatchWriter,
 {
     let mut upload = TextureUpload::new(storage, layout)
         .map_err(TextureManagerError::from)

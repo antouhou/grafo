@@ -150,9 +150,8 @@ impl WgpuTextureManager {
         source: Source,
     ) -> Result<(), TextureStreamError<WgpuBackendError, SourceError>>
     where
-        Source: Stream<Item = Result<Chunk, SourceError>> + Send,
-        Chunk: AsRef<[u8]> + Send,
-        SourceError: Send,
+        Source: Stream<Item = Result<Chunk, SourceError>>,
+        Chunk: AsRef<[u8]>,
     {
         let mut writer = WgpuTextureBatchWriter {
             manager: self,
@@ -169,9 +168,8 @@ impl WgpuTextureManager {
         source: Source,
     ) -> Result<(), TextureStreamError<WgpuBackendError, SourceError>>
     where
-        Source: Stream<Item = Result<Chunk, SourceError>> + Send,
-        Chunk: AsRef<[u8]> + Send,
-        SourceError: Send,
+        Source: Stream<Item = Result<Chunk, SourceError>>,
+        Chunk: AsRef<[u8]>,
     {
         let prepare = || {
             self.ensure_available()?;
@@ -205,9 +203,8 @@ impl WgpuTextureManager {
         source: Source,
     ) -> Result<(), TextureStreamError<WgpuBackendError, SourceError>>
     where
-        Source: Stream<Item = Result<Chunk, SourceError>> + Send,
-        Chunk: AsRef<[u8]> + Send,
-        SourceError: Send,
+        Source: Stream<Item = Result<Chunk, SourceError>>,
+        Chunk: AsRef<[u8]>,
     {
         let prepare = || {
             self.ensure_available()?;
