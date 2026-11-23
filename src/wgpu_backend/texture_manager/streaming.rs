@@ -50,21 +50,21 @@ impl WgpuTextureManager {
             }
             .into());
         }
-        Ok((entry.texture.clone(), entry.storage))
+        Ok((entry.texture.clone(), entry.storage_format))
     }
 
     pub(super) fn upload_slice(
         &self,
         operation: &TextureUploadOperation,
         texture: &Texture,
-        storage: TextureStorageFormat,
+        storage_format: TextureStorageFormat,
         pixels: TexturePixels<'_>,
     ) -> Result<(), WgpuBackendError> {
         let mut remaining = pixels
             .validated_bytes()
             .map_err(TextureManagerError::from)?;
         let mut upload =
-            TextureUpload::new(storage, pixels.layout).map_err(TextureManagerError::from)?;
+            TextureUpload::new(storage_format, pixels.layout).map_err(TextureManagerError::from)?;
         while !upload.is_complete() {
             operation.check()?;
             let consumed = upload.convert_into_batch(remaining);
@@ -99,7 +99,7 @@ impl WgpuTextureManager {
         &self,
         operation: &TextureUploadOperation,
         texture: &Texture,
-        storage: TextureStorageFormat,
+        storage_format: TextureStorageFormat,
         layout: TexturePixelLayout,
         source: Source,
     ) -> Result<(), TextureStreamError<WgpuBackendError, SourceError>>
@@ -111,6 +111,6 @@ impl WgpuTextureManager {
             manager: self,
             texture,
         };
-        feed_texture_stream(operation, storage, layout, source, &mut writer).await
+        feed_texture_stream(operation, storage_format, layout, source, &mut writer).await
     }
 }

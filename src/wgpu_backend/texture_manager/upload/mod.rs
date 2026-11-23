@@ -50,7 +50,7 @@ fn encode_premultiplied_channels(
     [red, green, blue, source_alpha]: [f32; 4],
     encoding: RgbEncoding,
     alpha_mode: AlphaMode,
-    storage: TextureStorageFormat,
+    storage_format: TextureStorageFormat,
 ) -> [f32; 4] {
     let rgb = [red, green, blue];
     let alpha = if alpha_mode == AlphaMode::Opaque {
@@ -60,7 +60,7 @@ fn encode_premultiplied_channels(
     };
     // Already-encoded premultiplied RGB can pass through a channel reorder unchanged.
     if encoding == RgbEncoding::Srgb
-        && storage == TextureStorageFormat::Rgba8Srgb
+        && storage_format == TextureStorageFormat::Rgba8Srgb
         && (alpha == 1.0 || alpha_mode == AlphaMode::PremultipliedInLinearSpace)
     {
         return [red, green, blue, alpha];
@@ -83,7 +83,7 @@ fn encode_premultiplied_channels(
         }
         (RgbEncoding::Srgb, _) => rgb.map(color::srgb_to_linear),
     };
-    let [red, green, blue] = match storage {
+    let [red, green, blue] = match storage_format {
         TextureStorageFormat::Rgba8Srgb => {
             linear.map(|channel| color::linear_to_srgb(channel.clamp(0.0, 1.0)))
         }
@@ -92,8 +92,8 @@ fn encode_premultiplied_channels(
     [red, green, blue, alpha]
 }
 
-fn can_copy_source_bytes(storage: TextureStorageFormat, layout: TexturePixelLayout) -> bool {
-    match storage {
+fn can_copy_source_bytes(storage_format: TextureStorageFormat, layout: TexturePixelLayout) -> bool {
+    match storage_format {
         TextureStorageFormat::Rgba8Srgb => {
             layout.format == TexturePixelFormat::Rgba8
                 && layout.encoding == RgbEncoding::Srgb
@@ -111,8 +111,8 @@ fn can_copy_source_bytes(storage: TextureStorageFormat, layout: TexturePixelLayo
     }
 }
 
-fn append_pixel(bytes: &mut Vec<u8>, storage: TextureStorageFormat, rgba: [f32; 4]) {
-    match storage {
+fn append_pixel(bytes: &mut Vec<u8>, storage_format: TextureStorageFormat, rgba: [f32; 4]) {
+    match storage_format {
         TextureStorageFormat::Rgba8Srgb => {
             bytes.extend_from_slice(&rgba.map(color::normalized_channel_to_u8));
         }
@@ -133,7 +133,7 @@ pub(super) struct TextureUploadBatch<'a> {
 }
 
 pub(super) struct TextureUpload {
-    storage: TextureStorageFormat,
+    storage_format: TextureStorageFormat,
     layout: TexturePixelLayout,
     can_copy_source_bytes: bool,
     source_row_bytes: usize,
@@ -152,13 +152,13 @@ pub(super) struct TextureUpload {
 
 impl TextureUpload {
     pub(super) fn new(
-        storage: TextureStorageFormat,
+        storage_format: TextureStorageFormat,
         layout: TexturePixelLayout,
     ) -> Result<Self, PixelBufferError> {
         let source_bytes_required = layout.required_byte_len()?;
         let (width, height) = layout.size;
         let source_row_bytes = width as usize * layout.format.bytes_per_pixel();
-        let storage_pixel_bytes = match storage {
+        let storage_pixel_bytes = match storage_format {
             TextureStorageFormat::Rgba8Srgb => 4,
             TextureStorageFormat::Rgba16Float => 8,
         };
@@ -175,9 +175,9 @@ impl TextureUpload {
             .filter(|&length| length <= isize::MAX as usize)
             .ok_or(PixelBufferError::InvalidSize)?;
         Ok(Self {
-            storage,
+            storage_format,
             layout,
-            can_copy_source_bytes: can_copy_source_bytes(storage, layout),
+            can_copy_source_bytes: can_copy_source_bytes(storage_format, layout),
             source_row_bytes,
             source_row_remaining: source_row_bytes,
             source_padding_remaining: 0,
@@ -204,12 +204,12 @@ impl TextureUpload {
     fn append_converted_pixel(&mut self, rgba: [f32; 4]) {
         append_pixel(
             &mut self.bytes,
-            self.storage,
+            self.storage_format,
             encode_premultiplied_channels(
                 rgba,
                 self.layout.encoding,
                 self.layout.alpha,
-                self.storage,
+                self.storage_format,
             ),
         );
     }

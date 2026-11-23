@@ -48,7 +48,7 @@ pub enum TextureManagerError {
 
 struct ManagedTexture {
     texture: Texture,
-    storage: TextureStorageFormat,
+    storage_format: TextureStorageFormat,
 }
 
 /// Allocates and updates GPU textures.
@@ -189,7 +189,7 @@ impl WgpuTextureManager {
     fn create_texture(
         &self,
         size: (u32, u32),
-        storage: TextureStorageFormat,
+        storage_format: TextureStorageFormat,
         usage: TextureUsages,
     ) -> Result<Texture, WgpuBackendError> {
         self.ensure_available()?;
@@ -204,7 +204,7 @@ impl WgpuTextureManager {
             mip_level_count: 1,
             sample_count: 1,
             dimension: TextureDimension::D2,
-            format: match storage {
+            format: match storage_format {
                 TextureStorageFormat::Rgba8Srgb => TextureFormat::Rgba8UnormSrgb,
                 TextureStorageFormat::Rgba16Float => TextureFormat::Rgba16Float,
             },
@@ -217,7 +217,7 @@ impl WgpuTextureManager {
         &self,
         texture_id: u64,
         size: (u32, u32),
-        storage: TextureStorageFormat,
+        storage_format: TextureStorageFormat,
         pixels: Option<TexturePixels<'_>>,
     ) -> Result<(), WgpuBackendError> {
         self.ensure_available()?;
@@ -228,11 +228,11 @@ impl WgpuTextureManager {
                 .map_err(TextureManagerError::from)?;
         }
         let operation = self.operations.begin(texture_id)?;
-        let texture = self.create_texture(size, storage, TextureUsages::TEXTURE_BINDING)?;
+        let texture = self.create_texture(size, storage_format, TextureUsages::TEXTURE_BINDING)?;
         if let Some(pixels) = pixels {
-            self.upload_slice(&operation, &texture, storage, pixels)?;
+            self.upload_slice(&operation, &texture, storage_format, pixels)?;
         }
-        operation.commit_allocation(self, ManagedTexture { texture, storage })
+        operation.commit_allocation(self, ManagedTexture { texture, storage_format })
     }
 
     /// Returns a cached bind group for the texture, creating it with the shape layout if needed.
@@ -312,18 +312,18 @@ impl TextureManager for WgpuTextureManager {
         &self,
         texture_id: u64,
         texture_dimensions: (u32, u32),
-        storage: TextureStorageFormat,
+        storage_format: TextureStorageFormat,
     ) -> Result<(), Self::Error> {
-        self.allocate(texture_id, texture_dimensions, storage, None)
+        self.allocate(texture_id, texture_dimensions, storage_format, None)
     }
 
     fn allocate_texture_with_pixels(
         &self,
         texture_id: u64,
-        storage: TextureStorageFormat,
+        storage_format: TextureStorageFormat,
         pixels: TexturePixels<'_>,
     ) -> Result<(), Self::Error> {
-        self.allocate(texture_id, pixels.layout.size, storage, Some(pixels))
+        self.allocate(texture_id, pixels.layout.size, storage_format, Some(pixels))
     }
 
     fn load_data_into_texture(
@@ -338,7 +338,7 @@ impl TextureManager for WgpuTextureManager {
     async fn allocate_texture_with_stream<Source, Chunk, SourceError>(
         &self,
         texture_id: u64,
-        storage: TextureStorageFormat,
+        storage_format: TextureStorageFormat,
         layout: TexturePixelLayout,
         source: Source,
     ) -> Result<(), TextureStreamError<Self::Error, SourceError>>
@@ -350,11 +350,11 @@ impl TextureManager for WgpuTextureManager {
         self.validate_dimensions(layout.size)?;
         layout.required_byte_len()?;
         let operation = self.operations.begin(texture_id)?;
-        let texture = self.create_texture(layout.size, storage, TextureUsages::TEXTURE_BINDING)?;
-        self.upload_stream(&operation, &texture, storage, layout, source)
+        let texture = self.create_texture(layout.size, storage_format, TextureUsages::TEXTURE_BINDING)?;
+        self.upload_stream(&operation, &texture, storage_format, layout, source)
             .await?;
         operation
-            .commit_allocation(self, ManagedTexture { texture, storage })
+            .commit_allocation(self, ManagedTexture { texture, storage_format })
             .map_err(TextureStreamError::Backend)
     }
 

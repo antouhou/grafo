@@ -18,7 +18,7 @@ pub(in super::super) trait TextureBatchWriter {
 
 pub(in super::super) async fn feed_texture_stream<Source, Chunk, SourceError, Writer>(
     operation: &TextureUploadOperation,
-    storage: TextureStorageFormat,
+    storage_format: TextureStorageFormat,
     layout: TexturePixelLayout,
     source: Source,
     writer: &mut Writer,
@@ -28,7 +28,7 @@ where
     Chunk: AsRef<[u8]>,
     Writer: TextureBatchWriter,
 {
-    let mut upload = TextureUpload::new(storage, layout)?;
+    let mut upload = TextureUpload::new(storage_format, layout)?;
     let mut source = pin!(source);
     while !upload.is_complete() {
         let chunk = operation

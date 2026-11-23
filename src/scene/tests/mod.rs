@@ -105,17 +105,17 @@ impl TextureManager for TestTextureManager {
     fn allocate_texture_with_pixels(
         &self,
         texture_id: u64,
-        storage: TextureStorageFormat,
+        storage_format: TextureStorageFormat,
         pixels: TexturePixels<'_>,
     ) -> Result<(), Self::Error> {
         pixels.validated_bytes().map_err(|_| TestBackendError)?;
-        self.allocate_texture_with_format(texture_id, pixels.layout.size, storage)
+        self.allocate_texture_with_format(texture_id, pixels.layout.size, storage_format)
     }
 
     async fn allocate_texture_with_stream<Source, Chunk, SourceError>(
         &self,
         texture_id: u64,
-        storage: TextureStorageFormat,
+        storage_format: TextureStorageFormat,
         layout: TexturePixelLayout,
         source: Source,
     ) -> Result<(), TextureStreamError<Self::Error, SourceError>>
@@ -124,7 +124,7 @@ impl TextureManager for TestTextureManager {
         Chunk: AsRef<[u8]>,
     {
         consume_texture_stream(layout, source).await?;
-        self.allocate_texture_with_format(texture_id, layout.size, storage)
+        self.allocate_texture_with_format(texture_id, layout.size, storage_format)
             .map_err(TextureStreamError::Backend)
     }
 

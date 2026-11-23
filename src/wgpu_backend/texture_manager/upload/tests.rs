@@ -6,19 +6,19 @@ use crate::render_backend::texture_manager::{
 use crate::render_backend::PixelBufferError;
 use half::f16;
 
-fn storage_pixel_bytes(storage: TextureStorageFormat) -> usize {
-    match storage {
+fn storage_pixel_bytes(storage_format: TextureStorageFormat) -> usize {
+    match storage_format {
         TextureStorageFormat::Rgba8Srgb => 4,
         TextureStorageFormat::Rgba16Float => 8,
     }
 }
 
 fn converted_bytes(
-    storage: TextureStorageFormat,
+    storage_format: TextureStorageFormat,
     pixels: TexturePixels<'_>,
     chunk_size: usize,
 ) -> Vec<u8> {
-    let mut upload = TextureUpload::new(storage, pixels.layout).unwrap();
+    let mut upload = TextureUpload::new(storage_format, pixels.layout).unwrap();
     let mut source = pixels.bytes;
     let mut converted = Vec::new();
     while !upload.is_complete() {
@@ -28,7 +28,7 @@ fn converted_bytes(
         source = &source[consumed..];
         if upload.is_batch_ready() {
             let batch = upload.batch();
-            let row_bytes = batch.size.0 as usize * storage_pixel_bytes(storage);
+            let row_bytes = batch.size.0 as usize * storage_pixel_bytes(storage_format);
             for row in batch.bytes.chunks_exact(batch.bytes_per_row as usize) {
                 converted.extend_from_slice(&row[..row_bytes]);
             }

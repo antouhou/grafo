@@ -32,14 +32,14 @@ pub trait TextureManager {
         &self,
         texture_id: u64,
         size: (u32, u32),
-        storage: TextureStorageFormat,
+        storage_format: TextureStorageFormat,
     ) -> Result<(), Self::Error>;
 
     /// Allocates a texture the size of `pixels` and initializes it, replacing the entry at this ID.
     fn allocate_texture_with_pixels(
         &self,
         texture_id: u64,
-        storage: TextureStorageFormat,
+        storage_format: TextureStorageFormat,
         pixels: TexturePixels<'_>,
     ) -> Result<(), Self::Error>;
 
@@ -50,7 +50,7 @@ pub trait TextureManager {
     fn allocate_texture_with_stream<Source, Chunk, SourceError>(
         &self,
         texture_id: u64,
-        storage: TextureStorageFormat,
+        storage_format: TextureStorageFormat,
         layout: TexturePixelLayout,
         source: Source,
     ) -> impl Future<Output = Result<(), TextureStreamError<Self::Error, SourceError>>>
