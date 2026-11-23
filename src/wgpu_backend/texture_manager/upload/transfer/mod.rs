@@ -70,7 +70,6 @@ impl TextureUploadQueue {
     fn submit_batch(
         &self,
         texture: &Texture,
-        origin: (u32, u32),
         batch: TextureUploadBatch<'_>,
     ) -> Result<SubmissionIndex, TextureTransferError> {
         if self.device_lost.load(Ordering::Acquire) {
@@ -80,8 +79,8 @@ impl TextureUploadQueue {
         self.capacity.check()?;
         let mut destination = texture.as_image_copy();
         destination.origin = Origin3d {
-            x: origin.0 + batch.origin.0,
-            y: origin.1 + batch.origin.1,
+            x: batch.origin.0,
+            y: batch.origin.1,
             z: 0,
         };
         self.queue.write_texture(
@@ -104,22 +103,20 @@ impl TextureUploadQueue {
     pub(in super::super) fn write(
         &self,
         texture: &Texture,
-        origin: (u32, u32),
         batch: TextureUploadBatch<'_>,
     ) -> Result<(), TextureTransferError> {
         let reservation = self.completion.reserve()?;
-        let submission = self.submit_batch(texture, origin, batch)?;
+        let submission = self.submit_batch(texture, batch)?;
         self.completion.submitted(submission, reservation)
     }
 
     pub(in super::super) async fn write_async(
         &self,
         texture: &Texture,
-        origin: (u32, u32),
         batch: TextureUploadBatch<'_>,
     ) -> Result<(), TextureTransferError> {
         let reservation = self.completion.reserve_async().await?;
-        let submission = self.submit_batch(texture, origin, batch)?;
+        let submission = self.submit_batch(texture, batch)?;
         self.completion.submitted(submission, reservation)
     }
 }

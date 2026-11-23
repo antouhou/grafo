@@ -146,7 +146,6 @@ pub(super) struct TextureUpload {
     bytes: Vec<u8>,
     bytes_per_row: u32,
     batch_row_limit: u32,
-    batch_start_row: u32,
     batch_rows: u32,
     completed_rows: u32,
 }
@@ -189,7 +188,6 @@ impl TextureUpload {
             bytes: Vec::with_capacity(batch_byte_capacity),
             bytes_per_row,
             batch_row_limit,
-            batch_start_row: 0,
             batch_rows: 0,
             completed_rows: 0,
         })
@@ -289,7 +287,7 @@ impl TextureUpload {
         debug_assert!(self.is_batch_ready());
         TextureUploadBatch {
             bytes: &self.bytes,
-            origin: (0, self.batch_start_row),
+            origin: (0, self.completed_rows - self.batch_rows),
             size: (self.layout.size.0, self.batch_rows),
             bytes_per_row: self.bytes_per_row,
         }
@@ -298,7 +296,6 @@ impl TextureUpload {
     pub(super) fn clear_batch(&mut self) {
         debug_assert!(self.is_batch_ready());
         self.bytes.clear();
-        self.batch_start_row = self.completed_rows;
         self.batch_rows = 0;
     }
 

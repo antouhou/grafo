@@ -18,7 +18,7 @@ impl TextureBatchWriter for WgpuTextureBatchWriter<'_> {
     async fn write(&mut self, batch: TextureUploadBatch<'_>) -> Result<(), WgpuBackendError> {
         self.manager
             .uploads
-            .write_async(self.texture, (0, 0), batch)
+            .write_async(self.texture, batch)
             .await
             .map_err(WgpuBackendError::from)
     }
@@ -107,7 +107,7 @@ impl WgpuTextureManager {
             let consumed = upload.convert_into_batch(remaining);
             remaining = &remaining[consumed..];
             if upload.is_batch_ready() {
-                self.uploads.write(texture, (0, 0), upload.batch())?;
+                self.uploads.write(texture, upload.batch())?;
                 upload.clear_batch();
             }
         }
