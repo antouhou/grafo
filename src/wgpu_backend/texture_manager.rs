@@ -363,8 +363,20 @@ impl TextureManager for WgpuTextureManager {
         Source: Stream<Item = Result<Chunk, SourceError>>,
         Chunk: AsRef<[u8]>,
     {
-        self.allocate_stream(texture_id, storage, layout, source)
-            .await
+        self.ensure_available()?;
+        self.validate_dimensions(layout.size)?;
+        layout.required_byte_len()?;
+        let operation = self.operations.begin(texture_id)?;
+        let texture = self.create_texture(layout.size, storage, TextureUsages::TEXTURE_BINDING)?;
+        self.upload_stream(&operation, &texture, storage, layout, source)
+            .await?;
+        operation
+            .commit(|| {
+                self.ensure_available()?;
+                self.insert_texture(texture_id, ManagedTexture { texture, storage });
+                Ok(())
+            })
+            .map_err(TextureStreamError::Backend)
     }
 
     async fn stream_data_into_texture<Source, Chunk, SourceError>(
@@ -378,7 +390,15 @@ impl TextureManager for WgpuTextureManager {
         Source: Stream<Item = Result<Chunk, SourceError>>,
         Chunk: AsRef<[u8]>,
     {
-        self.update_stream(texture_id, origin, layout, source).await
+        self.ensure_available()?;
+        let operation = self.operations.begin(texture_id)?;
+        let (destination, storage) = self.update_destination(texture_id, origin, layout.size)?;
+        layout.required_byte_len()?;
+        let patch = self.create_texture(layout.size, storage, TextureUsages::COPY_SRC)?;
+        self.upload_stream(&operation, &patch, storage, layout, source)
+            .await?;
+        self.commit_update(operation, texture_id, &destination, &patch, origin)
+            .map_err(TextureStreamError::Backend)
     }
 
     fn remove_texture(&self, texture_id: u64) {

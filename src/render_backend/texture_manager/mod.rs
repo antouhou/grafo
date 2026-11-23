@@ -14,7 +14,7 @@ mod pixels;
 #[derive(Debug, Error)]
 pub enum TextureStreamError<BackendError, SourceError> {
     #[error("Texture upload failed: {0}")]
-    Backend(#[source] BackendError),
+    Backend(#[from] BackendError),
     #[error("Texture byte source failed: {0}")]
     Source(#[source] SourceError),
 }
@@ -22,7 +22,7 @@ pub enum TextureStreamError<BackendError, SourceError> {
 /// Textures are addressed by ID. Dimensions are `(width, height)` in pixels.
 /// Allocation returns preserves any existing texture at that ID on failure.
 pub trait TextureManager {
-    type Error: Send;
+    type Error;
 
     /// Removes all textures and their cached bindings.
     fn clear(&self);

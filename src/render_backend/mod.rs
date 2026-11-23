@@ -23,7 +23,7 @@ pub trait RenderBackend {
     /// Backend resources stored in a `Surface`.
     type Surface;
     /// Error type shared by all fallible backend operations.
-    type Error: From<RenderTargetError> + Send;
+    type Error: From<RenderTargetError>;
     type TextureManager: TextureManager<Error = Self::Error>;
 
     /// Registers or replaces resources for a borrowed CPU instance.

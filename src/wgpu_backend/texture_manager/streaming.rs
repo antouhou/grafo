@@ -1,7 +1,7 @@
 use super::operations::TextureUploadOperation;
 use super::upload::stream::{feed_texture_stream, TextureBatchWriter};
 use super::upload::{TextureUpload, TextureUploadBatch};
-use super::{ManagedTexture, TextureManagerError, WgpuTextureManager};
+use super::{TextureManagerError, WgpuTextureManager};
 use crate::render_backend::texture_manager::{
     TexturePixelLayout, TexturePixels, TextureStorageFormat, TextureStreamError,
 };
@@ -25,7 +25,7 @@ impl TextureBatchWriter for WgpuTextureBatchWriter<'_> {
 }
 
 impl WgpuTextureManager {
-    fn update_destination(
+    pub(super) fn update_destination(
         &self,
         texture_id: u64,
         origin: (u32, u32),
@@ -53,7 +53,7 @@ impl WgpuTextureManager {
         Ok((entry.texture.clone(), entry.storage))
     }
 
-    fn commit_update(
+    pub(super) fn commit_update(
         &self,
         operation: TextureUploadOperation,
         texture_id: u64,
@@ -132,7 +132,7 @@ impl WgpuTextureManager {
         self.commit_update(operation, texture_id, &destination, &patch, origin)
     }
 
-    async fn upload_stream<Source, Chunk, SourceError>(
+    pub(super) async fn upload_stream<Source, Chunk, SourceError>(
         &self,
         operation: &TextureUploadOperation,
         texture: &Texture,
@@ -149,69 +149,5 @@ impl WgpuTextureManager {
             texture,
         };
         feed_texture_stream(operation, storage, layout, source, &mut writer).await
-    }
-
-    pub(super) async fn allocate_stream<Source, Chunk, SourceError>(
-        &self,
-        texture_id: u64,
-        storage: TextureStorageFormat,
-        layout: TexturePixelLayout,
-        source: Source,
-    ) -> Result<(), TextureStreamError<WgpuBackendError, SourceError>>
-    where
-        Source: Stream<Item = Result<Chunk, SourceError>>,
-        Chunk: AsRef<[u8]>,
-    {
-        let prepare = || {
-            self.ensure_available()?;
-            self.validate_dimensions(layout.size)?;
-            layout
-                .required_byte_len()
-                .map_err(TextureManagerError::from)?;
-            let operation = self.operations.begin(texture_id)?;
-            let texture =
-                self.create_texture(layout.size, storage, TextureUsages::TEXTURE_BINDING)?;
-            Ok::<_, WgpuBackendError>((operation, texture))
-        };
-        let (operation, texture) = prepare().map_err(TextureStreamError::Backend)?;
-        self.upload_stream(&operation, &texture, storage, layout, source)
-            .await?;
-        operation
-            .commit(|| {
-                self.ensure_available()?;
-                self.insert_texture(texture_id, ManagedTexture { texture, storage });
-                Ok(())
-            })
-            .map_err(TextureStreamError::Backend)
-    }
-
-    pub(super) async fn update_stream<Source, Chunk, SourceError>(
-        &self,
-        texture_id: u64,
-        origin: (u32, u32),
-        layout: TexturePixelLayout,
-        source: Source,
-    ) -> Result<(), TextureStreamError<WgpuBackendError, SourceError>>
-    where
-        Source: Stream<Item = Result<Chunk, SourceError>>,
-        Chunk: AsRef<[u8]>,
-    {
-        let prepare = || {
-            self.ensure_available()?;
-            let operation = self.operations.begin(texture_id)?;
-            let (destination, storage) =
-                self.update_destination(texture_id, origin, layout.size)?;
-            layout
-                .required_byte_len()
-                .map_err(TextureManagerError::from)?;
-            let patch = self.create_texture(layout.size, storage, TextureUsages::COPY_SRC)?;
-            Ok::<_, WgpuBackendError>((operation, destination, storage, patch))
-        };
-        let (operation, destination, storage, patch) =
-            prepare().map_err(TextureStreamError::Backend)?;
-        self.upload_stream(&operation, &patch, storage, layout, source)
-            .await?;
-        self.commit_update(operation, texture_id, &destination, &patch, origin)
-            .map_err(TextureStreamError::Backend)
     }
 }
