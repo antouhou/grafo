@@ -7,7 +7,7 @@ use crate::render_backend::texture_manager::{
 };
 use crate::wgpu_backend::WgpuBackendError;
 use futures_core::Stream;
-use wgpu::{CommandEncoderDescriptor, Extent3d, Origin3d, Texture, TextureUsages};
+use wgpu::{Texture, TextureUsages};
 
 struct WgpuTextureBatchWriter<'a> {
     manager: &'a WgpuTextureManager,
@@ -53,43 +53,6 @@ impl WgpuTextureManager {
         Ok((entry.texture.clone(), entry.storage))
     }
 
-    pub(super) fn commit_update(
-        &self,
-        operation: TextureUploadOperation,
-        texture_id: u64,
-        destination: &Texture,
-        patch: &Texture,
-        origin: (u32, u32),
-    ) -> Result<(), WgpuBackendError> {
-        operation.commit(|| {
-            self.ensure_available()?;
-            let mut encoder = self
-                .device
-                .create_command_encoder(&CommandEncoderDescriptor {
-                    label: Some("commit_texture_upload"),
-                });
-            let mut target = destination.as_image_copy();
-            target.origin = Origin3d {
-                x: origin.0,
-                y: origin.1,
-                z: 0,
-            };
-            encoder.copy_texture_to_texture(
-                patch.as_image_copy(),
-                target,
-                Extent3d {
-                    width: patch.width(),
-                    height: patch.height(),
-                    depth_or_array_layers: 1,
-                },
-            );
-            self.queue.submit([encoder.finish()]);
-            self.ensure_available()?;
-            self.updates.publish(texture_id);
-            Ok(())
-        })
-    }
-
     pub(super) fn upload_slice(
         &self,
         operation: &TextureUploadOperation,
@@ -129,7 +92,7 @@ impl WgpuTextureManager {
             .map_err(TextureManagerError::from)?;
         let patch = self.create_texture(pixels.layout.size, storage, TextureUsages::COPY_SRC)?;
         self.upload_slice(&operation, &patch, storage, pixels)?;
-        self.commit_update(operation, texture_id, &destination, &patch, origin)
+        operation.commit_update(self, &destination, &patch, origin)
     }
 
     pub(super) async fn upload_stream<Source, Chunk, SourceError>(

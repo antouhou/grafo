@@ -1,4 +1,6 @@
-use super::{BindGroupCache, ManagedTexture, TextureManagerError, TextureTransferError};
+use super::{
+    BindGroupCache, ManagedTexture, TextureManagerError, TextureTransferError, WgpuTextureManager,
+};
 use crate::render_backend::texture_manager::TextureUpdatePublisher;
 use crate::wgpu_backend::WgpuBackendError;
 use futures_util::future::{self, Either};
@@ -8,6 +10,7 @@ use std::pin::pin;
 use std::sync::{Arc, Mutex, RwLock};
 use std::task::{Poll, Waker};
 use tokio::sync::SetOnce;
+use wgpu::{CommandEncoderDescriptor, Extent3d, Origin3d, Texture};
 
 #[derive(Default)]
 struct CancellationState {
@@ -180,20 +183,72 @@ impl TextureUploadOperation {
         }
     }
 
-    pub(super) fn commit<T>(
+    pub(super) fn commit_allocation(
         mut self,
-        commit: impl FnOnce() -> Result<T, WgpuBackendError>,
-    ) -> Result<T, WgpuBackendError> {
+        manager: &WgpuTextureManager,
+        texture: ManagedTexture,
+    ) -> Result<(), WgpuBackendError> {
         let mut pending = self
             .operations
             .pending
             .lock()
             .expect("pending uploads lock poisoned");
         self.check()?;
-        let result = commit();
+        manager.ensure_available()?;
+        let mut texture_storage = manager.texture_storage.write().unwrap();
+        let mut bind_group_cache = manager.shape_bind_group_cache.write().unwrap();
+        // Invalidate old bindings while both locks exclude concurrent cache insertion.
+        bind_group_cache.remove(&self.texture_id);
+        texture_storage.insert(self.texture_id, texture);
+        manager.updates.publish(self.texture_id);
         pending.remove(&self.texture_id);
         self.is_finished = true;
-        result
+        Ok(())
+    }
+
+    pub(super) fn commit_update(
+        mut self,
+        manager: &WgpuTextureManager,
+        destination: &Texture,
+        patch: &Texture,
+        origin: (u32, u32),
+    ) -> Result<(), WgpuBackendError> {
+        self.check()?;
+        manager.ensure_available()?;
+        // GPU callbacks can cancel other uploads, so submission must run without the pending lock.
+        let mut encoder = manager
+            .device
+            .create_command_encoder(&CommandEncoderDescriptor {
+                label: Some("commit_texture_upload"),
+            });
+        let mut target = destination.as_image_copy();
+        target.origin = Origin3d {
+            x: origin.0,
+            y: origin.1,
+            z: 0,
+        };
+        encoder.copy_texture_to_texture(
+            patch.as_image_copy(),
+            target,
+            Extent3d {
+                width: patch.width(),
+                height: patch.height(),
+                depth_or_array_layers: 1,
+            },
+        );
+        manager.queue.submit([encoder.finish()]);
+
+        let mut pending = self
+            .operations
+            .pending
+            .lock()
+            .expect("pending uploads lock poisoned");
+        self.check()?;
+        manager.ensure_available()?;
+        manager.updates.publish(self.texture_id);
+        pending.remove(&self.texture_id);
+        self.is_finished = true;
+        Ok(())
     }
 }
 

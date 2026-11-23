@@ -232,20 +232,7 @@ impl WgpuTextureManager {
         if let Some(pixels) = pixels {
             self.upload_slice(&operation, &texture, storage, pixels)?;
         }
-        operation.commit(|| {
-            self.ensure_available()?;
-            self.insert_texture(texture_id, ManagedTexture { texture, storage });
-            Ok(())
-        })
-    }
-
-    fn insert_texture(&self, texture_id: u64, texture: ManagedTexture) {
-        let mut texture_storage = self.texture_storage.write().unwrap();
-        let mut bind_group_cache = self.shape_bind_group_cache.write().unwrap();
-        // Invalidate old bindings while both locks exclude concurrent cache insertion.
-        bind_group_cache.remove(&texture_id);
-        texture_storage.insert(texture_id, texture);
-        self.updates.publish(texture_id);
+        operation.commit_allocation(self, ManagedTexture { texture, storage })
     }
 
     /// Returns a cached bind group for the texture, creating it with the shape layout if needed.
@@ -367,11 +354,7 @@ impl TextureManager for WgpuTextureManager {
         self.upload_stream(&operation, &texture, storage, layout, source)
             .await?;
         operation
-            .commit(|| {
-                self.ensure_available()?;
-                self.insert_texture(texture_id, ManagedTexture { texture, storage });
-                Ok(())
-            })
+            .commit_allocation(self, ManagedTexture { texture, storage })
             .map_err(TextureStreamError::Backend)
     }
 
@@ -393,7 +376,8 @@ impl TextureManager for WgpuTextureManager {
         let patch = self.create_texture(layout.size, storage, TextureUsages::COPY_SRC)?;
         self.upload_stream(&operation, &patch, storage, layout, source)
             .await?;
-        self.commit_update(operation, texture_id, &destination, &patch, origin)
+        operation
+            .commit_update(self, &destination, &patch, origin)
             .map_err(TextureStreamError::Backend)
     }
 
