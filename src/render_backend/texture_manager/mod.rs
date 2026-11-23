@@ -21,7 +21,7 @@ pub enum TextureStreamError<BackendError, SourceError> {
 
 /// Textures are addressed by ID. Dimensions are `(width, height)` in pixels.
 /// Allocation returns preserves any existing texture at that ID on failure.
-pub trait TextureManager: Send + Sync {
+pub trait TextureManager {
     type Error: Send;
 
     /// Removes all textures and their cached bindings.
