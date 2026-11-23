@@ -174,16 +174,24 @@ impl WgpuContext {
         let instance = Arc::new(instance);
         let adapter = Arc::new(adapter);
         let is_device_lost = Arc::new(AtomicBool::new(false));
-        let callback_device_lost = Arc::clone(&is_device_lost);
-        device.set_device_lost_callback(move |reason, message| {
-            callback_device_lost.store(true, Ordering::Relaxed);
-            error!(?reason, %message, "WGPU device lost");
-        });
         device.on_uncaptured_error(Arc::new(|error| {
             error!(%error, "WGPU error");
         }));
         let device = Arc::new(device);
         let queue = Arc::new(queue);
+        let texture_manager = WgpuTextureManager::new(
+            Arc::clone(&device),
+            Arc::clone(&queue),
+            texture_updates,
+            Arc::clone(&is_device_lost),
+        );
+        let notify_uploads = texture_manager.device_loss_notifier();
+        let callback_device_lost = Arc::clone(&is_device_lost);
+        device.set_device_lost_callback(move |reason, message| {
+            callback_device_lost.store(true, Ordering::Relaxed);
+            notify_uploads();
+            error!(?reason, %message, "WGPU device lost");
+        });
 
         Ok(Self {
             instance,
@@ -193,11 +201,7 @@ impl WgpuContext {
                 .contains(DownlevelFlags::BASE_VERTEX),
             adapter,
             retained_output_resources: RetainedOutputResources::new(&device),
-            texture_manager: WgpuTextureManager::new(
-                device.clone(),
-                queue.clone(),
-                texture_updates,
-            ),
+            texture_manager,
             device,
             queue,
             is_device_lost,

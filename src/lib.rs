@@ -50,7 +50,8 @@ pub use render_backend::render_target::{
     PixelFormat, PixelLayout, Pixmap, PixmapMut, RenderTarget, RenderTargetError,
 };
 pub use render_backend::texture_manager::{
-    AlphaMode, RgbEncoding, TextureManager, TexturePixelFormat, TexturePixels, TextureStorageFormat,
+    AlphaMode, RgbEncoding, TextureManager, TexturePixelFormat, TexturePixelLayout, TexturePixels,
+    TextureStorageFormat, TextureStreamError,
 };
 pub use render_backend::{PixelBufferError, RenderBackend, RenderContext};
 pub use scene_state::SceneError;

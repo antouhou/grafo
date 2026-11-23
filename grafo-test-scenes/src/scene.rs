@@ -7,6 +7,9 @@ use crate::shaders::{
     PADDED_BACKDROP_SAMPLING_WGSL, PASSTHROUGH_WGSL, ROTATE_COLOR_CHANNELS_WGSL, SHADOW_TINT_WGSL,
     SHAPE_DROP_WGSL, VERTICAL_BLUR_WGSL, WAVE_DISTORTION_WGSL,
 };
+use futures::executor::block_on;
+use futures::stream;
+use futures::StreamExt;
 use grafo::core::color;
 use grafo::lyon::math::Box2D;
 use grafo::lyon::path::{Path, PathEvent, Winding};
@@ -17,10 +20,12 @@ use grafo::{
     HueInterpolationMethod, LineCap, LinearGradientDesc, LinearGradientLine, PositionedGlyph,
     RadialGradientDesc, RadialGradientSize, RgbEncoding, Scene, Shape, ShapeDrawOptions,
     ShapeMaskEffectConfig, ShapeTextureFitMode, ShapeTextureOptions, SpreadMode,
-    StrokeGeometryOptions, TextSource, TextureManager, TexturePixelFormat, TexturePixels,
-    TextureStorageFormat, TransformInstance,
+    StrokeGeometryOptions, TextSource, TextureManager, TexturePixelFormat, TexturePixelLayout,
+    TextureStorageFormat, TextureStreamError, TransformInstance,
 };
+use std::convert::Infallible;
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
+use std::io;
 use std::slice;
 
 // Grid layout
@@ -1337,20 +1342,41 @@ fn load_shared_resources(scene: &mut Scene) {
         .load_effect(COLOR_CHANNEL_EFFECT_ID, &[ROTATE_COLOR_CHANNELS_WGSL])
         .unwrap();
     let manager = scene.texture_manager();
-    manager
-        .allocate_texture_with_pixels(
-            TRANSLUCENT_RED_TEXTURE_ID,
-            TextureStorageFormat::Rgba8Srgb,
-            TexturePixels {
-                bytes: &[0, 0, 255, 128],
-                size: (1, 1),
-                bytes_per_row: 4,
-                format: TexturePixelFormat::Bgra8,
-                encoding: RgbEncoding::Srgb,
-                alpha: AlphaMode::Straight,
-            },
-        )
-        .unwrap();
+    // Repeat a fragmented row to upload 2 MiB before the first render.
+    let red_row = [[0u8, 0, 255, 128]; 1024];
+    let red_bytes: &[u8] = bytemuck::cast_slice(&red_row);
+    let red_chunks = (0..512).flat_map(|_| red_bytes.chunks(257).map(Ok::<_, Infallible>));
+    let red_layout = TexturePixelLayout {
+        size: (1024, 512),
+        bytes_per_row: red_bytes.len(),
+        format: TexturePixelFormat::Bgra8,
+        encoding: RgbEncoding::Srgb,
+        alpha: AlphaMode::Straight,
+    };
+    block_on(manager.allocate_texture_with_stream(
+        TRANSLUCENT_RED_TEXTURE_ID,
+        TextureStorageFormat::Rgba8Srgb,
+        red_layout,
+        stream::iter(red_chunks),
+    ))
+    .unwrap();
+    // A failed replacement after a full batch must leave the visible red texture intact.
+    let blue_row = [[255u8, 0, 0, 255]; 1024];
+    let blue_bytes: &[u8] = bytemuck::cast_slice(&blue_row);
+    let blue_chunks = (0..257).flat_map(|_| blue_bytes.chunks(257).map(Ok::<_, io::Error>));
+    let interrupted_blue = stream::iter(blue_chunks).chain(stream::once(async {
+        Err::<&[u8], _>(io::Error::other("interrupted texture replacement"))
+    }));
+    block_on(manager.allocate_texture_with_stream(
+        TRANSLUCENT_RED_TEXTURE_ID,
+        TextureStorageFormat::Rgba8Srgb,
+        red_layout,
+        interrupted_blue,
+    ))
+    .unwrap_or_else(|error| match error {
+        TextureStreamError::Source(_) => {}
+        TextureStreamError::Backend(error) => panic!("Unexpected texture upload failure: {error}"),
+    });
     manager
         .allocate_texture_with_format(
             HALF_GREEN_TEXTURE_ID,
@@ -1359,20 +1385,40 @@ fn load_shared_resources(scene: &mut Scene) {
         )
         .unwrap();
     let green = [[0.0_f32, 1.0, 0.0, 128.0 / 255.0]; 2];
-    manager
-        .load_data_into_texture(
-            HALF_GREEN_TEXTURE_ID,
-            (2, 0),
-            TexturePixels {
-                bytes: bytemuck::cast_slice(&green),
-                size: (2, 1),
-                bytes_per_row: 32,
-                format: TexturePixelFormat::Rgba32Float,
-                encoding: RgbEncoding::LinearSrgb,
-                alpha: AlphaMode::Straight,
-            },
-        )
-        .unwrap();
+    let green_bytes: &[u8] = bytemuck::cast_slice(&green);
+    let green_layout = TexturePixelLayout {
+        size: (2, 1),
+        bytes_per_row: 32,
+        format: TexturePixelFormat::Rgba32Float,
+        encoding: RgbEncoding::LinearSrgb,
+        alpha: AlphaMode::Straight,
+    };
+    let green_source = stream::once(async { Ok::<_, Infallible>(&green_bytes[..3]) }).chain(
+        stream::iter(green_bytes[3..].chunks(3).map(Ok::<_, Infallible>)),
+    );
+    block_on(manager.stream_data_into_texture(
+        HALF_GREEN_TEXTURE_ID,
+        (2, 0),
+        green_layout,
+        green_source,
+    ))
+    .unwrap();
+    let magenta = [1.0_f32, 0.0, 1.0, 1.0];
+    let magenta_bytes: &[u8] = bytemuck::cast_slice(&magenta);
+    let interrupted_magenta = stream::iter([
+        Ok(magenta_bytes),
+        Err(io::Error::other("interrupted texture update")),
+    ]);
+    block_on(manager.stream_data_into_texture(
+        HALF_GREEN_TEXTURE_ID,
+        (2, 0),
+        green_layout,
+        interrupted_magenta,
+    ))
+    .unwrap_or_else(|error| match error {
+        TextureStreamError::Source(_) => {}
+        TextureStreamError::Backend(error) => panic!("Unexpected texture upload failure: {error}"),
+    });
 
     scene
         .load_effect(BLUR_EFFECT_ID, &[HORIZONTAL_BLUR_WGSL, VERTICAL_BLUR_WGSL])
@@ -1442,14 +1488,11 @@ fn load_shared_resources(scene: &mut Scene) {
         .load_data_into_texture(
             BANDED_20X20_TEXTURE_ID,
             (1, 1),
-            TexturePixels {
+            TexturePixelLayout {
                 bytes_per_row: 19 * 4,
-                ..TexturePixels::rgba8_srgb(
-                    bytemuck::cast_slice(&padded_rows),
-                    (18, 18),
-                    AlphaMode::PremultipliedInLinearSpace,
-                )
-            },
+                ..TexturePixelLayout::rgba8_srgb((18, 18), AlphaMode::PremultipliedInLinearSpace)
+            }
+            .pixels(bytemuck::cast_slice(&padded_rows)),
         )
         .unwrap();
 }

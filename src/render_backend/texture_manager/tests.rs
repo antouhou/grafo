@@ -1,4 +1,7 @@
-use super::{AlphaMode, RgbEncoding, TexturePixelFormat, TexturePixels, TextureUpdatePublisher};
+use super::{
+    AlphaMode, RgbEncoding, TexturePixelFormat, TexturePixelLayout, TexturePixels,
+    TextureUpdatePublisher,
+};
 use crate::render_backend::PixelBufferError;
 use std::sync::{Arc, Barrier};
 use std::thread;
@@ -6,18 +9,20 @@ use std::thread;
 #[test]
 fn strided_float_pixels_validate_crop_boundaries_and_reject_invalid_layouts() {
     let bytes = [0; 96];
-    let crop = TexturePixels {
-        bytes: &bytes[12..84],
+    let layout = TexturePixelLayout {
         size: (2, 2),
         bytes_per_row: 48,
         format: TexturePixelFormat::Rgb32Float,
         encoding: RgbEncoding::LinearSrgb,
         alpha: AlphaMode::Opaque,
     };
+    let crop = layout.pixels(&bytes[12..84]);
     assert_eq!(crop.validated_bytes(), Ok(&bytes[12..84]));
     for size in [(0, 2), (2, 0)] {
         assert_eq!(
-            TexturePixels { size, ..crop }.validated_bytes(),
+            TexturePixelLayout { size, ..layout }
+                .pixels(crop.bytes)
+                .validated_bytes(),
             Err(PixelBufferError::InvalidSize),
         );
     }
@@ -33,10 +38,11 @@ fn strided_float_pixels_validate_crop_boundaries_and_reject_invalid_layouts() {
         }),
     );
     assert_eq!(
-        TexturePixels {
+        TexturePixelLayout {
             bytes_per_row: 23,
-            ..crop
+            ..layout
         }
+        .pixels(crop.bytes)
         .validated_bytes(),
         Err(PixelBufferError::InvalidStride {
             required: 24,
@@ -44,10 +50,11 @@ fn strided_float_pixels_validate_crop_boundaries_and_reject_invalid_layouts() {
         }),
     );
     assert_eq!(
-        TexturePixels {
+        TexturePixelLayout {
             bytes_per_row: usize::MAX,
-            ..crop
+            ..layout
         }
+        .pixels(crop.bytes)
         .validated_bytes(),
         Err(PixelBufferError::InvalidSize),
     );

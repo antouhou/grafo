@@ -1,20 +1,34 @@
 use super::WgpuBackendError;
 use crate::render_backend::texture_manager::{
-    TextureManager, TexturePixels, TextureStorageFormat, TextureUpdatePublisher,
+    TextureManager, TexturePixelLayout, TexturePixels, TextureStorageFormat, TextureStreamError,
+    TextureUpdatePublisher,
 };
 use crate::render_backend::PixelBufferError;
+use futures_core::Stream;
+use operations::TextureUploadOperations;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
-use upload::TextureUpload;
+use thiserror::Error;
+pub use upload::transfer::TextureTransferError;
+use upload::transfer::TextureUploadQueue;
 use wgpu::{
     Extent3d, MipmapFilterMode, Texture, TextureDescriptor, TextureDimension, TextureFormat,
     TextureUsages, TextureViewDescriptor,
 };
 
+mod operations;
+mod streaming;
 mod upload;
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Error)]
 pub enum TextureManagerError {
+    #[error("Texture {0} already has an active upload")]
+    TextureBusy(u64),
+    #[error("Texture upload was cancelled")]
+    UploadCancelled,
+    #[error(transparent)]
+    Transfer(#[from] TextureTransferError),
     #[error("Texture dimensions {size:?} must each be between 1 and {max_dimension}")]
     InvalidDimensions {
         size: (u32, u32),
@@ -41,6 +55,11 @@ struct ManagedTexture {
 ///
 /// Cloned managers share texture storage. All dimensions are `(width, height)` in pixels.
 /// Uploads to [`TextureStorageFormat::Rgba16Float`] clamp converted colors to the finite binary16 range.
+/// Uploads use bounded batches. Synchronous calls can block while waiting for capacity.
+/// For concurrent uploads on a single-threaded executor, await the streaming methods
+/// so earlier uploads can resume.
+/// Success means the complete upload is submitted before subsequent rendering, not that the GPU is idle.
+/// Only one upload can target an ID at a time. Removing or clearing textures cancels pending uploads.
 ///
 /// # Examples
 ///
@@ -71,6 +90,9 @@ pub struct WgpuTextureManager {
     /// Both shape texture layers use the same layout across scenes and MSAA settings.
     shape_bind_group_cache: Arc<RwLock<BindGroupCache>>,
     updates: TextureUpdatePublisher,
+    operations: TextureUploadOperations,
+    uploads: Arc<TextureUploadQueue>,
+    is_device_lost: Arc<AtomicBool>,
 }
 
 type BindGroupCache = HashMap<u64, Arc<wgpu::BindGroup>>;
@@ -80,8 +102,16 @@ impl WgpuTextureManager {
         device: Arc<wgpu::Device>,
         queue: Arc<wgpu::Queue>,
         updates: TextureUpdatePublisher,
+        is_device_lost: Arc<AtomicBool>,
     ) -> Self {
         let sampler = Self::create_sampler(&device);
+        let operations = TextureUploadOperations::default();
+        let uploads = Arc::new(TextureUploadQueue::new(
+            Arc::clone(&device),
+            Arc::clone(&queue),
+            Arc::clone(&is_device_lost),
+            operations.failure_signal(),
+        ));
         Self {
             device,
             queue,
@@ -89,6 +119,9 @@ impl WgpuTextureManager {
             texture_storage: Arc::new(RwLock::new(HashMap::new())),
             shape_bind_group_cache: Arc::new(RwLock::new(HashMap::new())),
             updates,
+            operations,
+            uploads,
+            is_device_lost,
         }
     }
 
@@ -127,13 +160,19 @@ impl WgpuTextureManager {
         })
     }
 
-    fn allocate(
-        &self,
-        texture_id: u64,
-        size: (u32, u32),
-        storage: TextureStorageFormat,
-        pixels: Option<TexturePixels<'_>>,
-    ) -> Result<(), TextureManagerError> {
+    fn ensure_available(&self) -> Result<(), WgpuBackendError> {
+        if self.is_device_lost.load(Ordering::Relaxed) {
+            Err(WgpuBackendError::DeviceLost)
+        } else {
+            Ok(())
+        }
+    }
+
+    pub(super) fn device_loss_notifier(&self) -> impl Fn() + Send + Sync + 'static {
+        self.uploads.device_loss_notifier()
+    }
+
+    fn validate_dimensions(&self, size: (u32, u32)) -> Result<(), TextureManagerError> {
         let max_dimension = self.device.limits().max_texture_dimension_2d;
         let valid_dimensions = 1..=max_dimension;
         if !valid_dimensions.contains(&size.0) || !valid_dimensions.contains(&size.1) {
@@ -142,18 +181,24 @@ impl WgpuTextureManager {
                 max_dimension,
             });
         }
-        let upload = pixels
-            .map(|pixels| TextureUpload::new(storage, pixels))
-            .transpose()?;
-        let texture_extent = Extent3d {
-            width: size.0,
-            height: size.1,
-            depth_or_array_layers: 1,
-        };
+        Ok(())
+    }
 
-        let texture = self.device.create_texture(&TextureDescriptor {
-            label: None,
-            size: texture_extent,
+    fn create_texture(
+        &self,
+        size: (u32, u32),
+        storage: TextureStorageFormat,
+        usage: TextureUsages,
+    ) -> Result<Texture, WgpuBackendError> {
+        self.ensure_available()?;
+        self.validate_dimensions(size)?;
+        Ok(self.device.create_texture(&TextureDescriptor {
+            label: Some("source_texture"),
+            size: Extent3d {
+                width: size.0,
+                height: size.1,
+                depth_or_array_layers: 1,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: TextureDimension::D2,
@@ -161,13 +206,35 @@ impl WgpuTextureManager {
                 TextureStorageFormat::Rgba8Srgb => TextureFormat::Rgba8UnormSrgb,
                 TextureStorageFormat::Rgba16Float => TextureFormat::Rgba16Float,
             },
-            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+            usage: usage | TextureUsages::COPY_DST,
             view_formats: &[],
-        });
-        if let Some(upload) = upload {
-            upload.write(&self.queue, &texture, (0, 0));
+        }))
+    }
+
+    fn allocate(
+        &self,
+        texture_id: u64,
+        size: (u32, u32),
+        storage: TextureStorageFormat,
+        pixels: Option<TexturePixels<'_>>,
+    ) -> Result<(), WgpuBackendError> {
+        self.ensure_available()?;
+        self.validate_dimensions(size)?;
+        if let Some(pixels) = pixels {
+            pixels
+                .validated_bytes()
+                .map_err(TextureManagerError::from)?;
         }
-        self.insert_texture(texture_id, ManagedTexture { texture, storage });
+        let operation = self.operations.begin(texture_id)?;
+        let texture = self.create_texture(size, storage, TextureUsages::TEXTURE_BINDING)?;
+        if let Some(pixels) = pixels {
+            self.upload_slice(&operation, &texture, storage, pixels)?;
+        }
+        operation.commit(|| {
+            self.ensure_available()?;
+            self.insert_texture(texture_id, ManagedTexture { texture, storage });
+            Ok::<_, WgpuBackendError>(())
+        })??;
         Ok(())
     }
 
@@ -246,13 +313,15 @@ impl TextureManager for WgpuTextureManager {
     type Error = WgpuBackendError;
 
     fn clear(&self) {
-        let mut texture_storage = self.texture_storage.write().unwrap();
-        let mut bind_group_cache = self.shape_bind_group_cache.write().unwrap();
-        for &texture_id in texture_storage.keys() {
-            self.updates.publish(texture_id);
-        }
-        texture_storage.clear();
-        bind_group_cache.clear();
+        self.operations.clear(|| {
+            let mut texture_storage = self.texture_storage.write().unwrap();
+            let mut bind_group_cache = self.shape_bind_group_cache.write().unwrap();
+            for &texture_id in texture_storage.keys() {
+                self.updates.publish(texture_id);
+            }
+            texture_storage.clear();
+            bind_group_cache.clear();
+        });
     }
 
     fn allocate_texture_with_format(
@@ -262,7 +331,6 @@ impl TextureManager for WgpuTextureManager {
         storage: TextureStorageFormat,
     ) -> Result<(), Self::Error> {
         self.allocate(texture_id, texture_dimensions, storage, None)
-            .map_err(Into::into)
     }
 
     fn allocate_texture_with_pixels(
@@ -271,8 +339,7 @@ impl TextureManager for WgpuTextureManager {
         storage: TextureStorageFormat,
         pixels: TexturePixels<'_>,
     ) -> Result<(), Self::Error> {
-        self.allocate(texture_id, pixels.size, storage, Some(pixels))
-            .map_err(Into::into)
+        self.allocate(texture_id, pixels.layout.size, storage, Some(pixels))
     }
 
     fn load_data_into_texture(
@@ -281,37 +348,49 @@ impl TextureManager for WgpuTextureManager {
         origin: (u32, u32),
         pixels: TexturePixels<'_>,
     ) -> Result<(), Self::Error> {
-        let texture_storage = self.texture_storage.read().unwrap();
-        let entry = texture_storage
-            .get(&texture_id)
-            .ok_or(TextureManagerError::TextureNotFound(texture_id))?;
+        self.update_slice(texture_id, origin, pixels)
+    }
 
-        let texture_size = (entry.texture.width(), entry.texture.height());
-        if u64::from(origin.0) + u64::from(pixels.size.0) > u64::from(texture_size.0)
-            || u64::from(origin.1) + u64::from(pixels.size.1) > u64::from(texture_size.1)
-        {
-            return Err(TextureManagerError::OutOfBounds {
-                origin,
-                size: pixels.size,
-                texture_size,
-            }
-            .into());
-        }
-        let upload =
-            TextureUpload::new(entry.storage, pixels).map_err(TextureManagerError::from)?;
-        upload.write(&self.queue, &entry.texture, origin);
-        self.updates.publish(texture_id);
+    async fn allocate_texture_with_stream<Source, Chunk, SourceError>(
+        &self,
+        texture_id: u64,
+        storage: TextureStorageFormat,
+        layout: TexturePixelLayout,
+        source: Source,
+    ) -> Result<(), TextureStreamError<Self::Error, SourceError>>
+    where
+        Source: Stream<Item = Result<Chunk, SourceError>> + Send,
+        Chunk: AsRef<[u8]> + Send,
+        SourceError: Send,
+    {
+        self.allocate_stream(texture_id, storage, layout, source)
+            .await
+    }
 
-        Ok(())
+    async fn stream_data_into_texture<Source, Chunk, SourceError>(
+        &self,
+        texture_id: u64,
+        origin: (u32, u32),
+        layout: TexturePixelLayout,
+        source: Source,
+    ) -> Result<(), TextureStreamError<Self::Error, SourceError>>
+    where
+        Source: Stream<Item = Result<Chunk, SourceError>> + Send,
+        Chunk: AsRef<[u8]> + Send,
+        SourceError: Send,
+    {
+        self.update_stream(texture_id, origin, layout, source).await
     }
 
     fn remove_texture(&self, texture_id: u64) {
-        let mut texture_storage = self.texture_storage.write().unwrap();
-        let mut bind_group_cache = self.shape_bind_group_cache.write().unwrap();
-        bind_group_cache.remove(&texture_id);
-        if texture_storage.remove(&texture_id).is_some() {
-            self.updates.publish(texture_id);
-        }
+        self.operations.remove(texture_id, || {
+            let mut texture_storage = self.texture_storage.write().unwrap();
+            let mut bind_group_cache = self.shape_bind_group_cache.write().unwrap();
+            bind_group_cache.remove(&texture_id);
+            if texture_storage.remove(&texture_id).is_some() {
+                self.updates.publish(texture_id);
+            }
+        });
     }
 
     fn is_texture_loaded(&self, texture_id: u64) -> bool {

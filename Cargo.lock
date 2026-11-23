@@ -1145,17 +1145,21 @@ dependencies = [
  "env_logger",
  "euclid",
  "futures",
+ "futures-core",
+ "futures-util",
  "grafo-test-scenes",
  "half",
  "image",
  "lru",
  "lyon",
  "naga",
+ "pollster",
  "rstar",
  "smallvec",
  "softbuffer",
  "swash",
  "thiserror 2.0.18",
+ "tokio",
  "tracing",
  "transformator",
  "usvg",
@@ -2268,6 +2272,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "pollster"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2f3a9f18d041e6d0e102a0a46750538147e5e8992d3b4873aaafee2520b00ce3"
+
+[[package]]
 name = "polycool"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3122,6 +3132,15 @@ name = "tinyvec"
 version = "1.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
+
+[[package]]
+name = "tokio"
+version = "1.54.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b52fd3255258d26fac7264ab5a76b53c13367136dc011d3d6ad4f8ed070396a3"
+dependencies = [
+ "pin-project-lite",
+]
 
 [[package]]
 name = "toml"

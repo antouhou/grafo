@@ -1,0 +1,310 @@
+use super::{feed_texture_stream, TextureBatchWriter};
+use crate::render_backend::texture_manager::{
+    AlphaMode, TexturePixelLayout, TextureStorageFormat, TextureStreamError,
+};
+use crate::render_backend::PixelBufferError;
+use crate::wgpu_backend::texture_manager::operations::TextureUploadOperations;
+use crate::wgpu_backend::texture_manager::upload::{
+    TextureUploadBatch, TEXTURE_UPLOAD_BATCH_BYTE_LIMIT,
+};
+use crate::wgpu_backend::texture_manager::{TextureManagerError, TextureTransferError};
+use crate::wgpu_backend::WgpuBackendError;
+use futures::channel::oneshot;
+use futures::executor::block_on;
+use futures::stream;
+use futures::StreamExt;
+use std::future::Future;
+use std::pin::pin;
+use std::sync::{mpsc, Arc};
+use std::task::{Context, Poll, Wake, Waker};
+
+#[derive(Debug)]
+struct SourceFailure;
+
+struct RecordedTextureBatch {
+    bytes: Vec<u8>,
+    origin: (u32, u32),
+    size: (u32, u32),
+    bytes_per_row: u32,
+}
+
+#[derive(Default)]
+struct RecordingTextureBatchWriter {
+    batches: Vec<RecordedTextureBatch>,
+    resume: Option<oneshot::Receiver<()>>,
+}
+
+struct StreamWake(mpsc::Sender<()>);
+
+impl TextureBatchWriter for RecordingTextureBatchWriter {
+    async fn write(&mut self, batch: TextureUploadBatch<'_>) -> Result<(), WgpuBackendError> {
+        if let Some(resume) = self.resume.take() {
+            resume.await.map_err(|_| WgpuBackendError::DeviceLost)?;
+        }
+        self.batches.push(RecordedTextureBatch {
+            bytes: batch.bytes.to_vec(),
+            origin: batch.origin,
+            size: batch.size,
+            bytes_per_row: batch.bytes_per_row,
+        });
+        Ok(())
+    }
+}
+
+impl Wake for StreamWake {
+    fn wake(self: Arc<Self>) {
+        let _ = self.0.send(());
+    }
+}
+
+fn wake_channel() -> (Waker, mpsc::Receiver<()>) {
+    let (sender, receiver) = mpsc::channel();
+    (Waker::from(Arc::new(StreamWake(sender))), receiver)
+}
+
+fn rgba_layout(size: (u32, u32)) -> TexturePixelLayout {
+    TexturePixelLayout::rgba8_srgb(size, AlphaMode::PremultipliedInLinearSpace)
+}
+
+#[test]
+fn pending_borrowed_source_wakes_and_preserves_fragmented_pixels() {
+    let operations = TextureUploadOperations::default();
+    let operation = operations.begin(42).unwrap();
+    let pixels = [12, 34, 56, 255, 78, 90, 123, 255];
+    let (resume_sender, resume_receiver) = oneshot::channel();
+    let source = stream::iter([Ok::<_, SourceFailure>(&pixels[..3])]).chain(stream::once(async {
+        resume_receiver.await.unwrap();
+        Ok::<_, SourceFailure>(&pixels[3..])
+    }));
+    let mut writer = RecordingTextureBatchWriter::default();
+    let (waker, wakes) = wake_channel();
+    let mut context = Context::from_waker(&waker);
+    {
+        let mut upload = pin!(feed_texture_stream(
+            &operation,
+            TextureStorageFormat::Rgba8Srgb,
+            rgba_layout((2, 1)),
+            source,
+            &mut writer,
+        ));
+        assert!(upload.as_mut().poll(&mut context).is_pending());
+        resume_sender.send(()).unwrap();
+        wakes.recv().unwrap();
+        assert!(matches!(
+            upload.as_mut().poll(&mut context),
+            Poll::Ready(Ok(()))
+        ));
+    }
+    assert_eq!(writer.batches.len(), 1);
+    assert_eq!(&writer.batches[0].bytes[..pixels.len()], &pixels);
+    assert_eq!(writer.batches[0].bytes_per_row, 256);
+}
+
+#[test]
+fn source_failure_after_a_submitted_band_preserves_the_source_error() {
+    let operations = TextureUploadOperations::default();
+    let operation = operations.begin(42).unwrap();
+    let band = vec![37; TEXTURE_UPLOAD_BATCH_BYTE_LIMIT];
+    let source = stream::iter([Ok(band.as_slice()), Err(SourceFailure)]);
+    let mut writer = RecordingTextureBatchWriter::default();
+    let result = block_on(feed_texture_stream(
+        &operation,
+        TextureStorageFormat::Rgba8Srgb,
+        rgba_layout((1024, 257)),
+        source,
+        &mut writer,
+    ));
+    assert!(matches!(
+        result,
+        Err(TextureStreamError::Source(SourceFailure))
+    ));
+    assert_eq!(writer.batches.len(), 1);
+    assert_eq!(writer.batches[0].origin, (0, 0));
+    assert_eq!(writer.batches[0].size, (1024, 256));
+    assert_eq!(writer.batches[0].bytes, band);
+}
+
+#[test]
+fn early_eof_after_a_submitted_band_reports_the_consumed_prefix() {
+    let operations = TextureUploadOperations::default();
+    let operation = operations.begin(42).unwrap();
+    let band = vec![37; TEXTURE_UPLOAD_BATCH_BYTE_LIMIT];
+    let source = stream::iter([Ok::<_, SourceFailure>(band.as_slice()), Ok(&[1, 2, 3][..])]);
+    let mut writer = RecordingTextureBatchWriter::default();
+    let result = block_on(feed_texture_stream(
+        &operation,
+        TextureStorageFormat::Rgba8Srgb,
+        rgba_layout((1024, 257)),
+        source,
+        &mut writer,
+    ));
+    let Err(TextureStreamError::Backend(WgpuBackendError::Texture(
+        TextureManagerError::InvalidPixels(PixelBufferError::StorageTooSmall {
+            required,
+            provided,
+        }),
+    ))) = result
+    else {
+        panic!("expected a short streamed prefix");
+    };
+    assert_eq!(required, TEXTURE_UPLOAD_BATCH_BYTE_LIMIT + 4096);
+    assert_eq!(provided, TEXTURE_UPLOAD_BATCH_BYTE_LIMIT + 3);
+    assert_eq!(writer.batches.len(), 1);
+}
+
+#[test]
+fn complete_prefix_ignores_trailing_bytes_and_does_not_wait_for_eof() {
+    let operations = TextureUploadOperations::default();
+    let operation = operations.begin(42).unwrap();
+    let bytes = [12, 34, 56, 255, 99, 88];
+    let source = stream::iter([Ok::<_, SourceFailure>(&bytes[..])]).chain(stream::pending());
+    let mut writer = RecordingTextureBatchWriter::default();
+    let (waker, _) = wake_channel();
+    let mut context = Context::from_waker(&waker);
+    {
+        let mut upload = pin!(feed_texture_stream(
+            &operation,
+            TextureStorageFormat::Rgba8Srgb,
+            rgba_layout((1, 1)),
+            source,
+            &mut writer,
+        ));
+        assert!(matches!(
+            upload.as_mut().poll(&mut context),
+            Poll::Ready(Ok(()))
+        ));
+    }
+    assert_eq!(writer.batches.len(), 1);
+    assert_eq!(&writer.batches[0].bytes[..4], &bytes[..4]);
+    assert!(writer.batches[0].bytes[4..].iter().all(|&byte| byte == 0));
+}
+
+#[test]
+fn cancellation_wakes_a_driver_waiting_for_source_bytes() {
+    let operations = TextureUploadOperations::default();
+    let operation = operations.begin(42).unwrap();
+    let mut writer = RecordingTextureBatchWriter::default();
+    let (waker, wakes) = wake_channel();
+    let mut context = Context::from_waker(&waker);
+    {
+        let mut upload = pin!(feed_texture_stream(
+            &operation,
+            TextureStorageFormat::Rgba8Srgb,
+            rgba_layout((1, 1)),
+            stream::pending::<Result<&[u8], SourceFailure>>(),
+            &mut writer,
+        ));
+        assert!(upload.as_mut().poll(&mut context).is_pending());
+        operations.remove(42, || {});
+        wakes.recv().unwrap();
+        assert!(matches!(
+            upload.as_mut().poll(&mut context),
+            Poll::Ready(Err(TextureStreamError::Backend(WgpuBackendError::Texture(
+                TextureManagerError::UploadCancelled
+            ))))
+        ));
+    }
+    assert!(writer.batches.is_empty());
+}
+
+#[test]
+fn cancellation_wakes_a_driver_waiting_to_write_a_batch() {
+    let operations = TextureUploadOperations::default();
+    let operation = operations.begin(42).unwrap();
+    let (_resume_sender, resume_receiver) = oneshot::channel();
+    let mut writer = RecordingTextureBatchWriter {
+        resume: Some(resume_receiver),
+        ..RecordingTextureBatchWriter::default()
+    };
+    let (waker, wakes) = wake_channel();
+    let mut context = Context::from_waker(&waker);
+    {
+        let mut upload = pin!(feed_texture_stream(
+            &operation,
+            TextureStorageFormat::Rgba8Srgb,
+            rgba_layout((1, 1)),
+            stream::iter([Ok::<_, SourceFailure>(&[12, 34, 56, 255][..])]),
+            &mut writer,
+        ));
+        assert!(upload.as_mut().poll(&mut context).is_pending());
+        operations.remove(42, || {});
+        wakes.recv().unwrap();
+        assert!(matches!(
+            upload.as_mut().poll(&mut context),
+            Poll::Ready(Err(TextureStreamError::Backend(WgpuBackendError::Texture(
+                TextureManagerError::UploadCancelled
+            ))))
+        ));
+    }
+    assert!(writer.batches.is_empty());
+}
+
+#[test]
+fn device_loss_wakes_a_driver_waiting_for_source_bytes() {
+    let operations = TextureUploadOperations::default();
+    let operation = operations.begin(42).unwrap();
+    let mut writer = RecordingTextureBatchWriter::default();
+    let (waker, wakes) = wake_channel();
+    let mut context = Context::from_waker(&waker);
+    {
+        let mut upload = pin!(feed_texture_stream(
+            &operation,
+            TextureStorageFormat::Rgba8Srgb,
+            rgba_layout((1, 1)),
+            stream::pending::<Result<&[u8], SourceFailure>>(),
+            &mut writer,
+        ));
+        assert!(upload.as_mut().poll(&mut context).is_pending());
+        operations
+            .failure_signal()
+            .set(TextureTransferError::DeviceLost)
+            .unwrap();
+        wakes.recv().unwrap();
+        assert!(matches!(
+            upload.as_mut().poll(&mut context),
+            Poll::Ready(Err(TextureStreamError::Backend(
+                WgpuBackendError::DeviceLost
+            )))
+        ));
+    }
+    assert!(writer.batches.is_empty());
+}
+
+#[test]
+fn writer_completion_wakes_the_driver_and_preserves_band_origins() {
+    let operations = TextureUploadOperations::default();
+    let operation = operations.begin(42).unwrap();
+    let bytes = vec![37; TEXTURE_UPLOAD_BATCH_BYTE_LIMIT + 4096];
+    let (resume_sender, resume_receiver) = oneshot::channel();
+    let mut writer = RecordingTextureBatchWriter {
+        resume: Some(resume_receiver),
+        ..RecordingTextureBatchWriter::default()
+    };
+    let (waker, wakes) = wake_channel();
+    let mut context = Context::from_waker(&waker);
+    {
+        let mut upload = pin!(feed_texture_stream(
+            &operation,
+            TextureStorageFormat::Rgba8Srgb,
+            rgba_layout((1024, 257)),
+            stream::iter([Ok::<_, SourceFailure>(bytes.as_slice())]),
+            &mut writer,
+        ));
+        assert!(upload.as_mut().poll(&mut context).is_pending());
+        resume_sender.send(()).unwrap();
+        wakes.recv().unwrap();
+        assert!(matches!(
+            upload.as_mut().poll(&mut context),
+            Poll::Ready(Ok(()))
+        ));
+    }
+    assert_eq!(writer.batches.len(), 2);
+    assert_eq!(writer.batches[0].origin, (0, 0));
+    assert_eq!(writer.batches[0].size, (1024, 256));
+    assert_eq!(writer.batches[1].origin, (0, 256));
+    assert_eq!(writer.batches[1].size, (1024, 1));
+    assert_eq!(
+        writer.batches[1].bytes,
+        bytes[TEXTURE_UPLOAD_BATCH_BYTE_LIMIT..]
+    );
+}
