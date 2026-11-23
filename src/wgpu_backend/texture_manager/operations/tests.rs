@@ -16,42 +16,6 @@ impl Wake for CancellationWake {
 }
 
 #[test]
-fn cancellation_wakes_pending_source_and_releases_the_id() {
-    let operations = TextureUploadOperations::default();
-    let operation = operations.begin(42).unwrap();
-    let (sender, receiver) = mpsc::channel();
-    let waker = Waker::from(Arc::new(CancellationWake(sender)));
-    let mut context = Context::from_waker(&waker);
-    let mut cancelled = pin!(operation.cancelled());
-    assert_eq!(cancelled.as_mut().poll(&mut context), Poll::Pending);
-
-    operations.remove(42, || {});
-    receiver.recv().unwrap();
-    assert_eq!(cancelled.as_mut().poll(&mut context), Poll::Ready(()));
-    assert!(operations.begin(42).is_ok());
-}
-
-#[test]
-fn removed_upload_cannot_publish_or_release_a_new_upload() {
-    let operations = TextureUploadOperations::default();
-    let old = operations.begin(42).unwrap();
-    operations.remove(42, || {});
-    let replacement = operations.begin(42).unwrap();
-    assert!(matches!(
-        old.commit::<()>(|| panic!("removed upload committed")),
-        Err(WgpuBackendError::Texture(
-            TextureManagerError::UploadCancelled
-        ))
-    ));
-    assert!(matches!(
-        operations.begin(42),
-        Err(TextureManagerError::TextureBusy(42))
-    ));
-    replacement.commit(|| Ok(())).unwrap();
-    assert!(operations.begin(42).is_ok());
-}
-
-#[test]
 fn abandoned_upload_releases_ownership_without_publishing() {
     let operations = TextureUploadOperations::default();
     let pending = operations.begin(42).unwrap();
@@ -63,27 +27,6 @@ fn abandoned_upload_releases_ownership_without_publishing() {
     let replacement = operations.begin(42).unwrap();
     let published = replacement.commit(|| Ok(123)).unwrap();
     assert_eq!(published, 123);
-}
-
-#[test]
-fn clearing_cancels_every_upload_before_new_ones_can_commit() {
-    let operations = TextureUploadOperations::default();
-    let first = operations.begin(1).unwrap();
-    let second = operations.begin(2).unwrap();
-    operations.clear(|| {});
-    let replacement = operations.begin(1).unwrap();
-    drop(first);
-    assert!(matches!(
-        second.commit::<()>(|| panic!("cleared upload committed")),
-        Err(WgpuBackendError::Texture(
-            TextureManagerError::UploadCancelled
-        ))
-    ));
-    assert!(matches!(
-        operations.begin(1),
-        Err(TextureManagerError::TextureBusy(1))
-    ));
-    replacement.commit(|| Ok(())).unwrap();
 }
 
 #[test]

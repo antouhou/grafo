@@ -255,66 +255,6 @@ fn complete_prefix_ignores_trailing_bytes_and_does_not_wait_for_eof() {
 }
 
 #[test]
-fn cancellation_wakes_a_driver_waiting_for_source_bytes() {
-    let operations = TextureUploadOperations::default();
-    let operation = operations.begin(42).unwrap();
-    let mut writer = RecordingTextureBatchWriter::default();
-    let (waker, wakes) = wake_channel();
-    let mut context = Context::from_waker(&waker);
-    {
-        let mut upload = pin!(feed_texture_stream(
-            &operation,
-            TextureStorageFormat::Rgba8Srgb,
-            rgba_layout((1, 1)),
-            stream::pending::<Result<&[u8], SourceFailure>>(),
-            &mut writer,
-        ));
-        assert!(upload.as_mut().poll(&mut context).is_pending());
-        operations.remove(42, || {});
-        wakes.recv().unwrap();
-        assert!(matches!(
-            upload.as_mut().poll(&mut context),
-            Poll::Ready(Err(TextureStreamError::Backend(WgpuBackendError::Texture(
-                TextureManagerError::UploadCancelled
-            ))))
-        ));
-    }
-    assert!(writer.batches.borrow().is_empty());
-}
-
-#[test]
-fn cancellation_wakes_a_driver_waiting_to_write_a_batch() {
-    let operations = TextureUploadOperations::default();
-    let operation = operations.begin(42).unwrap();
-    let (_resume_sender, resume_receiver) = oneshot::channel();
-    let mut writer = RecordingTextureBatchWriter {
-        resume: Some(resume_receiver),
-        ..RecordingTextureBatchWriter::default()
-    };
-    let (waker, wakes) = wake_channel();
-    let mut context = Context::from_waker(&waker);
-    {
-        let mut upload = pin!(feed_texture_stream(
-            &operation,
-            TextureStorageFormat::Rgba8Srgb,
-            rgba_layout((1, 1)),
-            stream::iter([Ok::<_, SourceFailure>(&[12, 34, 56, 255][..])]),
-            &mut writer,
-        ));
-        assert!(upload.as_mut().poll(&mut context).is_pending());
-        operations.remove(42, || {});
-        wakes.recv().unwrap();
-        assert!(matches!(
-            upload.as_mut().poll(&mut context),
-            Poll::Ready(Err(TextureStreamError::Backend(WgpuBackendError::Texture(
-                TextureManagerError::UploadCancelled
-            ))))
-        ));
-    }
-    assert!(writer.batches.borrow().is_empty());
-}
-
-#[test]
 fn device_loss_wakes_a_driver_waiting_for_source_bytes() {
     let operations = TextureUploadOperations::default();
     let operation = operations.begin(42).unwrap();

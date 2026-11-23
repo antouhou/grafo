@@ -314,15 +314,11 @@ impl TextureManager for WgpuTextureManager {
     type Error = WgpuBackendError;
 
     fn clear(&self) {
-        self.operations.clear(|| {
-            let mut texture_storage = self.texture_storage.write().unwrap();
-            let mut bind_group_cache = self.shape_bind_group_cache.write().unwrap();
-            for &texture_id in texture_storage.keys() {
-                self.updates.publish(texture_id);
-            }
-            texture_storage.clear();
-            bind_group_cache.clear();
-        });
+        self.operations.clear(
+            &self.texture_storage,
+            &self.shape_bind_group_cache,
+            &self.updates,
+        );
     }
 
     fn allocate_texture_with_format(
@@ -402,14 +398,12 @@ impl TextureManager for WgpuTextureManager {
     }
 
     fn remove_texture(&self, texture_id: u64) {
-        self.operations.remove(texture_id, || {
-            let mut texture_storage = self.texture_storage.write().unwrap();
-            let mut bind_group_cache = self.shape_bind_group_cache.write().unwrap();
-            bind_group_cache.remove(&texture_id);
-            if texture_storage.remove(&texture_id).is_some() {
-                self.updates.publish(texture_id);
-            }
-        });
+        self.operations.remove(
+            texture_id,
+            &self.texture_storage,
+            &self.shape_bind_group_cache,
+            &self.updates,
+        );
     }
 
     fn is_texture_loaded(&self, texture_id: u64) -> bool {

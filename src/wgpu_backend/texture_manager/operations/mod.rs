@@ -1,10 +1,11 @@
-use super::{TextureManagerError, TextureTransferError};
+use super::{BindGroupCache, ManagedTexture, TextureManagerError, TextureTransferError};
+use crate::render_backend::texture_manager::TextureUpdatePublisher;
 use crate::wgpu_backend::WgpuBackendError;
 use futures_util::future::{self, Either};
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::pin;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::task::{Poll, Waker};
 use tokio::sync::SetOnce;
 
@@ -75,31 +76,63 @@ impl TextureUploadOperations {
         })
     }
 
-    pub(super) fn remove<T>(&self, texture_id: u64, remove: impl FnOnce() -> T) -> T {
+    pub(super) fn remove(
+        &self,
+        texture_id: u64,
+        texture_storage: &RwLock<HashMap<u64, ManagedTexture>>,
+        bind_group_cache: &RwLock<BindGroupCache>,
+        updates: &TextureUpdatePublisher,
+    ) {
         let mut pending = self.pending.lock().expect("pending uploads lock poisoned");
         let waker = pending
             .remove(&texture_id)
             .and_then(|operation| operation.cancel());
-        let result = remove();
+        {
+            let mut texture_storage = texture_storage
+                .write()
+                .expect("texture storage lock poisoned");
+            let mut bind_group_cache = bind_group_cache
+                .write()
+                .expect("shape bind-group cache lock poisoned");
+            bind_group_cache.remove(&texture_id);
+            if texture_storage.remove(&texture_id).is_some() {
+                updates.publish(texture_id);
+            }
+        }
         drop(pending);
         if let Some(waker) = waker {
             waker.wake();
         }
-        result
     }
 
-    pub(super) fn clear<T>(&self, clear: impl FnOnce() -> T) -> T {
+    pub(super) fn clear(
+        &self,
+        texture_storage: &RwLock<HashMap<u64, ManagedTexture>>,
+        bind_group_cache: &RwLock<BindGroupCache>,
+        updates: &TextureUpdatePublisher,
+    ) {
         let mut pending = self.pending.lock().expect("pending uploads lock poisoned");
         let wakers: Vec<_> = pending
             .drain()
             .filter_map(|(_, operation)| operation.cancel())
             .collect();
-        let result = clear();
+        {
+            let mut texture_storage = texture_storage
+                .write()
+                .expect("texture storage lock poisoned");
+            let mut bind_group_cache = bind_group_cache
+                .write()
+                .expect("shape bind-group cache lock poisoned");
+            for &texture_id in texture_storage.keys() {
+                updates.publish(texture_id);
+            }
+            texture_storage.clear();
+            bind_group_cache.clear();
+        }
         drop(pending);
         for waker in wakers {
             waker.wake();
         }
-        result
     }
 }
 
