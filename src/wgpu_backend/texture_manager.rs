@@ -232,7 +232,13 @@ impl WgpuTextureManager {
         if let Some(pixels) = pixels {
             self.upload_slice(&operation, &texture, storage_format, pixels)?;
         }
-        operation.commit_allocation(self, ManagedTexture { texture, storage_format })
+        operation.commit_allocation(
+            self,
+            ManagedTexture {
+                texture,
+                storage_format,
+            },
+        )
     }
 
     /// Returns a cached bind group for the texture, creating it with the shape layout if needed.
@@ -350,11 +356,18 @@ impl TextureManager for WgpuTextureManager {
         self.validate_dimensions(layout.size)?;
         layout.required_byte_len()?;
         let operation = self.operations.begin(texture_id)?;
-        let texture = self.create_texture(layout.size, storage_format, TextureUsages::TEXTURE_BINDING)?;
+        let texture =
+            self.create_texture(layout.size, storage_format, TextureUsages::TEXTURE_BINDING)?;
         self.upload_stream(&operation, &texture, storage_format, layout, source)
             .await?;
         operation
-            .commit_allocation(self, ManagedTexture { texture, storage_format })
+            .commit_allocation(
+                self,
+                ManagedTexture {
+                    texture,
+                    storage_format,
+                },
+            )
             .map_err(TextureStreamError::Backend)
     }
 
