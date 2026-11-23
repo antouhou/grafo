@@ -3,9 +3,9 @@ use crate::wgpu_backend::WgpuBackendError;
 use futures_util::future::{self, Either};
 use std::collections::HashMap;
 use std::future::Future;
-use std::pin::{pin, Pin};
+use std::pin::pin;
 use std::sync::{Arc, Mutex};
-use std::task::{Context, Poll, Waker};
+use std::task::{Poll, Waker};
 use tokio::sync::SetOnce;
 
 #[derive(Default)]
@@ -50,10 +50,6 @@ pub(super) struct TextureUploadOperation {
     operations: TextureUploadOperations,
     cancellation: Arc<TextureUploadCancellation>,
     is_finished: bool,
-}
-
-pub(super) struct TextureUploadCancelled<'a> {
-    cancellation: &'a TextureUploadCancellation,
 }
 
 impl TextureUploadOperations {
@@ -118,10 +114,20 @@ impl TextureUploadOperation {
         }
     }
 
-    pub(super) fn cancelled(&self) -> TextureUploadCancelled<'_> {
-        TextureUploadCancelled {
-            cancellation: &self.cancellation,
-        }
+    pub(super) fn cancelled(&self) -> impl Future<Output = ()> + '_ {
+        future::poll_fn(|context| {
+            let mut state = self
+                .cancellation
+                .state
+                .lock()
+                .expect("upload cancellation lock poisoned");
+            if state.is_cancelled {
+                Poll::Ready(())
+            } else {
+                state.waker = Some(context.waker().clone());
+                Poll::Pending
+            }
+        })
     }
 
     pub(super) async fn wait<T>(
@@ -170,24 +176,6 @@ impl Drop for TextureUploadOperation {
             .expect("pending uploads lock poisoned");
         if !self.cancellation.is_cancelled() {
             pending.remove(&self.texture_id);
-        }
-    }
-}
-
-impl Future for TextureUploadCancelled<'_> {
-    type Output = ();
-
-    fn poll(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<()> {
-        let mut state = self
-            .cancellation
-            .state
-            .lock()
-            .expect("upload cancellation lock poisoned");
-        if state.is_cancelled {
-            Poll::Ready(())
-        } else {
-            state.waker = Some(context.waker().clone());
-            Poll::Pending
         }
     }
 }
