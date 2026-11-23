@@ -43,29 +43,9 @@ impl AsRef<[u8]> for LocalPixelChunk {
     }
 }
 
-struct LocalTextureBatchWriter {
-    batches: Rc<RefCell<Vec<RecordedTextureBatch>>>,
-    resume: Option<oneshot::Receiver<()>>,
-}
-
-impl TextureBatchWriter for LocalTextureBatchWriter {
-    async fn write(&mut self, batch: TextureUploadBatch<'_>) -> Result<(), WgpuBackendError> {
-        if let Some(resume) = self.resume.take() {
-            resume.await.map_err(|_| WgpuBackendError::DeviceLost)?;
-        }
-        self.batches.borrow_mut().push(RecordedTextureBatch {
-            bytes: batch.bytes.to_vec(),
-            origin: batch.origin,
-            size: batch.size,
-            bytes_per_row: batch.bytes_per_row,
-        });
-        Ok(())
-    }
-}
-
 #[derive(Default)]
 struct RecordingTextureBatchWriter {
-    batches: Vec<RecordedTextureBatch>,
+    batches: Rc<RefCell<Vec<RecordedTextureBatch>>>,
     resume: Option<oneshot::Receiver<()>>,
 }
 
@@ -76,7 +56,7 @@ impl TextureBatchWriter for RecordingTextureBatchWriter {
         if let Some(resume) = self.resume.take() {
             resume.await.map_err(|_| WgpuBackendError::DeviceLost)?;
         }
-        self.batches.push(RecordedTextureBatch {
+        self.batches.borrow_mut().push(RecordedTextureBatch {
             bytes: batch.bytes.to_vec(),
             origin: batch.origin,
             size: batch.size,
@@ -119,7 +99,7 @@ fn local_sources_and_writers_preserve_fragmented_conversion_across_batches() {
     }));
     let batches = Rc::new(RefCell::new(Vec::new()));
     let (resume_sender, resume_receiver) = oneshot::channel();
-    let mut writer = LocalTextureBatchWriter {
+    let mut writer = RecordingTextureBatchWriter {
         batches: Rc::clone(&batches),
         resume: Some(resume_receiver),
     };
@@ -186,9 +166,10 @@ fn pending_borrowed_source_wakes_and_preserves_fragmented_pixels() {
             Poll::Ready(Ok(()))
         ));
     }
-    assert_eq!(writer.batches.len(), 1);
-    assert_eq!(&writer.batches[0].bytes[..pixels.len()], &pixels);
-    assert_eq!(writer.batches[0].bytes_per_row, 256);
+    let batches = writer.batches.borrow();
+    assert_eq!(batches.len(), 1);
+    assert_eq!(&batches[0].bytes[..pixels.len()], &pixels);
+    assert_eq!(batches[0].bytes_per_row, 256);
 }
 
 #[test]
@@ -210,10 +191,11 @@ fn source_failure_after_a_submitted_band_preserves_the_source_error() {
         panic!("expected the original local source failure");
     };
     assert!(Rc::ptr_eq(&returned_failure, &failure));
-    assert_eq!(writer.batches.len(), 1);
-    assert_eq!(writer.batches[0].origin, (0, 0));
-    assert_eq!(writer.batches[0].size, (1024, 256));
-    assert_eq!(writer.batches[0].bytes, band);
+    let batches = writer.batches.borrow();
+    assert_eq!(batches.len(), 1);
+    assert_eq!(batches[0].origin, (0, 0));
+    assert_eq!(batches[0].size, (1024, 256));
+    assert_eq!(batches[0].bytes, band);
 }
 
 #[test]
@@ -241,7 +223,7 @@ fn early_eof_after_a_submitted_band_reports_the_consumed_prefix() {
     };
     assert_eq!(required, TEXTURE_UPLOAD_BATCH_BYTE_LIMIT + 4096);
     assert_eq!(provided, TEXTURE_UPLOAD_BATCH_BYTE_LIMIT + 3);
-    assert_eq!(writer.batches.len(), 1);
+    assert_eq!(writer.batches.borrow().len(), 1);
 }
 
 #[test]
@@ -266,9 +248,10 @@ fn complete_prefix_ignores_trailing_bytes_and_does_not_wait_for_eof() {
             Poll::Ready(Ok(()))
         ));
     }
-    assert_eq!(writer.batches.len(), 1);
-    assert_eq!(&writer.batches[0].bytes[..4], &bytes[..4]);
-    assert!(writer.batches[0].bytes[4..].iter().all(|&byte| byte == 0));
+    let batches = writer.batches.borrow();
+    assert_eq!(batches.len(), 1);
+    assert_eq!(&batches[0].bytes[..4], &bytes[..4]);
+    assert!(batches[0].bytes[4..].iter().all(|&byte| byte == 0));
 }
 
 #[test]
@@ -296,7 +279,7 @@ fn cancellation_wakes_a_driver_waiting_for_source_bytes() {
             ))))
         ));
     }
-    assert!(writer.batches.is_empty());
+    assert!(writer.batches.borrow().is_empty());
 }
 
 #[test]
@@ -328,7 +311,7 @@ fn cancellation_wakes_a_driver_waiting_to_write_a_batch() {
             ))))
         ));
     }
-    assert!(writer.batches.is_empty());
+    assert!(writer.batches.borrow().is_empty());
 }
 
 #[test]
@@ -359,7 +342,7 @@ fn device_loss_wakes_a_driver_waiting_for_source_bytes() {
             )))
         ));
     }
-    assert!(writer.batches.is_empty());
+    assert!(writer.batches.borrow().is_empty());
 }
 
 #[test]
@@ -390,13 +373,11 @@ fn writer_completion_wakes_the_driver_and_preserves_band_origins() {
             Poll::Ready(Ok(()))
         ));
     }
-    assert_eq!(writer.batches.len(), 2);
-    assert_eq!(writer.batches[0].origin, (0, 0));
-    assert_eq!(writer.batches[0].size, (1024, 256));
-    assert_eq!(writer.batches[1].origin, (0, 256));
-    assert_eq!(writer.batches[1].size, (1024, 1));
-    assert_eq!(
-        writer.batches[1].bytes,
-        bytes[TEXTURE_UPLOAD_BATCH_BYTE_LIMIT..]
-    );
+    let batches = writer.batches.borrow();
+    assert_eq!(batches.len(), 2);
+    assert_eq!(batches[0].origin, (0, 0));
+    assert_eq!(batches[0].size, (1024, 256));
+    assert_eq!(batches[1].origin, (0, 256));
+    assert_eq!(batches[1].size, (1024, 1));
+    assert_eq!(batches[1].bytes, bytes[TEXTURE_UPLOAD_BATCH_BYTE_LIMIT..]);
 }
