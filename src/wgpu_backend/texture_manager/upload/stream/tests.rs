@@ -196,7 +196,8 @@ fn source_failure_after_a_submitted_band_preserves_the_source_error() {
     let operations = TextureUploadOperations::default();
     let operation = operations.begin(42).unwrap();
     let band = vec![37; TEXTURE_UPLOAD_BATCH_BYTE_LIMIT];
-    let source = stream::iter([Ok(band.as_slice()), Err(SourceFailure)]);
+    let failure = Rc::new(());
+    let source = stream::iter([Ok(band.as_slice()), Err(Rc::clone(&failure))]);
     let mut writer = RecordingTextureBatchWriter::default();
     let result = block_on(feed_texture_stream(
         &operation,
@@ -205,10 +206,10 @@ fn source_failure_after_a_submitted_band_preserves_the_source_error() {
         source,
         &mut writer,
     ));
-    assert!(matches!(
-        result,
-        Err(TextureStreamError::Source(SourceFailure))
-    ));
+    let Err(TextureStreamError::Source(returned_failure)) = result else {
+        panic!("expected the original local source failure");
+    };
+    assert!(Rc::ptr_eq(&returned_failure, &failure));
     assert_eq!(writer.batches.len(), 1);
     assert_eq!(writer.batches[0].origin, (0, 0));
     assert_eq!(writer.batches[0].size, (1024, 256));
