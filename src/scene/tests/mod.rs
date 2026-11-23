@@ -8,12 +8,16 @@ use crate::render_backend::render_target::{
     PixelFormat, PixelLayout, Pixmap, PixmapMut, RenderTarget, RenderTargetError, Surface,
 };
 use crate::render_backend::texture_manager::{
-    AlphaMode, TextureManager, TexturePixels, TextureStorageFormat, TextureUpdatePublisher,
+    AlphaMode, TextureManager, TexturePixelLayout, TexturePixels, TextureStorageFormat,
+    TextureStreamError, TextureUpdatePublisher,
 };
 use crate::scene_state::SceneStateContext;
 use ahash::HashSet;
+use futures::StreamExt;
+use futures_core::Stream;
 use lyon::math::{point, Transform};
 use lyon::path::Path;
+use std::pin::pin;
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
 
@@ -25,6 +29,7 @@ mod removal;
 mod replacement;
 mod strokes;
 mod text;
+mod texture_streams;
 
 #[derive(Default)]
 struct TestSurface {
@@ -41,6 +46,30 @@ impl From<RenderTargetError> for TestBackendError {
     fn from(_: RenderTargetError) -> Self {
         Self
     }
+}
+
+async fn consume_texture_stream<Source, Chunk, SourceError>(
+    layout: TexturePixelLayout,
+    source: Source,
+) -> Result<(), TextureStreamError<TestBackendError, SourceError>>
+where
+    Source: Stream<Item = Result<Chunk, SourceError>>,
+    Chunk: AsRef<[u8]>,
+{
+    let required = layout
+        .required_byte_len()
+        .map_err(|_| TextureStreamError::Backend(TestBackendError))?;
+    let mut source = pin!(source);
+    let mut remaining = required;
+    while remaining != 0 {
+        let chunk = source
+            .next()
+            .await
+            .ok_or(TextureStreamError::Backend(TestBackendError))?
+            .map_err(TextureStreamError::Source)?;
+        remaining -= chunk.as_ref().len().min(remaining);
+    }
+    Ok(())
 }
 
 #[derive(Clone, Default)]
@@ -76,11 +105,27 @@ impl TextureManager for TestTextureManager {
     fn allocate_texture_with_pixels(
         &self,
         texture_id: u64,
-        storage: TextureStorageFormat,
+        storage_format: TextureStorageFormat,
         pixels: TexturePixels<'_>,
     ) -> Result<(), Self::Error> {
         pixels.validated_bytes().map_err(|_| TestBackendError)?;
-        self.allocate_texture_with_format(texture_id, pixels.size, storage)
+        self.allocate_texture_with_format(texture_id, pixels.layout.size, storage_format)
+    }
+
+    async fn allocate_texture_with_stream<Source, Chunk, SourceError>(
+        &self,
+        texture_id: u64,
+        storage_format: TextureStorageFormat,
+        layout: TexturePixelLayout,
+        source: Source,
+    ) -> Result<(), TextureStreamError<Self::Error, SourceError>>
+    where
+        Source: Stream<Item = Result<Chunk, SourceError>>,
+        Chunk: AsRef<[u8]>,
+    {
+        consume_texture_stream(layout, source).await?;
+        self.allocate_texture_with_format(texture_id, layout.size, storage_format)
+            .map_err(TextureStreamError::Backend)
     }
 
     fn load_data_into_texture(
@@ -91,6 +136,25 @@ impl TextureManager for TestTextureManager {
     ) -> Result<(), Self::Error> {
         if !self.is_texture_loaded(texture_id) {
             return Err(TestBackendError);
+        }
+        self.updates.publish(texture_id);
+        Ok(())
+    }
+
+    async fn stream_data_into_texture<Source, Chunk, SourceError>(
+        &self,
+        texture_id: u64,
+        _: (u32, u32),
+        layout: TexturePixelLayout,
+        source: Source,
+    ) -> Result<(), TextureStreamError<Self::Error, SourceError>>
+    where
+        Source: Stream<Item = Result<Chunk, SourceError>>,
+        Chunk: AsRef<[u8]>,
+    {
+        consume_texture_stream(layout, source).await?;
+        if !self.is_texture_loaded(texture_id) {
+            return Err(TextureStreamError::Backend(TestBackendError));
         }
         self.updates.publish(texture_id);
         Ok(())

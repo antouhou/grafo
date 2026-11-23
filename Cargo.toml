@@ -17,7 +17,7 @@ readme = "README.md"
 [dependencies]
 bytemuck = { version = "1.23", features = ["derive"] }
 wgpu = "30.0.2"
-ahash = "0.8"
+ahash = "0.8.12"
 lyon = { version = "1.0"}
 easy-tree = { version = "0.7.1" }
 tracing = "0.1.44"
@@ -26,9 +26,19 @@ naga = { version = "30.0", features = ["wgsl-in"] }
 thiserror = "2.0.18"
 smallvec = "1.13"
 half = "2.4"
+futures-core = "0.3"
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+tokio = { version = "1.54.1", default-features = false, features = ["sync"] }
+pollster = "0.4"
 rstar = "0.13.0"
 cosmic-text = { version = "0.19", optional = true, default-features = false, features = ["std", "swash"] }
 swash = { version = "0.2.10", optional = true }
+
+[target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
+getrandom = { version = "0.3.4", features = ["wasm_js"] }
+
+[target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dependencies]
+tokio = { version = "1.54.1", default-features = false, features = ["rt"] }
 
 [dev-dependencies]
 criterion = "0.8"

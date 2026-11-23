@@ -1,11 +1,15 @@
 use crate::core::color;
 use crate::render_backend::texture_manager::{
-    AlphaMode, RgbEncoding, TexturePixelFormat, TexturePixels, TextureStorageFormat,
+    AlphaMode, RgbEncoding, TexturePixelFormat, TexturePixelLayout, TextureStorageFormat,
 };
 use crate::render_backend::PixelBufferError;
 use half::f16;
-use std::borrow::Cow;
-use wgpu::{Extent3d, Origin3d, Queue, TexelCopyBufferLayout, Texture};
+use wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+
+pub(super) mod stream;
+pub(super) mod transfer;
+
+pub(super) const TEXTURE_UPLOAD_BATCH_BYTE_LIMIT: usize = 1024 * 1024;
 
 fn read_channels<const N: usize>(pixel: &[u8], decode: impl Fn([u8; N]) -> f32) -> [f32; 4] {
     let mut rgba = [0.0, 0.0, 0.0, 1.0];
@@ -46,7 +50,7 @@ fn encode_premultiplied_channels(
     [red, green, blue, source_alpha]: [f32; 4],
     encoding: RgbEncoding,
     alpha_mode: AlphaMode,
-    storage: TextureStorageFormat,
+    storage_format: TextureStorageFormat,
 ) -> [f32; 4] {
     let rgb = [red, green, blue];
     let alpha = if alpha_mode == AlphaMode::Opaque {
@@ -56,7 +60,7 @@ fn encode_premultiplied_channels(
     };
     // Already-encoded premultiplied RGB can pass through a channel reorder unchanged.
     if encoding == RgbEncoding::Srgb
-        && storage == TextureStorageFormat::Rgba8Srgb
+        && storage_format == TextureStorageFormat::Rgba8Srgb
         && (alpha == 1.0 || alpha_mode == AlphaMode::PremultipliedInLinearSpace)
     {
         return [red, green, blue, alpha];
@@ -79,7 +83,7 @@ fn encode_premultiplied_channels(
         }
         (RgbEncoding::Srgb, _) => rgb.map(color::srgb_to_linear),
     };
-    let [red, green, blue] = match storage {
+    let [red, green, blue] = match storage_format {
         TextureStorageFormat::Rgba8Srgb => {
             linear.map(|channel| color::linear_to_srgb(channel.clamp(0.0, 1.0)))
         }
@@ -88,27 +92,27 @@ fn encode_premultiplied_channels(
     [red, green, blue, alpha]
 }
 
-fn can_copy_source_bytes(storage: TextureStorageFormat, pixels: TexturePixels<'_>) -> bool {
-    match storage {
+fn can_copy_source_bytes(storage_format: TextureStorageFormat, layout: TexturePixelLayout) -> bool {
+    match storage_format {
         TextureStorageFormat::Rgba8Srgb => {
-            pixels.format == TexturePixelFormat::Rgba8
-                && pixels.encoding == RgbEncoding::Srgb
-                && pixels.alpha == AlphaMode::PremultipliedInLinearSpace
+            layout.format == TexturePixelFormat::Rgba8
+                && layout.encoding == RgbEncoding::Srgb
+                && layout.alpha == AlphaMode::PremultipliedInLinearSpace
         }
         TextureStorageFormat::Rgba16Float => {
             cfg!(target_endian = "little")
-                && pixels.format == TexturePixelFormat::Rgba16Float
-                && pixels.encoding == RgbEncoding::LinearSrgb
+                && layout.format == TexturePixelFormat::Rgba16Float
+                && layout.encoding == RgbEncoding::LinearSrgb
                 && matches!(
-                    pixels.alpha,
+                    layout.alpha,
                     AlphaMode::PremultipliedInEncodedSpace | AlphaMode::PremultipliedInLinearSpace
                 )
         }
     }
 }
 
-fn append_pixel(bytes: &mut Vec<u8>, storage: TextureStorageFormat, rgba: [f32; 4]) {
-    match storage {
+fn append_pixel(bytes: &mut Vec<u8>, storage_format: TextureStorageFormat, rgba: [f32; 4]) {
+    match storage_format {
         TextureStorageFormat::Rgba8Srgb => {
             bytes.extend_from_slice(&rgba.map(color::normalized_channel_to_u8));
         }
@@ -121,92 +125,185 @@ fn append_pixel(bytes: &mut Vec<u8>, storage: TextureStorageFormat, rgba: [f32; 
     }
 }
 
-pub(super) struct TextureUpload<'a> {
-    bytes: Cow<'a, [u8]>,
-    bytes_per_row: u32,
-    size: (u32, u32),
+pub(super) struct TextureUploadBatch<'a> {
+    pub(super) bytes: &'a [u8],
+    pub(super) origin: (u32, u32),
+    pub(super) size: (u32, u32),
+    pub(super) bytes_per_row: u32,
 }
 
-impl<'a> TextureUpload<'a> {
-    pub(super) fn new(
-        storage: TextureStorageFormat,
-        pixels: TexturePixels<'a>,
-    ) -> Result<Self, PixelBufferError> {
-        let source = pixels.validated_bytes()?;
-        let (width, height) = pixels.size;
-        let source_pixel_bytes = pixels.format.bytes_per_pixel();
-        let source_row_bytes = width as usize * source_pixel_bytes;
-        let stride = if height == 1 {
-            source_row_bytes
-        } else {
-            pixels.bytes_per_row
-        };
-        let can_copy = can_copy_source_bytes(storage, pixels);
-        if can_copy {
-            if let Ok(bytes_per_row) = u32::try_from(stride) {
-                return Ok(Self {
-                    bytes: Cow::Borrowed(source),
-                    bytes_per_row,
-                    size: pixels.size,
-                });
-            }
-        }
+pub(super) struct TextureUpload {
+    storage_format: TextureStorageFormat,
+    layout: TexturePixelLayout,
+    can_copy_source_bytes: bool,
+    source_row_bytes: usize,
+    source_row_remaining: usize,
+    source_padding_remaining: usize,
+    source_bytes_required: usize,
+    source_bytes_consumed: usize,
+    pending_pixel: [u8; 16],
+    pending_pixel_len: usize,
+    bytes: Vec<u8>,
+    bytes_per_row: u32,
+    batch_row_limit: u32,
+    batch_rows: u32,
+    completed_rows: u32,
+}
 
-        let storage_pixel_bytes = match storage {
+impl TextureUpload {
+    pub(super) fn new(
+        storage_format: TextureStorageFormat,
+        layout: TexturePixelLayout,
+    ) -> Result<Self, PixelBufferError> {
+        let source_bytes_required = layout.required_byte_len()?;
+        let (width, height) = layout.size;
+        let source_row_bytes = width as usize * layout.format.bytes_per_pixel();
+        let storage_pixel_bytes = match storage_format {
             TextureStorageFormat::Rgba8Srgb => 4,
             TextureStorageFormat::Rgba16Float => 8,
         };
         let bytes_per_row = width
             .checked_mul(storage_pixel_bytes)
+            .and_then(|bytes| bytes.checked_add(COPY_BYTES_PER_ROW_ALIGNMENT - 1))
+            .map(|bytes| bytes / COPY_BYTES_PER_ROW_ALIGNMENT * COPY_BYTES_PER_ROW_ALIGNMENT)
             .ok_or(PixelBufferError::InvalidSize)?;
-        let byte_len = (bytes_per_row as usize)
-            .checked_mul(height as usize)
+        let batch_row_limit = (TEXTURE_UPLOAD_BATCH_BYTE_LIMIT / bytes_per_row as usize)
+            .max(1)
+            .min(height as usize) as u32;
+        let batch_byte_capacity = (bytes_per_row as usize)
+            .checked_mul(batch_row_limit as usize)
             .filter(|&length| length <= isize::MAX as usize)
             .ok_or(PixelBufferError::InvalidSize)?;
-        let mut bytes = Vec::with_capacity(byte_len);
-        for row in source.chunks(stride) {
-            let row = &row[..source_row_bytes];
-            if can_copy {
-                bytes.extend_from_slice(row);
-                continue;
-            }
-            for pixel in row.chunks_exact(source_pixel_bytes) {
-                let rgba = decode_pixel(pixels.format, pixel);
-                append_pixel(
-                    &mut bytes,
-                    storage,
-                    encode_premultiplied_channels(rgba, pixels.encoding, pixels.alpha, storage),
-                );
-            }
-        }
         Ok(Self {
-            bytes: Cow::Owned(bytes),
+            storage_format,
+            layout,
+            can_copy_source_bytes: can_copy_source_bytes(storage_format, layout),
+            source_row_bytes,
+            source_row_remaining: source_row_bytes,
+            source_padding_remaining: 0,
+            source_bytes_required,
+            source_bytes_consumed: 0,
+            pending_pixel: [0; 16],
+            pending_pixel_len: 0,
+            bytes: Vec::with_capacity(batch_byte_capacity),
             bytes_per_row,
-            size: pixels.size,
+            batch_row_limit,
+            batch_rows: 0,
+            completed_rows: 0,
         })
     }
 
-    pub(super) fn write(&self, queue: &Queue, texture: &Texture, origin: (u32, u32)) {
-        let mut destination = texture.as_image_copy();
-        destination.origin = Origin3d {
-            x: origin.0,
-            y: origin.1,
-            z: 0,
-        };
-        queue.write_texture(
-            destination,
-            &self.bytes,
-            TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(self.bytes_per_row),
-                rows_per_image: None,
-            },
-            Extent3d {
-                width: self.size.0,
-                height: self.size.1,
-                depth_or_array_layers: 1,
-            },
+    pub(super) fn is_complete(&self) -> bool {
+        self.completed_rows == self.layout.size.1
+    }
+
+    pub(super) fn is_batch_ready(&self) -> bool {
+        self.batch_rows != 0 && (self.batch_rows == self.batch_row_limit || self.is_complete())
+    }
+
+    fn append_converted_pixel(&mut self, rgba: [f32; 4]) {
+        append_pixel(
+            &mut self.bytes,
+            self.storage_format,
+            encode_premultiplied_channels(
+                rgba,
+                self.layout.encoding,
+                self.layout.alpha,
+                self.storage_format,
+            ),
         );
+    }
+
+    fn convert_source_pixels(&mut self, mut source: &[u8]) {
+        let source_pixel_bytes = self.layout.format.bytes_per_pixel();
+        if self.pending_pixel_len != 0 {
+            let count = (source_pixel_bytes - self.pending_pixel_len).min(source.len());
+            self.pending_pixel[self.pending_pixel_len..self.pending_pixel_len + count]
+                .copy_from_slice(&source[..count]);
+            self.pending_pixel_len += count;
+            source = &source[count..];
+            if self.pending_pixel_len == source_pixel_bytes {
+                let rgba = decode_pixel(
+                    self.layout.format,
+                    &self.pending_pixel[..source_pixel_bytes],
+                );
+                self.append_converted_pixel(rgba);
+                self.pending_pixel_len = 0;
+            }
+        }
+
+        let mut pixels = source.chunks_exact(source_pixel_bytes);
+        for pixel in &mut pixels {
+            let rgba = decode_pixel(self.layout.format, pixel);
+            self.append_converted_pixel(rgba);
+        }
+        let remainder = pixels.remainder();
+        self.pending_pixel[..remainder.len()].copy_from_slice(remainder);
+        self.pending_pixel_len += remainder.len();
+    }
+
+    fn finish_row(&mut self) {
+        debug_assert_eq!(self.pending_pixel_len, 0);
+        self.batch_rows += 1;
+        self.completed_rows += 1;
+        self.bytes
+            .resize(self.batch_rows as usize * self.bytes_per_row as usize, 0);
+        self.source_row_remaining = self.source_row_bytes;
+        if !self.is_complete() {
+            self.source_padding_remaining = self.layout.bytes_per_row - self.source_row_bytes;
+        }
+    }
+
+    /// Consumes input through the next complete batch or the final source pixel.
+    pub(super) fn convert_into_batch(&mut self, input: &[u8]) -> usize {
+        let mut consumed = 0;
+        while consumed < input.len() && !self.is_batch_ready() && !self.is_complete() {
+            let remaining = &input[consumed..];
+            if self.source_padding_remaining != 0 {
+                let count = self.source_padding_remaining.min(remaining.len());
+                self.source_padding_remaining -= count;
+                consumed += count;
+                continue;
+            }
+
+            let count = self.source_row_remaining.min(remaining.len());
+            let source = &remaining[..count];
+            if self.can_copy_source_bytes {
+                self.bytes.extend_from_slice(source);
+            } else {
+                self.convert_source_pixels(source);
+            }
+            self.source_row_remaining -= count;
+            consumed += count;
+            if self.source_row_remaining == 0 {
+                self.finish_row();
+            }
+        }
+        self.source_bytes_consumed += consumed;
+        consumed
+    }
+
+    pub(super) fn batch(&self) -> TextureUploadBatch<'_> {
+        debug_assert!(self.is_batch_ready());
+        TextureUploadBatch {
+            bytes: &self.bytes,
+            origin: (0, self.completed_rows - self.batch_rows),
+            size: (self.layout.size.0, self.batch_rows),
+            bytes_per_row: self.bytes_per_row,
+        }
+    }
+
+    pub(super) fn clear_batch(&mut self) {
+        debug_assert!(self.is_batch_ready());
+        self.bytes.clear();
+        self.batch_rows = 0;
+    }
+
+    pub(super) fn short_input_error(&self) -> PixelBufferError {
+        PixelBufferError::StorageTooSmall {
+            required: self.source_bytes_required,
+            provided: self.source_bytes_consumed,
+        }
     }
 }
 

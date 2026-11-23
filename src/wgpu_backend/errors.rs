@@ -1,7 +1,9 @@
 use super::readback::ReadbackError;
-use super::texture_manager::TextureManagerError;
+use super::texture_manager::{TextureManagerError, TextureTransferError};
 use super::types::GeometryBufferError;
 use crate::render_backend::render_target::RenderTargetError;
+use crate::render_backend::texture_manager::TextureStreamError;
+use crate::render_backend::PixelBufferError;
 use naga::front::wgsl::ParseError;
 use naga::valid::ValidationError;
 use naga::WithSpan;
@@ -74,4 +76,25 @@ pub enum WgpuBackendError {
     Effect(#[from] EffectResourceError),
     #[error(transparent)]
     Readback(#[from] ReadbackError),
+}
+
+impl From<TextureTransferError> for WgpuBackendError {
+    fn from(error: TextureTransferError) -> Self {
+        match error {
+            TextureTransferError::DeviceLost => Self::DeviceLost,
+            error => Self::Texture(TextureManagerError::Transfer(error)),
+        }
+    }
+}
+
+impl<SourceError> From<TextureManagerError> for TextureStreamError<WgpuBackendError, SourceError> {
+    fn from(error: TextureManagerError) -> Self {
+        Self::Backend(error.into())
+    }
+}
+
+impl<SourceError> From<PixelBufferError> for TextureStreamError<WgpuBackendError, SourceError> {
+    fn from(error: PixelBufferError) -> Self {
+        TextureManagerError::from(error).into()
+    }
 }

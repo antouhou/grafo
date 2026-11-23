@@ -1,13 +1,26 @@
 use ahash::HashSet;
-pub use pixels::{AlphaMode, RgbEncoding, TexturePixelFormat, TexturePixels, TextureStorageFormat};
+use futures_core::Stream;
+pub use pixels::{
+    AlphaMode, RgbEncoding, TexturePixelFormat, TexturePixelLayout, TexturePixels,
+    TextureStorageFormat,
+};
+use std::future::Future;
 use std::sync::{Arc, Mutex, Weak};
+use thiserror::Error;
 
 mod pixels;
 
+/// A texture upload failed in the backend or while reading its byte source.
+#[derive(Debug, Error)]
+pub enum TextureStreamError<BackendError, SourceError> {
+    #[error("Texture upload failed: {0}")]
+    Backend(#[from] BackendError),
+    #[error("Texture byte source failed: {0}")]
+    Source(#[source] SourceError),
+}
+
 /// Textures are addressed by ID. Dimensions are `(width, height)` in pixels.
-/// Use the storage formats, source pixel layouts, and write origins supported by the backend.
-/// Allocation returns an error for invalid dimensions or source layouts and preserves
-/// any existing texture at that ID on failure.
+/// Allocation returns preserves any existing texture at that ID on failure.
 pub trait TextureManager {
     type Error;
 
@@ -19,16 +32,31 @@ pub trait TextureManager {
         &self,
         texture_id: u64,
         size: (u32, u32),
-        storage: TextureStorageFormat,
+        storage_format: TextureStorageFormat,
     ) -> Result<(), Self::Error>;
 
     /// Allocates a texture the size of `pixels` and initializes it, replacing the entry at this ID.
     fn allocate_texture_with_pixels(
         &self,
         texture_id: u64,
-        storage: TextureStorageFormat,
+        storage_format: TextureStorageFormat,
         pixels: TexturePixels<'_>,
     ) -> Result<(), Self::Error>;
+
+    /// Allocates and initializes a texture from a stream of decoded pixel byte chunks.
+    /// Consumes the prefix required by `layout`, including padding between rows.
+    /// The final row needs no trailing padding. Extra bytes are ignored without waiting for EOF.
+    /// A source error, early EOF, or cancellation before completion preserves the previous texture.
+    fn allocate_texture_with_stream<Source, Chunk, SourceError>(
+        &self,
+        texture_id: u64,
+        storage_format: TextureStorageFormat,
+        layout: TexturePixelLayout,
+        source: Source,
+    ) -> impl Future<Output = Result<(), TextureStreamError<Self::Error, SourceError>>>
+    where
+        Source: Stream<Item = Result<Chunk, SourceError>>,
+        Chunk: AsRef<[u8]>;
 
     /// Allocates an RGBA8 sRGB texture, replacing the entry at this ID.
     fn allocate_texture(&self, texture_id: u64, size: (u32, u32)) -> Result<(), Self::Error> {
@@ -56,6 +84,22 @@ pub trait TextureManager {
         origin: (u32, u32),
         pixels: TexturePixels<'_>,
     ) -> Result<(), Self::Error>;
+
+    /// Writes streamed decoded pixels at the given top-left destination in pixel coordinates.
+    /// The rectangle must fit inside the allocated texture. Consumes the prefix required by
+    /// `layout`, including padding between rows. The final row needs no trailing padding.
+    /// Extra bytes are ignored without waiting for EOF. A source error, early EOF, or cancellation
+    /// before completion preserves the previous texture contents.
+    fn stream_data_into_texture<Source, Chunk, SourceError>(
+        &self,
+        texture_id: u64,
+        origin: (u32, u32),
+        layout: TexturePixelLayout,
+        source: Source,
+    ) -> impl Future<Output = Result<(), TextureStreamError<Self::Error, SourceError>>>
+    where
+        Source: Stream<Item = Result<Chunk, SourceError>>,
+        Chunk: AsRef<[u8]>;
 
     /// Removes the texture identified by `texture_id` and its cached bindings.
     fn remove_texture(&self, texture_id: u64);

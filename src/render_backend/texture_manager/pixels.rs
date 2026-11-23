@@ -54,11 +54,9 @@ pub enum AlphaMode {
     PremultipliedInEncodedSpace,
 }
 
-/// Borrowed rows of decoded pixels, starting at the top-left pixel.
-/// The buffer may end immediately after the last pixel of the final row.
-#[derive(Clone, Copy, Debug)]
-pub struct TexturePixels<'a> {
-    pub bytes: &'a [u8],
+/// Layout of decoded pixel rows, starting at the top-left pixel.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TexturePixelLayout {
     /// Width and height in pixels.
     pub size: (u32, u32),
     /// Distance between the starts of consecutive rows in bytes.
@@ -68,11 +66,18 @@ pub struct TexturePixels<'a> {
     pub alpha: AlphaMode,
 }
 
-impl<'a> TexturePixels<'a> {
+/// Borrowed rows of decoded pixels, starting at the top-left pixel.
+/// The buffer may end immediately after the last pixel of the final row.
+#[derive(Clone, Copy, Debug)]
+pub struct TexturePixels<'a> {
+    pub bytes: &'a [u8],
+    pub layout: TexturePixelLayout,
+}
+
+impl TexturePixelLayout {
     /// Describes tightly packed RGBA8 pixels with sRGB-encoded color channels.
-    pub const fn rgba8_srgb(bytes: &'a [u8], size: (u32, u32), alpha: AlphaMode) -> Self {
+    pub const fn rgba8_srgb(size: (u32, u32), alpha: AlphaMode) -> Self {
         Self {
-            bytes,
             size,
             bytes_per_row: (size.0 as usize)
                 .saturating_mul(TexturePixelFormat::Rgba8.bytes_per_pixel()),
@@ -82,13 +87,34 @@ impl<'a> TexturePixels<'a> {
         }
     }
 
-    /// Checks dimensions, stride, and buffer length. Returns the bytes through the final pixel.
-    pub fn validated_bytes(&self) -> Result<&'a [u8], PixelBufferError> {
-        let required = pixel_buffer::required_byte_len(
+    /// Checks dimensions and stride, returning the byte count through the final pixel.
+    /// The last row needs no trailing padding.
+    pub fn required_byte_len(&self) -> Result<usize, PixelBufferError> {
+        pixel_buffer::required_byte_len(
             self.size,
             self.format.bytes_per_pixel(),
             self.bytes_per_row,
-        )?;
+        )
+    }
+
+    /// Associates this layout with borrowed pixel bytes.
+    pub const fn pixels(self, bytes: &[u8]) -> TexturePixels<'_> {
+        TexturePixels {
+            bytes,
+            layout: self,
+        }
+    }
+}
+
+impl<'a> TexturePixels<'a> {
+    /// Describes tightly packed RGBA8 pixels with sRGB-encoded color channels.
+    pub const fn rgba8_srgb(bytes: &'a [u8], size: (u32, u32), alpha: AlphaMode) -> Self {
+        TexturePixelLayout::rgba8_srgb(size, alpha).pixels(bytes)
+    }
+
+    /// Checks dimensions, stride, and buffer length. Returns the bytes through the final pixel.
+    pub fn validated_bytes(&self) -> Result<&'a [u8], PixelBufferError> {
+        let required = self.layout.required_byte_len()?;
         pixel_buffer::validate_storage(required, self.bytes.len())?;
         Ok(&self.bytes[..required])
     }

@@ -50,7 +50,8 @@ pub use render_backend::render_target::{
     PixelFormat, PixelLayout, Pixmap, PixmapMut, RenderTarget, RenderTargetError,
 };
 pub use render_backend::texture_manager::{
-    AlphaMode, RgbEncoding, TextureManager, TexturePixelFormat, TexturePixels, TextureStorageFormat,
+    AlphaMode, RgbEncoding, TextureManager, TexturePixelFormat, TexturePixelLayout, TexturePixels,
+    TextureStorageFormat, TextureStreamError,
 };
 pub use render_backend::{PixelBufferError, RenderBackend, RenderContext};
 pub use scene_state::SceneError;
@@ -76,7 +77,16 @@ pub mod scene;
 mod scene_state;
 #[cfg(feature = "cosmic-text")]
 mod text;
+// Browser GPU handles stay local while retaining shared Arc ownership.
+#[cfg_attr(
+    all(target_family = "wasm", target_os = "unknown"),
+    allow(clippy::arc_with_non_send_sync)
+)]
 pub mod wgpu_backend;
+#[cfg_attr(
+    all(target_family = "wasm", target_os = "unknown"),
+    allow(clippy::arc_with_non_send_sync)
+)]
 mod wgpu_scene;
 
 /// A retained scene of shapes, clipping rectangles, and effects, using WGPU by default.
