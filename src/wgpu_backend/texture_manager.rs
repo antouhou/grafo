@@ -235,9 +235,8 @@ impl WgpuTextureManager {
         operation.commit(|| {
             self.ensure_available()?;
             self.insert_texture(texture_id, ManagedTexture { texture, storage });
-            Ok::<_, WgpuBackendError>(())
-        })??;
-        Ok(())
+            Ok(())
+        })
     }
 
     fn insert_texture(&self, texture_id: u64, texture: ManagedTexture) {

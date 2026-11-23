@@ -110,10 +110,7 @@ impl TextureUploadOperations {
 impl TextureUploadOperation {
     pub(super) fn check(&self) -> Result<(), WgpuBackendError> {
         if let Some(error) = self.operations.failure.get() {
-            Err(match error {
-                TextureTransferError::DeviceLost => WgpuBackendError::DeviceLost,
-                error => TextureManagerError::Transfer(error.clone()).into(),
-            })
+            Err(error.clone().into())
         } else if self.cancellation.is_cancelled() {
             Err(TextureManagerError::UploadCancelled.into())
         } else {
@@ -144,7 +141,10 @@ impl TextureUploadOperation {
         }
     }
 
-    pub(super) fn commit<T>(mut self, commit: impl FnOnce() -> T) -> Result<T, WgpuBackendError> {
+    pub(super) fn commit<T>(
+        mut self,
+        commit: impl FnOnce() -> Result<T, WgpuBackendError>,
+    ) -> Result<T, WgpuBackendError> {
         let mut pending = self
             .operations
             .pending
@@ -154,7 +154,7 @@ impl TextureUploadOperation {
         let result = commit();
         pending.remove(&self.texture_id);
         self.is_finished = true;
-        Ok(result)
+        result
     }
 }
 

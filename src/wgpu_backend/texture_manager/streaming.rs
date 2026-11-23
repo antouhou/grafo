@@ -1,7 +1,7 @@
 use super::operations::TextureUploadOperation;
 use super::upload::stream::{feed_texture_stream, TextureBatchWriter};
 use super::upload::{TextureUpload, TextureUploadBatch};
-use super::{ManagedTexture, TextureManagerError, TextureTransferError, WgpuTextureManager};
+use super::{ManagedTexture, TextureManagerError, WgpuTextureManager};
 use crate::render_backend::texture_manager::{
     TexturePixelLayout, TexturePixels, TextureStorageFormat, TextureStreamError,
 };
@@ -14,20 +14,13 @@ struct WgpuTextureBatchWriter<'a> {
     texture: &'a Texture,
 }
 
-fn transfer_error(error: TextureTransferError) -> WgpuBackendError {
-    match error {
-        TextureTransferError::DeviceLost => WgpuBackendError::DeviceLost,
-        error => TextureManagerError::Transfer(error).into(),
-    }
-}
-
 impl TextureBatchWriter for WgpuTextureBatchWriter<'_> {
     async fn write(&mut self, batch: TextureUploadBatch<'_>) -> Result<(), WgpuBackendError> {
         self.manager
             .uploads
             .write_async(self.texture, (0, 0), batch)
             .await
-            .map_err(transfer_error)
+            .map_err(WgpuBackendError::from)
     }
 }
 
@@ -93,8 +86,8 @@ impl WgpuTextureManager {
             self.queue.submit([encoder.finish()]);
             self.ensure_available()?;
             self.updates.publish(texture_id);
-            Ok::<_, WgpuBackendError>(())
-        })?
+            Ok(())
+        })
     }
 
     pub(super) fn upload_slice(
@@ -114,9 +107,7 @@ impl WgpuTextureManager {
             let consumed = upload.convert_into_batch(remaining);
             remaining = &remaining[consumed..];
             if upload.is_batch_ready() {
-                self.uploads
-                    .write(texture, (0, 0), upload.batch())
-                    .map_err(transfer_error)?;
+                self.uploads.write(texture, (0, 0), upload.batch())?;
                 upload.clear_batch();
             }
         }
@@ -189,9 +180,8 @@ impl WgpuTextureManager {
             .commit(|| {
                 self.ensure_available()?;
                 self.insert_texture(texture_id, ManagedTexture { texture, storage });
-                Ok::<_, WgpuBackendError>(())
+                Ok(())
             })
-            .map_err(TextureStreamError::Backend)?
             .map_err(TextureStreamError::Backend)
     }
 

@@ -38,7 +38,7 @@ fn removed_upload_cannot_publish_or_release_a_new_upload() {
     operations.remove(42, || {});
     let replacement = operations.begin(42).unwrap();
     assert!(matches!(
-        old.commit(|| panic!("removed upload committed")),
+        old.commit::<()>(|| panic!("removed upload committed")),
         Err(WgpuBackendError::Texture(
             TextureManagerError::UploadCancelled
         ))
@@ -47,7 +47,7 @@ fn removed_upload_cannot_publish_or_release_a_new_upload() {
         operations.begin(42),
         Err(TextureManagerError::TextureBusy(42))
     ));
-    replacement.commit(|| {}).unwrap();
+    replacement.commit(|| Ok(())).unwrap();
     assert!(operations.begin(42).is_ok());
 }
 
@@ -61,7 +61,7 @@ fn abandoned_upload_releases_ownership_without_publishing() {
     ));
     drop(pending);
     let replacement = operations.begin(42).unwrap();
-    let published = replacement.commit(|| 123).unwrap();
+    let published = replacement.commit(|| Ok(123)).unwrap();
     assert_eq!(published, 123);
 }
 
@@ -74,7 +74,7 @@ fn clearing_cancels_every_upload_before_new_ones_can_commit() {
     let replacement = operations.begin(1).unwrap();
     drop(first);
     assert!(matches!(
-        second.commit(|| panic!("cleared upload committed")),
+        second.commit::<()>(|| panic!("cleared upload committed")),
         Err(WgpuBackendError::Texture(
             TextureManagerError::UploadCancelled
         ))
@@ -83,7 +83,7 @@ fn clearing_cancels_every_upload_before_new_ones_can_commit() {
         operations.begin(1),
         Err(TextureManagerError::TextureBusy(1))
     ));
-    replacement.commit(|| {}).unwrap();
+    replacement.commit(|| Ok(())).unwrap();
 }
 
 #[test]
@@ -112,21 +112,21 @@ fn failure_callback_can_run_inside_commit_without_lock_reentrancy() {
     let worker = thread::spawn(move || {
         let operations = TextureUploadOperations::default();
         let operation = operations.begin(42).unwrap();
-        sender
-            .send(operation.commit(|| {
-                operations
-                    .failure
-                    .set(TextureTransferError::DeviceLost)
-                    .unwrap();
-                Err::<(), _>(WgpuBackendError::DeviceLost)
-            }))
-            .unwrap();
+        let result = operation.commit(|| {
+            operations
+                .failure
+                .set(TextureTransferError::DeviceLost)
+                .unwrap();
+            Err::<(), _>(WgpuBackendError::DeviceLost)
+        });
+        assert!(operations.begin(42).is_ok());
+        sender.send(result).unwrap();
     });
     let result = receiver
         .recv_timeout(Duration::from_secs(5))
         .expect("failure callback blocked on commit lock");
     worker.join().unwrap();
-    assert!(matches!(result, Ok(Err(WgpuBackendError::DeviceLost))));
+    assert!(matches!(result, Err(WgpuBackendError::DeviceLost)));
 }
 
 #[test]
@@ -140,6 +140,7 @@ fn a_late_transfer_failure_does_not_retroactively_fail_a_commit() {
             .failure
             .set(TextureTransferError::WorkerStopped)
             .unwrap();
+        Ok(())
     });
     assert!(result.is_ok());
     assert!(published);
