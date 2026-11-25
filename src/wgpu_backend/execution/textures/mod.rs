@@ -1,3 +1,4 @@
+use super::clipping::{bindings::ClipBindings, ClipBackdropBase, ClipBackdropFilter, ClipScope};
 use super::effects::{OffscreenTexturePool, PooledTexture};
 use super::shape_mask_effects::CompletedMask;
 use super::target_uniforms::TargetUniformPool;
@@ -8,7 +9,7 @@ use ahash::{HashMap, HashMapExt};
 pub(crate) use shape_mask_effects::{
     CachedShapeMask, ShapeMaskCache, ShapeMaskCacheKey, ShapeMaskEffectCacheKey,
 };
-use wgpu::{BindGroup, Texture};
+use wgpu::{BindGroup, Texture, TextureView};
 
 mod bindings;
 mod shape_mask_effects;
@@ -29,6 +30,10 @@ pub(super) enum PlannedTexture {
 
 /// Persistent cached textures and transient resources retained through submission.
 pub(crate) struct IntermediateTextureResources {
+    pub(super) clip_backdrop_bases: HashMap<IntermediateTextureId, ClipBackdropBase>,
+    pub(super) clip_filter: Option<ClipBackdropFilter>,
+    pub(super) clip_bindings: ClipBindings,
+    pub(super) clip_scopes: Vec<Vec<ClipScope>>,
     pub(super) active_targets: Vec<ActiveTarget>,
     pub(super) target_uniforms: TargetUniformPool,
     pub(super) masks: Vec<CompletedMask>,
@@ -44,7 +49,12 @@ pub(crate) struct IntermediateTextureResources {
 
 impl IntermediateTextureResources {
     pub(in crate::wgpu_backend) fn clear_caches(&mut self) {
+        self.clip_backdrop_bases.clear();
+        self.clip_backdrop_bases.shrink_to_fit();
+        self.clip_filter = None;
         self.active_targets = Vec::new();
+        self.clip_bindings = ClipBindings::default();
+        self.clip_scopes = Vec::new();
         self.target_uniforms.clear_caches();
         self.masks = Vec::new();
         self.sampled_textures.clear();
@@ -58,6 +68,10 @@ impl IntermediateTextureResources {
 
     pub(crate) fn new() -> Self {
         Self {
+            clip_backdrop_bases: HashMap::new(),
+            clip_filter: None,
+            clip_bindings: ClipBindings::default(),
+            clip_scopes: Vec::new(),
             active_targets: Vec::new(),
             target_uniforms: TargetUniformPool::default(),
             masks: Vec::new(),
@@ -111,8 +125,8 @@ impl IntermediateTextureResources {
         }
     }
 
-    pub(crate) fn texture(&self, texture_id: IntermediateTextureId) -> &Texture {
-        let texture = match self.resolve_id(texture_id) {
+    fn pooled_texture(&self, texture_id: IntermediateTextureId) -> &PooledTexture {
+        match self.resolve_id(texture_id) {
             IntermediateTextureId::Registered(id) => {
                 &self.sampled_textures[&IntermediateTextureId::Registered(id)].texture
             }
@@ -120,11 +134,20 @@ impl IntermediateTextureResources {
                 PlannedTexture::Work(index) => &self.work_textures[index],
                 _ => unreachable!("texture must be produced before sampling"),
             },
-        };
+        }
+    }
+
+    pub(crate) fn texture(&self, texture_id: IntermediateTextureId) -> &Texture {
+        let texture = self.pooled_texture(texture_id);
         texture
             .resolve_texture
             .as_ref()
             .unwrap_or(&texture.color_texture)
+    }
+
+    pub(crate) fn view(&self, texture_id: IntermediateTextureId) -> &TextureView {
+        let texture = self.pooled_texture(texture_id);
+        texture.resolve_view.as_ref().unwrap_or(&texture.color_view)
     }
 
     pub(in crate::wgpu_backend::execution) fn insert_planned(
@@ -179,9 +202,12 @@ impl IntermediateTextureResources {
 
     /// Drops logical references while retaining storage and execution-owned textures.
     pub(in crate::wgpu_backend::execution) fn finish_plan(&mut self) {
+        self.clip_backdrop_bases.clear();
+        self.clip_filter = None;
         self.planned.clear();
         self.masks.clear();
         self.target_uniforms.finish_render();
+        self.clip_bindings.finish_render();
         debug_assert!(self.active_targets.is_empty());
     }
 

@@ -1,4 +1,5 @@
 use crate::core::vertex::CustomVertex;
+use crate::core::MathRect;
 use ahash::HashMap;
 use std::{mem, ops::Range};
 
@@ -7,6 +8,40 @@ pub(crate) struct PathBoundaryEdge {
     pub start: [f32; 2],
     pub end: [f32; 2],
     pub winding: i32,
+}
+
+/// Conservatively accepts rectangles inside a filled path without crossing any boundary.
+pub(crate) fn path_contains_rect(edges: &[PathBoundaryEdge], bounds: MathRect) -> bool {
+    let mut winding = 0_i64;
+    for edge in edges {
+        if !edge.start.into_iter().chain(edge.end).all(f32::is_finite) {
+            return false;
+        }
+        if edge.start[0].min(edge.end[0]) <= bounds.max.x
+            && edge.start[0].max(edge.end[0]) >= bounds.min.x
+            && edge.start[1].min(edge.end[1]) <= bounds.max.y
+            && edge.start[1].max(edge.end[1]) >= bounds.min.y
+        {
+            return false;
+        }
+        let crosses_up = edge.start[1] <= bounds.min.y && edge.end[1] > bounds.min.y;
+        let crosses_down = edge.end[1] <= bounds.min.y && edge.start[1] > bounds.min.y;
+        if !crosses_up && !crosses_down {
+            continue;
+        }
+        let fraction = (f64::from(bounds.min.y) - f64::from(edge.start[1]))
+            / (f64::from(edge.end[1]) - f64::from(edge.start[1]));
+        let crossing = f64::from(edge.start[0])
+            + fraction * (f64::from(edge.end[0]) - f64::from(edge.start[0]));
+        if crossing > f64::from(bounds.min.x) {
+            winding += if crosses_up {
+                i64::from(edge.winding)
+            } else {
+                -i64::from(edge.winding)
+            };
+        }
+    }
+    winding != 0
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
@@ -47,6 +82,32 @@ pub(crate) struct RoundedRectBoundary {
 }
 
 impl RoundedRectBoundary {
+    pub(crate) fn contains_rect(&self, edges: &[PathBoundaryEdge], bounds: MathRect) -> bool {
+        for (chain, x, is_left) in [
+            (&edges[self.left.clone()], bounds.min.x, true),
+            (&edges[self.right.clone()], bounds.max.x, false),
+        ] {
+            for y in [bounds.min.y, bounds.max.y] {
+                let index = chain.partition_point(|edge| edge.start[1].max(edge.end[1]) < y);
+                let Some(edge) = chain.get(index) else {
+                    return false;
+                };
+                if y < edge.start[1].min(edge.end[1]) {
+                    return false;
+                }
+                let fraction = (f64::from(y) - f64::from(edge.start[1]))
+                    / (f64::from(edge.end[1]) - f64::from(edge.start[1]));
+                let boundary_x = f64::from(edge.start[0])
+                    + fraction * (f64::from(edge.end[0]) - f64::from(edge.start[0]));
+                if (is_left && f64::from(x) < boundary_x) || (!is_left && f64::from(x) > boundary_x)
+                {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
     pub(crate) fn new(edges: &mut [PathBoundaryEdge]) -> Option<Self> {
         if !edges
             .iter()

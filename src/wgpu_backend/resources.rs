@@ -1,4 +1,5 @@
 use super::execution::blending::BlendPipelineResources;
+use super::execution::clipping::pipelines::ClipPipelines;
 use super::execution::effects::{CompositePipelineResources, EffectExecutionResources};
 use super::execution::render_pass::RenderPass;
 use super::execution::shape_mask_effects::ShapeMaskEffectRendererResources;
@@ -12,8 +13,8 @@ use crate::wgpu_backend::pipeline::{self, Uniforms};
 use crate::wgpu_backend::texture_manager::WgpuTextureManager;
 use crate::wgpu_backend::vertex::GeometryBufferRange;
 use std::ops::Range;
-use std::sync::Arc;
-use wgpu::{BindGroup, Buffer, RenderPipeline, Sampler};
+use std::sync::{Arc, OnceLock};
+use wgpu::{BindGroup, Buffer, Device, RenderPipeline, Sampler, TextureFormat};
 
 /// Geometry and instance buffers, initialized and reused by render preparation.
 pub(in crate::wgpu_backend) struct Buffers {
@@ -105,12 +106,31 @@ pub(in crate::wgpu_backend) struct BackdropPipelineResources {
 
 /// Built-in shape and effect resources, borrowed separately from mutable draw state.
 pub(in crate::wgpu_backend) struct RendererPipelineResources {
+    pub(in crate::wgpu_backend) clipping: OnceLock<Box<ClipPipelines>>,
     pub(in crate::wgpu_backend) shapes: ShapePipelines,
     pub(in crate::wgpu_backend) blending: BlendPipelineResources,
     pub(in crate::wgpu_backend) shape_mask_effects: ShapeMaskEffectRendererResources,
     pub(in crate::wgpu_backend) effect_sampler: Sampler,
     pub(in crate::wgpu_backend) composite_resources: CompositePipelineResources,
     pub(in crate::wgpu_backend) backdrops: BackdropPipelineResources,
+}
+
+impl RendererPipelineResources {
+    pub(in crate::wgpu_backend) fn clipping(
+        &self,
+        device: &Device,
+        format: TextureFormat,
+        samples: u32,
+    ) -> &ClipPipelines {
+        self.clipping.get_or_init(|| {
+            Box::new(ClipPipelines::new(
+                device,
+                format,
+                samples,
+                &self.shapes.layouts.uniform,
+            ))
+        })
+    }
 }
 
 /// Uploaded resources and execution caches. No scene or planning state is retained.

@@ -1,5 +1,5 @@
 use super::*;
-use crate::commands::{ShapeTextureBinding, TextureSampling};
+use crate::commands::{ClipDraw, ClipGeometry, ShapeTextureBinding, TextureSampling};
 use crate::core::effect::BackdropCaptureArea;
 use crate::planner::tests::RecordedCommands;
 use crate::{
@@ -43,7 +43,7 @@ fn backdrop_texture_preserves_ordinary_draw_and_clip_commands() {
             assert!(backdrop.instructions.iter().any(|command| {
                 matches!(command.operation,
                     RenderOperation::DrawShape(draw)
-                    | RenderOperation::DrawShapeAndIncrementStencil(draw)
+                    | RenderOperation::DrawShapeAndIncrementStencil(ClipDraw { geometry: ClipGeometry::Shape(draw), .. })
                     if draw.id == ShapeDrawId(panel) && draw.material.under_fill_texture.is_some())
             }));
         }
@@ -108,7 +108,10 @@ fn capture_and_effect_precede_backdrop_draws_and_restore_clips() {
         };
         let draw = match draw_command {
             RenderOperation::DrawShape(draw)
-            | RenderOperation::DrawShapeAndIncrementStencil(draw) => draw,
+            | RenderOperation::DrawShapeAndIncrementStencil(ClipDraw {
+                geometry: ClipGeometry::Shape(draw),
+                ..
+            }) => draw,
             _ => panic!("filtered texture is used by a shape draw"),
         };
         assert_eq!(capture.source, CaptureSource::Target);

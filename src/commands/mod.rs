@@ -3,7 +3,7 @@
 //! Commands carry resource IDs, borrowed parameters, and resolved clips.
 
 use crate::core::vertex::{InstanceTransform, TextureUvTransform};
-use crate::core::{BlendMode, PhysicalRect, Size, UnsignedPhysicalRect};
+use crate::core::{BlendMode, MathRect, PhysicalRect, Size, UnsignedPhysicalRect};
 pub use material::{ShapeDrawMaterial, ShapeTextureBinding, ShapeTextureLayer, TextureSampling};
 pub use textures::IntermediateTextureId;
 
@@ -27,11 +27,28 @@ pub struct ShapeDraw {
     pub material: ShapeDrawMaterial,
 }
 
+/// Geometry that clips subsequent draws until the matching stencil decrement.
+#[derive(Clone, Copy, Debug)]
+pub enum ClipGeometry {
+    Shape(ShapeDraw),
+    /// Axis-aligned bounds in logical screen coordinates, with no visible paint.
+    Rectangle(MathRect),
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct ClipDraw {
+    pub geometry: ClipGeometry,
+    /// Descendant draws read or modify the existing destination color.
+    pub requires_destination: bool,
+    /// Descendants require a shared clip layer for effects or perspective rasterization.
+    pub requires_layer: bool,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub enum RenderOperation<'scene> {
     DrawShape(ShapeDraw),
-    DrawShapeAndIncrementStencil(ShapeDraw),
-    DecrementStencil(ShapeDraw),
+    DrawShapeAndIncrementStencil(ClipDraw),
+    DecrementStencil(ClipDraw),
     CompositeTexture(TextureComposite),
     BeginTarget(Target),
     EndTarget,
@@ -160,6 +177,8 @@ pub enum Target {
         bounds: PhysicalRect,
         /// Permitted drawing area in physical screen coordinates. Padding stays transparent.
         draw_scissor: UnsignedPhysicalRect,
+        /// Content filters receive the source image before ancestor clipping.
+        is_content_effect_input: bool,
     },
     Mask(MaskTarget),
 }

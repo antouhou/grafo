@@ -97,6 +97,7 @@ impl WgpuBackend {
                 .bind_group_layout,
         };
         let execution_context = ExecutionContext {
+            viewport: self.viewport,
             device: &self.device,
             queue: &self.queue,
             pipelines: pipeline_resources,
@@ -139,6 +140,9 @@ impl WgpuBackend {
         self.queue.submit(iter::once(encoder.finish()));
         resources.shape_execution.texture_materials.finish_render();
         resources.shape_execution.coverage_cache.finish_render();
+        if let Some(cache) = &mut resources.shape_execution.clip_coverage {
+            cache.finish_render();
+        }
         resources.effect_execution.finish_render();
 
         let (_collected_shape_mask_effect_results, _collected_shape_masks) =

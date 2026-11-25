@@ -7,7 +7,7 @@ use super::resources::{BackdropPipelineResources, RendererPipelineResources, Sha
 use super::{WgpuBackend, WgpuContext};
 use crate::core::util::to_logical;
 use crate::wgpu_backend::pipeline::Uniforms;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::{
     AddressMode, BindGroupLayout, BufferUsages, Device, FilterMode, MipmapFilterMode,
@@ -203,6 +203,7 @@ impl RendererPipelineResources {
         let backdrops =
             BackdropPipelineResources::new(device, format, &composite_resources.bind_group_layout);
         Self {
+            clipping: OnceLock::new(),
             shapes,
             blending,
             shape_mask_effects: ShapeMaskEffectRendererResources::new(device, format),

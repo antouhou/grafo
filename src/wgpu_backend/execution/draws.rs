@@ -1,4 +1,5 @@
 use super::render_pass::RenderPass;
+use super::shapes::coverage::{clipping::ClipCoverage, CoverageAllocation};
 use super::shapes::{ShapeDrawResources, ShapeGeometryType, ShapeShaderType, StencilAction};
 use super::textures::IntermediateTextureResources;
 use crate::commands::{IntermediateTextureId, ShapeDrawMaterial};
@@ -6,6 +7,7 @@ use crate::core::vertex::InstanceTransform;
 use crate::core::{geometry, PhysicalRect, UnsignedPhysicalRect};
 use crate::wgpu_backend::resources::{Buffers, RendererPipelineResources, ShapePipelines};
 use crate::wgpu_backend::vertex::{GeometryBufferRange, InstanceColor, InstanceMetadata};
+use std::sync::Arc;
 use wgpu::{BindGroup, IndexFormat, RenderPipeline};
 
 fn bind_instance_buffers(
@@ -64,6 +66,11 @@ fn bind_decrement_pipeline(render_pass: &mut RenderPass<'_>, pipelines: &ShapePi
 }
 
 pub(super) struct DrawPass<'pass, 'encoder> {
+    pub(super) paints_isolated_clip: bool,
+    pub(super) clips_draws_directly: bool,
+    pub(super) clip_coverage: Option<Arc<ClipCoverage>>,
+    pub(super) prepared_coverage: Option<Arc<CoverageAllocation>>,
+    pub(super) stencil_reference: u32,
     pub(super) root_scissor: Option<UnsignedPhysicalRect>,
     pub(super) target_clip: Option<(PhysicalRect, UnsignedPhysicalRect)>,
     pub(super) render_pass: &'pass mut RenderPass<'encoder>,
@@ -99,7 +106,7 @@ impl DrawPass<'_, '_> {
         );
     }
 
-    fn draw_material(
+    fn draw_material<const APPLIES_COVERAGE: bool>(
         &mut self,
         stencil_reference: u32,
         material: ShapeDrawMaterial,
@@ -112,7 +119,12 @@ impl DrawPass<'_, '_> {
             return;
         };
         if let Some(coverage) = &resources.path_coverage {
-            let allocation = &coverage.allocation;
+            let prepared = if APPLIES_COVERAGE {
+                self.prepared_coverage.clone()
+            } else {
+                None
+            };
+            let allocation = prepared.as_ref().unwrap_or(&coverage.allocation);
             let buffers = allocation.buffers();
             self.render_pass.set_bind_group(0, &buffers.bind_group, &[]);
             self.bind_material_textures(material);
@@ -130,7 +142,13 @@ impl DrawPass<'_, '_> {
             self.render_pass.set_stencil_reference(stencil_reference);
             allocation.draw(
                 self.render_pass,
-                |boundary| pipelines.get(ShapeGeometryType::coverage(boundary), shader, stencil),
+                |boundary| {
+                    pipelines.get(
+                        ShapeGeometryType::coverage(boundary && APPLIES_COVERAGE),
+                        shader,
+                        stencil,
+                    )
+                },
                 0..1,
             );
             return;
@@ -166,7 +184,7 @@ impl DrawPass<'_, '_> {
         material: ShapeDrawMaterial,
         resources: &ShapeDrawResources,
     ) {
-        self.draw_material(
+        self.draw_material::<true>(
             stencil_reference,
             material,
             resources,
@@ -231,7 +249,17 @@ impl DrawPass<'_, '_> {
         material: ShapeDrawMaterial,
         resources: &ShapeDrawResources,
     ) {
-        self.draw_material(stencil_reference, material, resources, StencilAction::Keep);
+        self.draw_material::<true>(stencil_reference, material, resources, StencilAction::Keep);
+    }
+
+    /// Paints the opening shape; the isolated layer applies its coverage when closing.
+    pub(super) fn draw_isolated_clip_paint(
+        &mut self,
+        stencil_reference: u32,
+        material: ShapeDrawMaterial,
+        resources: &ShapeDrawResources,
+    ) {
+        self.draw_material::<false>(stencil_reference, material, resources, StencilAction::Keep);
     }
 
     /// Composites an intermediate texture under the active scissor and stencil reference.

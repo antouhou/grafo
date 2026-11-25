@@ -1,7 +1,7 @@
 use super::{DrawPlanner, DrawPlanningInput};
 use crate::commands::{
-    BlendDestination, CaptureSource, IntermediateTextureId, RenderCommand, RenderOperation,
-    ShapeDrawId, TextureComposite, TexturePlacement,
+    BlendDestination, CaptureSource, ClipDraw, ClipGeometry, IntermediateTextureId, RenderCommand,
+    RenderOperation, ShapeDrawId, TextureComposite, TexturePlacement,
 };
 use crate::core::effect::BackdropEffectConfig;
 use crate::core::shape::{CachedShapeHandle, ShapeResources};
@@ -34,10 +34,14 @@ fn snapshot(plan: &RecordedCommands) -> Vec<(Operation, u32, UnsignedPhysicalRec
         .filter_map(|instruction| {
             let operation = match instruction.operation {
                 RenderOperation::DrawShape(draw) => Operation::Draw(draw.id),
-                RenderOperation::DrawShapeAndIncrementStencil(draw) => {
-                    Operation::DrawAndIncrement(draw.id)
-                }
-                RenderOperation::DecrementStencil(draw) => Operation::Decrement(draw.id),
+                RenderOperation::DrawShapeAndIncrementStencil(ClipDraw {
+                    geometry: ClipGeometry::Shape(draw),
+                    ..
+                }) => Operation::DrawAndIncrement(draw.id),
+                RenderOperation::DecrementStencil(ClipDraw {
+                    geometry: ClipGeometry::Shape(draw),
+                    ..
+                }) => Operation::Decrement(draw.id),
                 RenderOperation::CompositeTexture(composite) => {
                     Operation::Composite(composite.source)
                 }
@@ -257,6 +261,14 @@ fn shape_mask_composites_preserve_geometry_and_clips() {
     scene.plan(&mut DrawPlanner::default(), &mut output);
     let viewport = rect((0, 0), (100, 100));
     let inherited = rect((10, 10), (60, 60));
+    assert!(output.instructions.iter().any(|command| matches!(
+        command.operation,
+        RenderOperation::DrawShapeAndIncrementStencil(ClipDraw {
+            geometry: ClipGeometry::Shape(draw),
+            requires_layer: true,
+            ..
+        }) if draw.id == ShapeDrawId(root)
+    )));
     assert_eq!(
         snapshot(&output),
         [

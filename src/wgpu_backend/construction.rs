@@ -9,7 +9,7 @@ use super::resources::{
 };
 use super::{WgpuBackend, WgpuContext};
 use crate::core::Viewport;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use wgpu::TextureFormat;
 
 impl WgpuBackend {
@@ -116,6 +116,10 @@ impl WgpuBackend {
         self.resources.textures.clear_shape_mask_effects();
         self.pipeline_resources.composite_resources =
             compile_composite_pipeline(&self.device, self.render_format, self.msaa_sample_count);
+        self.pipeline_resources.clipping = OnceLock::new();
+        if let Some(cache) = &mut self.resources.shape_execution.clip_coverage {
+            cache.clear();
+        }
         self.pipeline_resources.blending = BlendPipelineResources::new(
             &self.device,
             self.render_format,

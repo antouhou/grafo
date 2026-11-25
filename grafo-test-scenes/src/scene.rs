@@ -3,9 +3,11 @@
 use crate::caption_font;
 use crate::expectations::PixelExpectation;
 use crate::shaders::{
-    BlurParams, DropShadowParams, HORIZONTAL_BLUR_WGSL, LEFT_CAPTURE_MARGIN_WGSL,
-    PADDED_BACKDROP_SAMPLING_WGSL, PASSTHROUGH_WGSL, ROTATE_COLOR_CHANNELS_WGSL, SHADOW_TINT_WGSL,
-    SHAPE_DROP_WGSL, VERTICAL_BLUR_WGSL, WAVE_DISTORTION_WGSL,
+    BlurParams, DropShadowParams, FIRST_CAPTURE_PIXEL_WGSL, HORIZONTAL_BLUR_WGSL,
+    LEFT_CAPTURE_MARGIN_WGSL, PADDED_BACKDROP_SAMPLING_WGSL, PASSTHROUGH_WGSL,
+    RIGHT_CAPTURE_MARGIN_WGSL, ROTATE_COLOR_CHANNELS_WGSL, SHADOW_TINT_WGSL, SHAPE_DROP_WGSL,
+    SHIFT_RIGHT_WGSL, SOLID_BLACK_WGSL, SOLID_BLUE_WGSL, SOLID_GRAY_WGSL, TRANSPARENT_BLACK_WGSL,
+    VERTICAL_BLUR_WGSL, WAVE_DISTORTION_WGSL,
 };
 use futures::executor::block_on;
 use futures::stream;
@@ -14,12 +16,12 @@ use grafo::core::color;
 use grafo::lyon::math::Box2D;
 use grafo::lyon::path::{Path, PathEvent, Winding};
 use grafo::{
-    AlphaMode, BackdropCaptureArea, BackdropEffectConfig, BorderRadii, Color, ColorInterpolation,
-    ConicGradientDesc, ContentEffectConfig, DrawMode, Fill, GlyphContent, Gradient,
-    GradientCommonDesc, GradientStop, GradientStopOffset, GradientStopPositions, GradientUnits,
-    HueInterpolationMethod, LineCap, LinearGradientDesc, LinearGradientLine, PositionedGlyph,
-    RadialGradientDesc, RadialGradientSize, RgbEncoding, Scene, Shape, ShapeDrawOptions,
-    ShapeMaskEffectConfig, ShapeTextureFitMode, ShapeTextureOptions, SpreadMode,
+    AlphaMode, BackdropCaptureArea, BackdropEffectConfig, BlendMode, BorderRadii, Color,
+    ColorInterpolation, ConicGradientDesc, ContentEffectConfig, DrawMode, Fill, GlyphContent,
+    Gradient, GradientCommonDesc, GradientStop, GradientStopOffset, GradientStopPositions,
+    GradientUnits, HueInterpolationMethod, LineCap, LinearGradientDesc, LinearGradientLine,
+    PositionedGlyph, RadialGradientDesc, RadialGradientSize, RgbEncoding, Scene, Shape,
+    ShapeDrawOptions, ShapeMaskEffectConfig, ShapeTextureFitMode, ShapeTextureOptions, SpreadMode,
     StrokeGeometryOptions, TextSource, TextureManager, TexturePixelFormat, TexturePixelLayout,
     TextureStorageFormat, TextureStreamError, TransformInstance,
 };
@@ -1926,6 +1928,688 @@ fn tile_10_rounded_rect_clip(scene: &mut Scene) -> Vec<PixelExpectation> {
     ]
 }
 
+fn tile_11_clipping_edges(scene: &mut Scene) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(11);
+    let top = origin_y + 67.0;
+    scene
+        .add_shape(
+            Shape::rect([(origin_x, top - 1.0), (origin_x + 80.0, origin_y + 80.0)]),
+            None,
+            None,
+            ShapeDrawOptions::new()
+                .color(Color::WHITE)
+                .clips_children(false),
+        )
+        .unwrap();
+
+    for (left, nested_clip) in [
+        (origin_x + 2.0, 0),
+        (origin_x + 15.0, 1),
+        (origin_x + 54.0, 2),
+    ] {
+        let triangle = Shape::builder()
+            .begin((left + 1.0, top + 1.0))
+            .line_to((left + 11.0, top + 1.0))
+            .line_to((left + 1.0, top + 11.0))
+            .close()
+            .build();
+        let parent = scene
+            .add_shape(
+                &triangle,
+                None,
+                None,
+                ShapeDrawOptions::new().color(Color::rgb(0, 0, 255)),
+            )
+            .unwrap();
+        let parent = if nested_clip == 2 {
+            scene
+                .add_shape(&triangle, Some(parent), None, ShapeDrawOptions::new())
+                .unwrap()
+        } else if nested_clip == 1 {
+            scene
+                .add_shape(
+                    Shape::rect([(left, top), (left + 12.0, top + 12.0)]),
+                    Some(parent),
+                    None,
+                    ShapeDrawOptions::new(),
+                )
+                .unwrap()
+        } else {
+            parent
+        };
+        for color in [Color::rgb(255, 0, 0), Color::rgb(0, 255, 0)] {
+            scene
+                .add_shape(
+                    Shape::rect([(left, top), (left + 12.0, top + 12.0)]),
+                    Some(parent),
+                    None,
+                    ShapeDrawOptions::new().color(color),
+                )
+                .unwrap();
+        }
+        if nested_clip == 0 {
+            let panel = scene
+                .add_shape(
+                    Shape::rect([(left, top), (left + 12.0, top + 12.0)]),
+                    Some(parent),
+                    None,
+                    ShapeDrawOptions::new(),
+                )
+                .unwrap();
+            scene
+                .set_backdrop_effect(
+                    panel,
+                    PASSTHROUGH_EFFECT_ID,
+                    &[],
+                    BackdropEffectConfig::default(),
+                )
+                .unwrap();
+        }
+    }
+
+    let left = origin_x + 28.0;
+    let rectangle = scene
+        .add_clipping_rect(
+            [(left + 1.25, top + 1.0), (left + 10.75, top + 11.0)],
+            None,
+            None::<TransformInstance>,
+            true,
+        )
+        .unwrap();
+    scene
+        .add_shape(
+            Shape::rect([(left, top), (left + 12.0, top + 12.0)]),
+            Some(rectangle),
+            None,
+            ShapeDrawOptions::new().color(Color::rgb(255, 0, 0)),
+        )
+        .unwrap();
+
+    scene
+        .load_effect(90_012, &[FIRST_CAPTURE_PIXEL_WGSL])
+        .unwrap();
+    let panel = scene
+        .add_shape(
+            Shape::rect([(left + 4.0, top + 2.0), (left + 7.0, top + 5.0)]),
+            Some(rectangle),
+            None,
+            ShapeDrawOptions::new(),
+        )
+        .unwrap();
+    scene
+        .set_backdrop_effect(
+            panel,
+            90_012,
+            &[],
+            BackdropEffectConfig::new().capture_area(BackdropCaptureArea::ScreenRect([
+                (left + 1.0, top + 1.0),
+                (left + 11.0, top + 6.0),
+            ])),
+        )
+        .unwrap();
+
+    for (offset, blend) in [(41.0, BlendMode::SourceOver), (67.0, BlendMode::Clear)] {
+        let left = origin_x + offset;
+        let parent = scene
+            .add_clipping_rect(
+                [(left + 1.25, top + 1.0), (left + 10.75, top + 11.0)],
+                None,
+                None::<TransformInstance>,
+                true,
+            )
+            .unwrap();
+        let parent = if blend == BlendMode::SourceOver {
+            scene
+                .add_clipping_rect(
+                    [(left + 1.5, top + 1.0), (left + 11.0, top + 11.0)],
+                    Some(parent),
+                    None::<TransformInstance>,
+                    true,
+                )
+                .unwrap()
+        } else {
+            parent
+        };
+        scene
+            .add_shape(
+                Shape::rect([(left, top), (left + 12.0, top + 12.0)]),
+                Some(parent),
+                None,
+                ShapeDrawOptions::new()
+                    .color(Color::rgb(255, 0, 0))
+                    .blend_mode(blend),
+            )
+            .unwrap();
+        if blend == BlendMode::Clear {
+            for (color, blend_mode) in [
+                (Color::rgb(0, 0, 255), BlendMode::SourceOver),
+                (Color::rgb(255, 0, 0), BlendMode::Multiply),
+            ] {
+                scene
+                    .add_shape(
+                        Shape::rect([(left + 1.25, top + 7.0), (left + 10.75, top + 11.0)]),
+                        Some(parent),
+                        None,
+                        ShapeDrawOptions::new().color(color).blend_mode(blend_mode),
+                    )
+                    .unwrap();
+            }
+        } else {
+            scene
+                .add_shape(
+                    Shape::rect([(left + 1.5, top + 7.0), (left + 11.0, top + 11.0)]),
+                    Some(parent),
+                    None,
+                    ShapeDrawOptions::new()
+                        .color(Color::rgb(0, 255, 0))
+                        .blend_mode(BlendMode::Source),
+                )
+                .unwrap();
+        }
+    }
+
+    let child = scene
+        .add_shape(
+            Shape::rect([
+                (origin_x + 29.25, top + 7.0),
+                (origin_x + 38.75, top + 11.0),
+            ]),
+            Some(rectangle),
+            None,
+            ShapeDrawOptions::new().color(Color::rgb(0, 255, 0)),
+        )
+        .unwrap();
+    scene
+        .set_content_effect(
+            child,
+            PASSTHROUGH_EFFECT_ID,
+            &[],
+            ContentEffectConfig::default(),
+        )
+        .unwrap();
+
+    vec![
+        PixelExpectation::opaque(
+            origin_x as u32 + 33,
+            top as u32 + 3,
+            255,
+            137,
+            137,
+            "t11_backdrop_samples_parent_edge_color",
+        )
+        .with_tolerance(2),
+        PixelExpectation::opaque(
+            origin_x as u32 + 7,
+            top as u32 + 6,
+            188,
+            255,
+            188,
+            "t11_overlapping_children_keep_parent_edge",
+        )
+        .with_tolerance(2),
+        PixelExpectation::opaque(
+            origin_x as u32 + 29,
+            top as u32 + 5,
+            255,
+            137,
+            137,
+            "t11_fractional_clip_rectangle_edge",
+        )
+        .with_tolerance(2),
+        PixelExpectation::opaque(
+            origin_x as u32 + 59,
+            top as u32 + 6,
+            165,
+            207,
+            137,
+            "t11_identical_nested_clips_blend_fractional_edges",
+        )
+        .with_tolerance(2),
+        PixelExpectation::opaque(
+            origin_x as u32 + 20,
+            top as u32 + 6,
+            165,
+            207,
+            137,
+            "t11_ancestor_clip_blends_fractional_edges",
+        )
+        .with_tolerance(2),
+        PixelExpectation::opaque(
+            origin_x as u32 + 42,
+            top as u32 + 5,
+            255,
+            188,
+            188,
+            "t11_overlapping_rectangle_edges",
+        )
+        .with_tolerance(2),
+        PixelExpectation::new(
+            origin_x as u32 + 68,
+            top as u32 + 5,
+            137,
+            137,
+            137,
+            64,
+            "t11_clear_keeps_fractional_clip",
+        )
+        .with_tolerance(2),
+        PixelExpectation::opaque(
+            origin_x as u32 + 68,
+            top as u32 + 9,
+            137,
+            137,
+            137,
+            "t11_multiply_uses_clip_interior",
+        )
+        .with_tolerance(2),
+        PixelExpectation::opaque(
+            origin_x as u32 + 42,
+            top as u32 + 9,
+            188,
+            255,
+            188,
+            "t11_source_keeps_shared_edge",
+        )
+        .with_tolerance(2),
+        PixelExpectation::opaque(
+            origin_x as u32 + 29,
+            top as u32 + 9,
+            177,
+            233,
+            137,
+            "t11_content_image_uses_parent_coverage",
+        )
+        .with_tolerance(2),
+    ]
+}
+
+fn tile_11_layered_backdrop(scene: &mut Scene) -> Vec<PixelExpectation> {
+    let (left, top) = tile_origin(11);
+    scene
+        .add_shape(
+            Shape::rect([(left + 60.0, top + 1.0), (left + 78.0, top + 13.0)]),
+            None,
+            None,
+            ShapeDrawOptions::new().color(Color::rgb(255, 0, 0)),
+        )
+        .unwrap();
+    let group = scene
+        .add_shape(
+            Shape::rect([(left + 60.0, top + 1.0), (left + 78.0, top + 13.0)]),
+            None,
+            None,
+            ShapeDrawOptions::new().clips_children(false),
+        )
+        .unwrap();
+    scene
+        .set_content_effect(
+            group,
+            PASSTHROUGH_EFFECT_ID,
+            &[],
+            ContentEffectConfig::default(),
+        )
+        .unwrap();
+    let clip = scene
+        .add_clipping_rect(
+            [(left + 65.5, top + 4.0), (left + 75.5, top + 11.0)],
+            Some(group),
+            None::<TransformInstance>,
+            true,
+        )
+        .unwrap();
+    let panel = scene
+        .add_shape(
+            Shape::rect([(left + 65.0, top + 4.0), (left + 76.0, top + 11.0)]),
+            Some(clip),
+            None,
+            ShapeDrawOptions::new(),
+        )
+        .unwrap();
+    scene.load_effect(90_013, &[SOLID_BLUE_WGSL]).unwrap();
+    scene
+        .set_backdrop_effect(panel, 90_013, &[], BackdropEffectConfig::default())
+        .unwrap();
+    let identity_panel = scene
+        .add_shape(
+            Shape::rect([(left + 65.0, top + 4.0), (left + 76.0, top + 8.0)]),
+            Some(clip),
+            None,
+            ShapeDrawOptions::new(),
+        )
+        .unwrap();
+    scene
+        .set_backdrop_effect(
+            identity_panel,
+            PASSTHROUGH_EFFECT_ID,
+            &[],
+            BackdropEffectConfig::default(),
+        )
+        .unwrap();
+    for (start, end, effect, shader) in [
+        (65.0, 70.0, 90_016, SOLID_BLACK_WGSL),
+        (70.0, 76.0, 90_017, TRANSPARENT_BLACK_WGSL),
+    ] {
+        scene.load_effect(effect, &[shader]).unwrap();
+        let panel = scene
+            .add_shape(
+                Shape::rect([(left + start, top + 8.0), (left + end, top + 11.0)]),
+                Some(clip),
+                None,
+                ShapeDrawOptions::new(),
+            )
+            .unwrap();
+        scene
+            .set_backdrop_effect(panel, effect, &[], BackdropEffectConfig::default())
+            .unwrap();
+    }
+    let extended_bounds = [(left + 64.0, top + 12.0), (left + 77.0, top + 14.0)];
+    scene
+        .add_shape(
+            Shape::rect(extended_bounds),
+            None,
+            None,
+            ShapeDrawOptions::new().blend_mode(BlendMode::Clear),
+        )
+        .unwrap();
+    let extended_clip = scene
+        .add_clipping_rect(
+            [(left + 65.5, top + 12.0), (left + 75.5, top + 14.0)],
+            None,
+            None::<TransformInstance>,
+            true,
+        )
+        .unwrap();
+    scene
+        .add_shape(
+            Shape::rect(extended_bounds),
+            Some(extended_clip),
+            None,
+            ShapeDrawOptions::new().color(Color::from_linear_rgba(1.5, 0.0, 0.0, 0.5)),
+        )
+        .unwrap();
+    let extended_panel = scene
+        .add_shape(
+            Shape::rect(extended_bounds),
+            Some(extended_clip),
+            None,
+            ShapeDrawOptions::new(),
+        )
+        .unwrap();
+    scene
+        .set_backdrop_effect(
+            extended_panel,
+            PASSTHROUGH_EFFECT_ID,
+            &[],
+            BackdropEffectConfig::default(),
+        )
+        .unwrap();
+    scene
+        .add_shape(
+            Shape::rect([(left + 60.0, top + 15.0), (left + 78.0, top + 28.0)]),
+            None,
+            None,
+            ShapeDrawOptions::new().color(Color::rgb(255, 0, 0)),
+        )
+        .unwrap();
+    let parent = scene
+        .add_shape(
+            Shape::rect([(left + 65.5, top + 18.0), (left + 75.5, top + 25.0)]),
+            None,
+            None,
+            ShapeDrawOptions::new().color(Color::rgb(0, 0, 255)),
+        )
+        .unwrap();
+    let mut container = parent;
+    for _ in 0..3 {
+        container = scene
+            .add_shape(
+                Shape::rect([(left + 60.0, top + 15.0), (left + 78.0, top + 28.0)]),
+                Some(container),
+                None,
+                ShapeDrawOptions::new().clips_children(false),
+            )
+            .unwrap();
+        scene
+            .set_content_effect(
+                container,
+                PASSTHROUGH_EFFECT_ID,
+                &[],
+                ContentEffectConfig::default(),
+            )
+            .unwrap();
+    }
+    let panel = scene
+        .add_shape(
+            Shape::rect([(left + 65.0, top + 18.0), (left + 76.0, top + 25.0)]),
+            Some(container),
+            None,
+            ShapeDrawOptions::new(),
+        )
+        .unwrap();
+    scene
+        .set_backdrop_effect(
+            panel,
+            PASSTHROUGH_EFFECT_ID,
+            &[],
+            BackdropEffectConfig::default(),
+        )
+        .unwrap();
+    scene
+        .add_shape(
+            Shape::rect([(left + 65.0, top + 22.0), (left + 76.0, top + 25.0)]),
+            Some(container),
+            None,
+            ShapeDrawOptions::new().color(Color::rgb(0, 255, 0)),
+        )
+        .unwrap();
+    let panel = scene
+        .add_shape(
+            Shape::rect([(left + 70.0, top + 23.0), (left + 73.0, top + 25.0)]),
+            Some(container),
+            None,
+            ShapeDrawOptions::new(),
+        )
+        .unwrap();
+    scene
+        .set_backdrop_effect(
+            panel,
+            90_012,
+            &[],
+            BackdropEffectConfig::new().capture_area(BackdropCaptureArea::ScreenRect([
+                (left + 65.0, top + 22.0),
+                (left + 76.0, top + 25.0),
+            ])),
+        )
+        .unwrap();
+    scene.load_effect(90_014, &[SHIFT_RIGHT_WGSL]).unwrap();
+    scene.load_effect(90_015, &[SOLID_GRAY_WGSL]).unwrap();
+    scene
+        .add_shape(
+            Shape::rect([(left + 60.0, top + 31.0), (left + 78.0, top + 66.0)]),
+            None,
+            None,
+            ShapeDrawOptions::new()
+                .color(Color::WHITE)
+                .clips_children(false),
+        )
+        .unwrap();
+    for (y, color, effect) in [
+        (32.0, Color::BLACK, 90_014),
+        (46.0, Color::TRANSPARENT, 90_015),
+        (58.0, Color::BLACK, PASSTHROUGH_EFFECT_ID),
+    ] {
+        let clip = scene
+            .add_clipping_rect(
+                [(left + 65.5, top + y), (left + 75.5, top + y + 8.0)],
+                None,
+                None::<TransformInstance>,
+                true,
+            )
+            .unwrap();
+        let panel = scene
+            .add_shape(
+                Shape::rect([(left + 65.5, top + y), (left + 75.5, top + y + 8.0)]),
+                Some(clip),
+                None,
+                ShapeDrawOptions::new().color(color),
+            )
+            .unwrap();
+        if effect != 90_015 {
+            scene
+                .set_content_effect(
+                    panel,
+                    effect,
+                    &[],
+                    if effect == PASSTHROUGH_EFFECT_ID {
+                        ContentEffectConfig::default().downsample(0.5)
+                    } else {
+                        ContentEffectConfig::default()
+                    },
+                )
+                .unwrap();
+        } else {
+            scene
+                .set_backdrop_effect(panel, effect, &[], BackdropEffectConfig::default())
+                .unwrap();
+        }
+    }
+    scene
+        .add_shape(
+            Shape::rect([(left + 64.0, top + 63.0), (left + 68.0, top + 66.0)]),
+            None,
+            None,
+            ShapeDrawOptions::new()
+                .color(Color::WHITE)
+                .clips_children(false),
+        )
+        .unwrap();
+    let clip = scene
+        .add_clipping_rect(
+            [(left + 65.5, top + 64.0), (left + 66.0, top + 65.0)],
+            None,
+            None::<TransformInstance>,
+            true,
+        )
+        .unwrap();
+    let panel = scene
+        .add_shape(
+            Shape::rect([(left + 65.5, top + 64.0), (left + 66.0, top + 65.0)]),
+            Some(clip),
+            None,
+            ShapeDrawOptions::new().color(Color::BLACK),
+        )
+        .unwrap();
+    scene
+        .set_content_effect(
+            panel,
+            PASSTHROUGH_EFFECT_ID,
+            &[],
+            ContentEffectConfig::default().downsample(0.5),
+        )
+        .unwrap();
+    vec![
+        PixelExpectation::opaque(
+            left as u32 + 65,
+            top as u32 + 64,
+            225,
+            225,
+            225,
+            "t11_small_content_image_uses_clip_coverage",
+        )
+        .with_tolerance(2),
+        PixelExpectation::opaque(
+            left as u32 + 66,
+            top as u32 + 61,
+            123,
+            123,
+            123,
+            "t11_downsampled_content_keeps_source_coverage",
+        )
+        .with_tolerance(3),
+        PixelExpectation::opaque(
+            left as u32 + 66,
+            top as u32 + 36,
+            188,
+            188,
+            188,
+            "t11_shifted_content_keeps_source_edge_coverage",
+        )
+        .with_tolerance(2),
+        PixelExpectation::opaque(
+            left as u32 + 65,
+            top as u32 + 50,
+            240,
+            240,
+            240,
+            "t11_backdrop_change_keeps_clip_weight",
+        )
+        .with_tolerance(2),
+        PixelExpectation::opaque(
+            left as u32 + 71,
+            top as u32 + 24,
+            188,
+            188,
+            0,
+            "t11_nested_content_backdrop_samples_visible_edge",
+        )
+        .with_tolerance(12),
+        PixelExpectation::opaque(
+            left as u32 + 65,
+            top as u32 + 21,
+            225,
+            0,
+            137,
+            "t11_content_backdrop_image_uses_parent_coverage",
+        )
+        .with_tolerance(2),
+        PixelExpectation::opaque(
+            left as u32 + 65,
+            top as u32 + 7,
+            188,
+            0,
+            188,
+            "t11_layered_filter_keeps_clip_edge",
+        )
+        .with_tolerance(2),
+        PixelExpectation::opaque(
+            left as u32 + 70,
+            top as u32 + 7,
+            0,
+            0,
+            255,
+            "t11_layered_filter_replaces_background",
+        ),
+        PixelExpectation::opaque(
+            left as u32 + 65,
+            top as u32 + 9,
+            188,
+            0,
+            0,
+            "t11_darkening_filter_removes_edge_color",
+        )
+        .with_tolerance(2),
+        PixelExpectation::opaque(
+            left as u32 + 75,
+            top as u32 + 9,
+            188,
+            0,
+            188,
+            "t11_transparent_filter_does_not_add_edge_color",
+        )
+        .with_tolerance(2),
+        PixelExpectation::new(
+            left as u32 + 65,
+            top as u32 + 12,
+            188,
+            0,
+            0,
+            96,
+            "t11_identity_filter_preserves_extended_edge_color",
+        )
+        .with_tolerance(2),
+    ]
+}
+
 fn tile_11_path_parent_clip(scene: &mut Scene) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(11);
     // Triangle parent
@@ -1955,7 +2639,79 @@ fn tile_11_path_parent_clip(scene: &mut Scene) -> Vec<PixelExpectation> {
         )
         .unwrap();
 
-    vec![
+    let frame = scene
+        .add_clipping_rect(
+            [(ox + 1.0, oy + 1.0), (ox + 13.0, oy + 13.0)],
+            None,
+            None::<TransformInstance>,
+            true,
+        )
+        .unwrap();
+    let mut perspective = TransformInstance::identity();
+    perspective.col0[0] = 20.0;
+    perspective.col1[1] = 16.0;
+    perspective.col3[0] = 5.3;
+    perspective.col3[1] = 20.0;
+    perspective.col0[3] = 1.0;
+    perspective.col3[3] = 0.0;
+    let parent = scene
+        .add_shape(
+            Shape::rect([(-1.0, -1.0), (1.0, 1.0)]),
+            Some(frame),
+            None,
+            ShapeDrawOptions::new()
+                .color(Color::rgb(255, 0, 0))
+                .transform(perspective.then(&TransformInstance::translation(ox - 19.0, oy - 14.0))),
+        )
+        .unwrap();
+    let empty_clip = scene
+        .add_clipping_rect(
+            [(ox + 0.5, oy + 0.5), (ox + 13.5, oy + 13.5)],
+            Some(parent),
+            None::<TransformInstance>,
+            true,
+        )
+        .unwrap();
+    scene
+        .add_shape(
+            Shape::rect([(ox + 1.0, oy + 1.0), (ox + 13.0, oy + 13.0)]),
+            Some(empty_clip),
+            None,
+            ShapeDrawOptions::new(),
+        )
+        .unwrap();
+    scene
+        .add_shape(
+            Shape::rect([(ox + 8.0, oy + 1.0), (ox + 13.0, oy + 13.0)]),
+            Some(empty_clip),
+            None,
+            ShapeDrawOptions::new().color(Color::rgb(0, 255, 0)),
+        )
+        .unwrap();
+    scene
+        .load_effect(90_011, &[RIGHT_CAPTURE_MARGIN_WGSL])
+        .unwrap();
+    let panel = scene
+        .add_shape(
+            Shape::rect([(ox + 2.0, oy + 2.0), (ox + 4.0, oy + 5.0)]),
+            Some(empty_clip),
+            None,
+            ShapeDrawOptions::new(),
+        )
+        .unwrap();
+    scene
+        .set_backdrop_effect(panel, 90_011, &[], BackdropEffectConfig::new().padding(6.0))
+        .unwrap();
+
+    let mut expectations = vec![
+        PixelExpectation::opaque(
+            ox as u32 + 3,
+            oy as u32 + 3,
+            255,
+            255,
+            255,
+            "t11_backdrop_ignores_clipped_paint",
+        ),
         // The orange child remains visible inside the triangle.
         PixelExpectation::opaque(
             ox as u32 + 55,
@@ -1983,7 +2739,10 @@ fn tile_11_path_parent_clip(scene: &mut Scene) -> Vec<PixelExpectation> {
             255,
             "t11_outside_is_bg",
         ),
-    ]
+    ];
+    expectations.extend(tile_11_clipping_edges(scene));
+    expectations.extend(tile_11_layered_backdrop(scene));
+    expectations
 }
 
 fn tile_12_stencil_nested_3_levels(scene: &mut Scene) -> Vec<PixelExpectation> {

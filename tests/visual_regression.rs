@@ -758,6 +758,19 @@ fn main_scene_pixel_expectations() {
             let expectations = build_main_scene(&mut scene);
             render_bgra(&mut scene, &mut pixel_buffer).unwrap();
             assert_pixels_match(&pixel_buffer, &expectations);
+            let edge_channel = if sample_count == 4 { 225 } else { 255 };
+            assert_pixels_match(
+                &pixel_buffer,
+                &[PixelExpectation::opaque(
+                    6,
+                    86,
+                    255,
+                    edge_channel,
+                    edge_channel,
+                    "t11_empty_clip_keeps_perspective_edge_samples",
+                )
+                .with_tolerance(2)],
+            );
             if should_remove_root {
                 assert_scene_restored_after_overlay_removal(
                     &mut scene,

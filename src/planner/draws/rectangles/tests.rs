@@ -1,4 +1,4 @@
-use super::{should_skip_visible_rect_draw, try_scissor_for_rect};
+use super::{should_skip_visible_draw, try_scissor_for_rect};
 use crate::commands::{
     IntermediateTextureId, ShapeTextureBinding, ShapeTextureLayer, TextureSampling,
 };
@@ -60,7 +60,7 @@ fn should_skip(node_id: usize, node: &DrawTreeNode, groups: &HashMap<usize, Cont
         DrawTreeNode::CachedShape(description) => Some(shape_material(&description.instance)),
         _ => None,
     };
-    should_skip_visible_rect_draw(node_id, node, material, groups)
+    should_skip_visible_draw(node_id, node, material, groups)
 }
 
 #[test]
@@ -70,11 +70,11 @@ fn scissor_rejects_non_axis_aligned_transform() {
             .transform(TransformInstance::affine_2d(1.0, 0.0, 0.5, 1.0, 5.0, 5.0)),
     );
 
-    assert!(try_scissor_for_rect(&draw_tree_node, 1.0, Size::new(100, 100)).is_none());
+    assert!(try_scissor_for_rect(&draw_tree_node, None, 1.0, Size::new(100, 100)).is_none());
 }
 
 #[test]
-fn skip_visible_rect_draw_rejects_content_effect_nodes() {
+fn skip_visible_draw_rejects_content_effect_nodes() {
     let draw_tree_node = rect_draw_tree_node();
     let node_id = 7usize;
 
@@ -104,14 +104,14 @@ fn skip_visible_rect_draw_rejects_content_effect_nodes() {
 }
 
 #[test]
-fn skip_visible_rect_draw_accepts_untextured_none_color_rect() {
+fn skip_visible_draw_accepts_untextured_none_color_rect() {
     let draw_tree_node = rect_draw_tree_node();
 
     assert!(should_skip(1, &draw_tree_node, &HashMap::new(),));
 }
 
 #[test]
-fn skip_visible_rect_draw_respects_solid_fill_opacity_and_textures() {
+fn skip_visible_draw_respects_solid_fill_opacity_and_textures() {
     for alpha in [0, 1, 128, 255] {
         let draw_tree_node = rect_draw_tree_node_with_options(
             ShapeDrawOptions::new().color(Color::rgba(101, 81, 226, alpha)),
@@ -135,7 +135,7 @@ fn positive_float_alpha_keeps_the_rectangle_draw() {
 }
 
 #[test]
-fn skip_visible_rect_draw_rejects_gradient_rects() {
+fn skip_visible_draw_rejects_gradient_rects() {
     let mut draw_tree_node = rect_draw_tree_node();
 
     match &mut draw_tree_node {
@@ -159,7 +159,7 @@ fn texture_below_transparent_fill_keeps_the_rectangle_draw() {
         texture: ShapeTextureBinding::Intermediate(IntermediateTextureId::Planned(0)),
         sampling: TextureSampling::ShapeUv,
     });
-    assert!(!should_skip_visible_rect_draw(
+    assert!(!should_skip_visible_draw(
         1,
         &node,
         Some(material),

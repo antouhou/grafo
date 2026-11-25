@@ -74,6 +74,9 @@ impl WgpuBackend {
         if should_rebuild_coverage {
             let shapes = &mut self.resources.shape_execution;
             shapes.coverage_cache.reset_for_viewport(viewport);
+            if let Some(cache) = &mut shapes.clip_coverage {
+                cache.clear();
+            }
             for resources in shapes.draws.values_mut() {
                 if let Some(coverage) = &mut resources.path_coverage {
                     *coverage = shapes.coverage_cache.prepare(

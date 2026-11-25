@@ -43,6 +43,14 @@ fn nested_targets_reset_clips_and_restore_each_parent_before_compositing() {
         let mut output = RecordedCommands::default();
         let mut planner = DrawPlanner::default();
         scene.plan(&mut planner, &mut output);
+        assert!(output.instructions.iter().any(|command| matches!(
+            command.operation,
+            RenderOperation::DrawShapeAndIncrementStencil(ClipDraw {
+                geometry: ClipGeometry::Shape(draw),
+                requires_layer: true,
+                ..
+            }) if draw.id == ShapeDrawId(root)
+        )));
         let inner_texture = if inner_has_effect { 2 } else { 1 };
         let outer_texture = if outer_has_effect {
             2 + usize::from(inner_has_effect)

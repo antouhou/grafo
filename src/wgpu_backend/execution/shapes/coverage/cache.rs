@@ -1,5 +1,5 @@
 use super::placement::CoveragePlacement;
-use super::uploads::CoverageUploads;
+use super::uploads::{CoverageStorage, CoverageUploads};
 use super::{CoverageAllocation, CoverageBuffers, CoverageBuilder, PathCoverage};
 use crate::core::cache::{CachedTessellation, FrameCache};
 use crate::core::vertex::InstanceTransform;
@@ -99,6 +99,7 @@ impl CoverageCache {
             tessellation: Arc::clone(tessellation),
             transform,
             translation: placement.translation,
+            clipping: OnceLock::new(),
         }
     }
 
@@ -113,12 +114,17 @@ impl CoverageCache {
         self.builder.trim_row_buckets(viewport.physical_size.1);
     }
 
+    pub(in crate::wgpu_backend) fn seal_pending(&mut self) {
+        self.uploads.seal_pending();
+    }
+
     pub(in crate::wgpu_backend) fn upload(
         &mut self,
         device: &Device,
         queue: &Queue,
         pipelines: &ShapePipelines,
     ) {
+        self.seal_pending();
         self.uploads
             .upload(device, queue, pipelines, &mut self.buffers);
     }
@@ -134,20 +140,23 @@ impl CoverageCache {
         let mut rebound = HashMap::new();
         for coverage in coverage {
             let previous = &coverage.allocation;
-            let buffers = rebound
-                .entry(Arc::as_ptr(&previous.buffers) as usize)
+            let storage = rebound
+                .entry(Arc::as_ptr(&previous.storage) as usize)
                 .or_insert_with(|| {
-                    if let Some(buffers) = previous.buffers.get() {
+                    if let Some(buffers) = previous.storage.buffers.get() {
                         let mut buffers = buffers.clone();
                         buffers.rebind(device, pipelines);
-                        Arc::new(OnceLock::from(buffers))
+                        Arc::new(CoverageStorage {
+                            buffers: OnceLock::from(buffers),
+                            geometry: previous.storage.geometry.clone(),
+                        })
                     } else {
-                        Arc::clone(&previous.buffers)
+                        Arc::clone(&previous.storage)
                     }
                 });
             let (allocation, _) = self.entries.get_or_insert_with(coverage.key.clone(), || {
                 Arc::new(CoverageAllocation {
-                    buffers: Arc::clone(buffers),
+                    storage: Arc::clone(storage),
                     range: previous.range,
                     bounds: previous.bounds,
                 })
@@ -161,9 +170,12 @@ impl CoverageCache {
         for (key, coverage) in self.entries.end_frame() {
             match Arc::try_unwrap(coverage) {
                 Ok(allocation) => {
-                    if let Ok(shared) = Arc::try_unwrap(allocation.buffers) {
-                        if let Some(buffers) = shared.into_inner() {
+                    if let Ok(shared) = Arc::try_unwrap(allocation.storage) {
+                        if let Some(buffers) = shared.buffers.into_inner() {
                             self.buffers.push(buffers);
+                        }
+                        if let Some(geometry) = shared.geometry.into_inner() {
+                            self.uploads.recycle_geometry(geometry);
                         }
                     }
                 }

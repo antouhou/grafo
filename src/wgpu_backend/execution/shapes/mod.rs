@@ -8,6 +8,7 @@ use crate::wgpu_backend::gradient::{GradientCache, GradientMaterial};
 use crate::wgpu_backend::vertex::{GeometryBufferRange, InstanceColor, InstanceMetadata};
 use ahash::{HashMap, HashMapExt};
 use compaction::DrawBufferCompactionStorage;
+use coverage::clipping::cache::ClipCoverageCache;
 use coverage::{CoverageCache, PathCoverage};
 use materials::TextureMaterialPool;
 pub(in crate::wgpu_backend) use pipelines::{
@@ -71,6 +72,7 @@ impl ShapeDrawResources {
 
 /// Reusable execution storage, separate from draw descriptions and their tree.
 pub(crate) struct ShapeExecutionResources {
+    pub(in crate::wgpu_backend) clip_coverage: Option<Box<ClipCoverageCache>>,
     pub(in crate::wgpu_backend) coverage_cache: CoverageCache,
     pub(in crate::wgpu_backend) composites: CompositeExecutionResources,
     pub(in crate::wgpu_backend) texture_materials: TextureMaterialPool,
@@ -87,11 +89,19 @@ pub(crate) struct ShapeExecutionResources {
 }
 
 impl ShapeExecutionResources {
+    pub(in crate::wgpu_backend) fn clip_coverage(&mut self) -> &mut ClipCoverageCache {
+        self.clip_coverage
+            .get_or_insert_with(|| Box::new(ClipCoverageCache::new()))
+    }
+
     pub(in crate::wgpu_backend) fn clear_caches(&mut self) {
         self.compact_draw_buffers();
         self.compaction = DrawBufferCompactionStorage::default();
         for draw in self.draws.values_mut() {
             draw.clear_under_fill_binding();
+            if let Some(coverage) = &mut draw.path_coverage {
+                coverage.clear_clipping();
+            }
         }
         self.draws.shrink_to_fit();
         self.vertices.shrink_to_fit();
@@ -101,6 +111,7 @@ impl ShapeExecutionResources {
         self.instance_colors.shrink_to_fit();
         self.instance_metadata.shrink_to_fit();
         self.coverage_cache.clear_caches();
+        self.clip_coverage = None;
         self.gradient_cache.clear_caches();
         self.texture_materials.clear_caches();
         self.composites.clear_caches();
@@ -136,6 +147,7 @@ impl ShapeExecutionResources {
 
     pub(crate) fn new() -> Self {
         Self {
+            clip_coverage: None,
             coverage_cache: CoverageCache::new(),
             texture_materials: TextureMaterialPool::default(),
             composites: CompositeExecutionResources::default(),

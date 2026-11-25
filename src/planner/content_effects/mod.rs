@@ -18,19 +18,8 @@ pub(super) fn content_intersects_damage(
 impl DrawPlanner {
     pub(super) fn resolve_backdrop_regions(&mut self, input: &DrawPlanningInput<'_, '_>) {
         self.subtree_backdrop_regions.clear();
-        self.node_order.clear();
-        if input.content_groups.is_empty()
-            || input.backdrop_effects.is_empty()
-            || input.tree.get(0).is_none()
-        {
+        if input.content_groups.is_empty() || input.backdrop_effects.is_empty() {
             return;
-        }
-        self.node_order.push(0);
-        let mut next_node = 0;
-        while let Some(&node_id) = self.node_order.get(next_node) {
-            self.node_order
-                .extend_from_slice(input.tree.children(node_id));
-            next_node += 1;
         }
         for &node_id in self.node_order.iter().rev() {
             let mut region = input

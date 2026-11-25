@@ -6,8 +6,12 @@ use crate::wgpu_backend::execution::render_pass::RenderPass;
 use crate::wgpu_backend::resources::ShapePipelines;
 pub(in crate::wgpu_backend) use cache::CoverageCache;
 use cache::CoverageKey;
+use clipping::cache::CachedClipCoverage;
 pub(crate) use geometry::CoverageBuilder;
-use std::{ops::Range, sync::Arc};
+use std::{
+    ops::Range,
+    sync::{Arc, OnceLock},
+};
 use tiles::CoverageDrawRange;
 pub(crate) use tiles::CoverageGeometry;
 pub(in crate::wgpu_backend) use uploads::{CoverageAllocation, CoverageUpload};
@@ -17,6 +21,7 @@ use wgpu::{
 };
 
 mod cache;
+pub(in crate::wgpu_backend) mod clipping;
 mod geometry;
 mod path_sweep;
 mod placement;
@@ -47,6 +52,14 @@ pub(in crate::wgpu_backend) struct CoverageBuffers {
     pub bind_group: BindGroup,
     pub decrement_bind_group: BindGroup,
     range: CoverageDrawRange,
+}
+
+impl CoverageBuffers {
+    pub(in crate::wgpu_backend) fn shares_storage_with(&self, other: &Self) -> bool {
+        self.tiles == other.tiles
+            && self.projections == other.projections
+            && self.coverage == other.coverage
+    }
 }
 
 pub(in crate::wgpu_backend) fn create_bind_group(
@@ -288,6 +301,13 @@ pub(in crate::wgpu_backend) struct PathCoverage {
     key: CoverageKey,
     pub tessellation: Arc<CachedTessellation>,
     pub transform: Option<InstanceTransform>,
+    clipping: OnceLock<CachedClipCoverage>,
+}
+
+impl PathCoverage {
+    pub(in crate::wgpu_backend) fn clear_clipping(&mut self) {
+        self.clipping.take();
+    }
 }
 
 #[cfg(test)]
