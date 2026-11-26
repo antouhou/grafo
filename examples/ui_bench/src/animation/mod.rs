@@ -71,6 +71,22 @@ impl Pose {
         settings: 1.0,
         ..Self::CLOSED
     };
+    const SECOND_PAGE: Self = Self {
+        page: 1.0,
+        ..Self::CLOSED
+    };
+    const THIRD_PAGE: Self = Self {
+        page: 2.0,
+        ..Self::CLOSED
+    };
+    const SCROLLED: Self = Self {
+        scroll: 1.0,
+        ..Self::OPEN
+    };
+    const POWER_MENU: Self = Self {
+        power: 1.0,
+        ..Self::OPEN
+    };
 }
 
 #[derive(Clone, Copy)]
@@ -82,34 +98,11 @@ struct Segment {
 }
 
 impl Segment {
-    const fn page(from: f32, to: f32) -> Self {
+    const fn motion(from: Pose, to: Pose, duration: f64, workload: Workload) -> Self {
         Self {
-            from: Pose {
-                page: from,
-                ..Pose::CLOSED
-            },
-            to: Pose {
-                page: to,
-                ..Pose::CLOSED
-            },
-            duration: 0.18,
-            workload: Some(Workload::Pages),
-        }
-    }
-
-    const fn settings(from: f32, to: f32, workload: Workload) -> Self {
-        Self {
-            from: Pose {
-                page: 0.0,
-                settings: from,
-                ..Pose::CLOSED
-            },
-            to: Pose {
-                page: 0.0,
-                settings: to,
-                ..Pose::CLOSED
-            },
-            duration: 0.28,
+            from,
+            to,
+            duration,
             workload: Some(workload),
         }
     }
@@ -124,120 +117,36 @@ impl Segment {
     }
 }
 
-const PAGE_SEQUENCE: [Segment; 8] = [
-    Segment::page(0.0, 1.0),
-    Segment::hold(
-        Pose {
-            page: 1.0,
-            ..Pose::CLOSED
-        },
-        0.32,
-    ),
-    Segment::page(1.0, 2.0),
-    Segment::hold(
-        Pose {
-            page: 2.0,
-            ..Pose::CLOSED
-        },
-        0.32,
-    ),
-    Segment::page(2.0, 1.0),
-    Segment::hold(
-        Pose {
-            page: 1.0,
-            ..Pose::CLOSED
-        },
-        0.32,
-    ),
-    Segment::page(1.0, 0.0),
+const SEQUENCE: [Segment; 24] = [
+    Segment::motion(Pose::CLOSED, Pose::SECOND_PAGE, 0.18, Workload::Pages),
+    Segment::hold(Pose::SECOND_PAGE, 0.32),
+    Segment::motion(Pose::SECOND_PAGE, Pose::THIRD_PAGE, 0.18, Workload::Pages),
+    Segment::hold(Pose::THIRD_PAGE, 0.32),
+    Segment::motion(Pose::THIRD_PAGE, Pose::SECOND_PAGE, 0.18, Workload::Pages),
+    Segment::hold(Pose::SECOND_PAGE, 0.32),
+    Segment::motion(Pose::SECOND_PAGE, Pose::CLOSED, 0.18, Workload::Pages),
     Segment::hold(Pose::CLOSED, 0.32),
-];
-
-const SETTINGS_SEQUENCE: [Segment; 4] = [
-    Segment::settings(0.0, 1.0, Workload::Opening),
+    Segment::motion(Pose::CLOSED, Pose::OPEN, 0.28, Workload::Opening),
     Segment::hold(Pose::OPEN, 0.62),
-    Segment::settings(1.0, 0.0, Workload::Closing),
+    Segment::motion(Pose::OPEN, Pose::CLOSED, 0.28, Workload::Closing),
     Segment::hold(Pose::CLOSED, 0.62),
-];
-
-const SCROLL_SEQUENCE: [Segment; 5] = [
     Segment::hold(Pose::OPEN, 0.5),
-    Segment {
-        from: Pose::OPEN,
-        to: Pose {
-            scroll: 1.0,
-            ..Pose::OPEN
-        },
-        duration: 0.65,
-        workload: Some(Workload::Scroll),
-    },
-    Segment::hold(
-        Pose {
-            scroll: 1.0,
-            ..Pose::OPEN
-        },
-        0.45,
-    ),
-    Segment {
-        from: Pose {
-            scroll: 1.0,
-            ..Pose::OPEN
-        },
-        to: Pose::OPEN,
-        duration: 0.65,
-        workload: Some(Workload::Scroll),
-    },
+    Segment::motion(Pose::OPEN, Pose::SCROLLED, 0.65, Workload::Scroll),
+    Segment::hold(Pose::SCROLLED, 0.45),
+    Segment::motion(Pose::SCROLLED, Pose::OPEN, 0.65, Workload::Scroll),
     Segment::hold(Pose::OPEN, 0.45),
-];
-
-const POWER_SEQUENCE: [Segment; 5] = [
     Segment::hold(Pose::OPEN, 0.5),
-    Segment {
-        from: Pose::OPEN,
-        to: Pose {
-            power: 1.0,
-            ..Pose::OPEN
-        },
-        duration: 0.24,
-        workload: Some(Workload::PowerOpening),
-    },
-    Segment::hold(
-        Pose {
-            power: 1.0,
-            ..Pose::OPEN
-        },
-        0.5,
-    ),
-    Segment {
-        from: Pose {
-            power: 1.0,
-            ..Pose::OPEN
-        },
-        to: Pose::OPEN,
-        duration: 0.24,
-        workload: Some(Workload::PowerClosing),
-    },
+    Segment::motion(Pose::OPEN, Pose::POWER_MENU, 0.24, Workload::PowerOpening),
+    Segment::hold(Pose::POWER_MENU, 0.5),
+    Segment::motion(Pose::POWER_MENU, Pose::OPEN, 0.24, Workload::PowerClosing),
     Segment::hold(Pose::OPEN, 0.5),
-];
-
-const MIXED_FINISH: [Segment; 2] = [
-    Segment::settings(1.0, 0.0, Workload::Closing),
+    Segment::motion(Pose::OPEN, Pose::CLOSED, 0.28, Workload::Closing),
     Segment::hold(Pose::CLOSED, 0.62),
 ];
-
-fn sequence() -> impl Iterator<Item = &'static Segment> + Clone {
-    let stages: [&[Segment]; 5] = [
-        &PAGE_SEQUENCE,
-        &SETTINGS_SEQUENCE,
-        &SCROLL_SEQUENCE,
-        &POWER_SEQUENCE,
-        &MIXED_FINISH,
-    ];
-    stages.into_iter().flatten()
-}
 
 fn cycle_duration() -> Duration {
-    sequence()
+    SEQUENCE
+        .iter()
         .map(|segment| Duration::from_secs_f64(segment.duration))
         .sum()
 }
@@ -313,7 +222,7 @@ impl Animation {
         }
         let completed_cycles = (elapsed.as_nanos() / cycle_duration.as_nanos()) as u32;
         let mut position = elapsed - cycle_duration * completed_cycles;
-        for segment in sequence() {
+        for segment in &SEQUENCE {
             let duration = Duration::from_secs_f64(segment.duration);
             if position < duration {
                 let is_running = self.is_running();
