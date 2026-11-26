@@ -2,6 +2,9 @@
 
 Automatic Grafo UI benchmark. Vsync off by default.
 
+This bench assesses the most basic UI rendering performance. It is suggested to run it on a separate device to avoid
+any possible interference, preferably an Android TV box, so the regressions are easier to spot.
+
 Run from the repository root:
 
 ```sh
