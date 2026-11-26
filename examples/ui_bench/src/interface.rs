@@ -53,18 +53,6 @@ pub struct Layer {
 }
 
 impl Layer {
-    pub fn add(
-        &mut self,
-        scene: &mut Scene,
-        key: u64,
-        parent: Option<usize>,
-        options: ShapeDrawOptions,
-    ) -> Result<usize, BenchmarkError> {
-        let id = scene.add_cached_shape(key, parent, options.clone())?;
-        self.shapes.push(MovingShape { id, key, options });
-        Ok(id)
-    }
-
     pub fn translate(
         &mut self,
         scene: &mut Scene,
@@ -100,21 +88,67 @@ impl Layer {
         self.translation = translation;
         Ok(())
     }
+}
+
+pub struct LayerBuilder<'a> {
+    scene: &'a mut Scene,
+    fonts: &'a mut FontSystem,
+    layer: &'a mut Layer,
+}
+
+impl<'a> LayerBuilder<'a> {
+    pub fn new(scene: &'a mut Scene, fonts: &'a mut FontSystem, layer: &'a mut Layer) -> Self {
+        Self {
+            scene,
+            fonts,
+            layer,
+        }
+    }
+
+    pub fn add(
+        &mut self,
+        key: u64,
+        parent: Option<usize>,
+        options: ShapeDrawOptions,
+    ) -> Result<usize, BenchmarkError> {
+        let id = self.scene.add_cached_shape(key, parent, options.clone())?;
+        self.layer.shapes.push(MovingShape { id, key, options });
+        Ok(id)
+    }
+
+    pub fn shape(
+        &mut self,
+        key: u64,
+        parent: Option<usize>,
+        position: [f32; 2],
+        color: Color,
+    ) -> Result<usize, BenchmarkError> {
+        self.add(
+            key,
+            parent,
+            ShapeDrawOptions::new()
+                .color(color)
+                .transform(TransformInstance::translation(position[0], position[1])),
+        )
+    }
 
     fn text(
         &mut self,
-        scene: &mut Scene,
-        fonts: &mut FontSystem,
         buffer: Buffer,
         parent: Option<usize>,
-        options: ShapeDrawOptions,
+        position: [f32; 2],
+        color: Color,
     ) -> Result<(), BenchmarkError> {
-        let id = scene.add_text(
-            CosmicText::new(&buffer, fonts, None),
+        let options = ShapeDrawOptions::new()
+            .color(color)
+            .clips_children(false)
+            .transform(TransformInstance::translation(position[0], position[1]));
+        let id = self.scene.add_text(
+            CosmicText::new(&buffer, self.fonts, None),
             parent,
             options.clone(),
         )?;
-        self.labels.push(MovingLabel {
+        self.layer.labels.push(MovingLabel {
             id,
             buffer,
             options,
@@ -124,54 +158,36 @@ impl Layer {
 
     pub fn label(
         &mut self,
-        scene: &mut Scene,
-        font: &mut FontSystem,
         text: &str,
+        parent: Option<usize>,
         position: [f32; 2],
         (size, color): (f32, Color),
-        parent: Option<usize>,
     ) -> Result<(), BenchmarkError> {
-        let buffer = font::shape(font, text, size, size * 1.3);
-        self.text(
-            scene,
-            font,
-            buffer,
-            parent,
-            ShapeDrawOptions::new()
-                .color(color)
-                .clips_children(false)
-                .transform(TransformInstance::translation(position[0], position[1])),
-        )?;
-        Ok(())
+        let buffer = font::shape(self.fonts, text, size, size * 1.3);
+        self.text(buffer, parent, position, color)
     }
 
     pub fn centered_label(
         &mut self,
-        scene: &mut Scene,
-        fonts: &mut FontSystem,
         text: &str,
+        parent: Option<usize>,
         bounds: [(f32, f32); 2],
         (size, color): (f32, Color),
-        parent: Option<usize>,
     ) -> Result<(), BenchmarkError> {
         let line_height = size * 1.3;
-        let buffer = font::shape(fonts, text, size, line_height);
+        let buffer = font::shape(self.fonts, text, size, line_height);
         let width = buffer
             .layout_runs()
             .map(|run| run.line_w)
             .fold(0.0, f32::max);
         self.text(
-            scene,
-            fonts,
             buffer,
             parent,
-            ShapeDrawOptions::new()
-                .color(color)
-                .clips_children(false)
-                .transform(TransformInstance::translation(
-                    (bounds[0].0 + bounds[1].0 - width) * 0.5,
-                    (bounds[0].1 + bounds[1].1 - line_height) * 0.5,
-                )),
+            [
+                (bounds[0].0 + bounds[1].0 - width) * 0.5,
+                (bounds[0].1 + bounds[1].1 - line_height) * 0.5,
+            ],
+            color,
         )
     }
 }
@@ -183,24 +199,6 @@ pub struct Interface {
     pub fonts: FontSystem,
 }
 
-pub(super) fn rectangle(
-    layer: &mut Layer,
-    scene: &mut Scene,
-    key: u64,
-    parent: Option<usize>,
-    position: [f32; 2],
-    color: Color,
-) -> Result<usize, BenchmarkError> {
-    layer.add(
-        scene,
-        key,
-        parent,
-        ShapeDrawOptions::new()
-            .color(color)
-            .transform(TransformInstance::translation(position[0], position[1])),
-    )
-}
-
 fn build_background(
     scene: &mut Scene,
     artwork: &mut Artwork,
@@ -208,8 +206,8 @@ fn build_background(
     layer: &mut Layer,
 ) -> Result<(), BenchmarkError> {
     let background = artwork.load(scene, Shape::rect([(0.0, 0.0), (WIDTH, HEIGHT)]))?;
-    layer.add(
-        scene,
+    let mut builder = LayerBuilder::new(scene, font, layer);
+    builder.add(
         background,
         None,
         ShapeDrawOptions::new()
@@ -221,7 +219,7 @@ fn build_background(
             .clips_children(false),
     )?;
     let hill = artwork.load(
-        scene,
+        builder.scene,
         Shape::builder()
             .begin((0.0, 530.0))
             .cubic_bezier_to((330.0, 330.0), (850.0, 740.0), (1280.0, 290.0))
@@ -230,8 +228,7 @@ fn build_background(
             .close()
             .build(),
     )?;
-    layer.add(
-        scene,
+    builder.add(
         hill,
         None,
         ShapeDrawOptions::new()
@@ -242,35 +239,24 @@ fn build_background(
             ))
             .clips_children(false),
     )?;
-    layer.label(scene, font, "Home", [MARGIN, 38.5], (30.0, TEXT), None)?;
-    let control = artwork.rounded(scene, BUTTON_SIZE, 18.0)?;
+    builder.label("Home", None, [MARGIN, 38.5], (30.0, TEXT))?;
+    let control = artwork.rounded(builder.scene, BUTTON_SIZE, 18.0)?;
     for button in &BUTTONS {
-        rectangle(
-            layer,
-            scene,
+        builder.shape(
             control,
             None,
             [button.bounds[0].0, button.bounds[0].1],
             Color::rgba(220, 235, 255, 22),
         )?;
-        layer.centered_label(scene, font, button.label, button.bounds, (13.0, TEXT), None)?;
+        builder.centered_label(button.label, None, button.bounds, (13.0, TEXT))?;
     }
-    let status = artwork.rounded(scene, [160.0, 48.0], 24.0)?;
-    rectangle(
-        layer,
-        scene,
-        status,
-        None,
-        [1068.0, 34.0],
-        Color::rgb(20, 30, 45),
-    )?;
-    layer.centered_label(
-        scene,
-        font,
+    let status = artwork.rounded(builder.scene, [160.0, 48.0], 24.0)?;
+    builder.shape(status, None, [1068.0, 34.0], Color::rgb(20, 30, 45))?;
+    builder.centered_label(
         "12:45   Settings",
+        None,
         [(1068.0, 34.0), (1228.0, 82.0)],
         (15.0, TEXT),
-        None,
     )?;
     Ok(())
 }
@@ -287,6 +273,7 @@ fn build_page(
     let tile = artwork.rounded(scene, [size, size], size * 0.24)?;
     let tile_inner = artwork.rounded(scene, [size - 6.0, size - 6.0], size * 0.21)?;
     let card = artwork.rounded(scene, [330.0, 240.0], 24.0)?;
+    let mut builder = LayerBuilder::new(scene, font, &mut layer);
     let cell_width = 1128.0 / APPS_PER_PAGE as f32;
     let label_size = 22.0;
     let label_gap = 16.0;
@@ -307,53 +294,29 @@ fn build_page(
             + page as f32 * PAGE_WIDTH
             + index as f32 * cell_width
             + (cell_width - size) * 0.5;
-        let parent = rectangle(
-            &mut layer,
-            scene,
+        let parent = builder.shape(
             card,
             Some(parent),
             [x - 125.0, PAGE_TOP + (PAGE_HEIGHT - 240.0) * 0.5],
             Color::rgb(35, 42, 61),
         )?;
         let color = palette[(index + page * 2) % palette.len()];
-        let icon = rectangle(
-            &mut layer,
-            scene,
-            tile,
-            Some(parent),
-            [x, y],
-            Color::rgba(240, 248, 255, 100),
-        )?;
-        let interior = rectangle(
-            &mut layer,
-            scene,
-            tile_inner,
-            Some(icon),
-            [x + 3.0, y + 3.0],
-            color,
-        )?;
-        layer.add(
-            scene,
+        let icon = builder.shape(tile, Some(parent), [x, y], Color::rgba(240, 248, 255, 100))?;
+        let interior = builder.shape(tile_inner, Some(icon), [x + 3.0, y + 3.0], color)?;
+        builder.shape(
             artwork.circle,
             Some(interior),
-            ShapeDrawOptions::new()
-                .color(Color::rgba(255, 255, 255, 35))
-                .transform(TransformInstance::translation(
-                    x + size * 0.42,
-                    y - size * 0.4,
-                )),
+            [x + size * 0.42, y - size * 0.4],
+            Color::rgba(255, 255, 255, 35),
         )?;
-        layer.add(
-            scene,
+        builder.shape(
             artwork.ribbon,
             Some(interior),
-            ShapeDrawOptions::new()
-                .color(Color::rgba(255, 255, 255, 22))
-                .transform(TransformInstance::translation(x, y)),
+            [x, y],
+            Color::rgba(255, 255, 255, 22),
         )?;
         let symbol = name_index % 6;
-        layer.add(
-            scene,
+        builder.add(
             artwork.symbols[symbol],
             Some(interior),
             ShapeDrawOptions::new()
@@ -366,13 +329,11 @@ fn build_page(
                 .transform(TransformInstance::translation(x, y)),
         )?;
         let label_top = y + size + label_gap;
-        layer.centered_label(
-            scene,
-            font,
+        builder.centered_label(
             APP_NAMES[name_index],
+            Some(parent),
             [(x, label_top), (x + size, label_top + label_size * 1.3)],
             (label_size, TEXT),
-            Some(parent),
         )?;
     }
     Ok(layer)
@@ -385,9 +346,7 @@ impl Interface {
         let mut background = Layer::default();
         build_background(scene, &mut artwork, &mut font, &mut background)?;
         let viewport_key = artwork.rounded(scene, [PAGE_WIDTH, PAGE_HEIGHT], 28.0)?;
-        let viewport = rectangle(
-            &mut background,
-            scene,
+        let viewport = LayerBuilder::new(scene, &mut font, &mut background).shape(
             viewport_key,
             None,
             [MARGIN, PAGE_TOP],
@@ -399,20 +358,12 @@ impl Interface {
             build_page(scene, &mut artwork, &mut font, 2, viewport)?,
         ];
         let dot_key = artwork.rounded(scene, [22.0, 6.0], 3.0)?;
+        let mut builder = LayerBuilder::new(scene, &mut font, &mut background);
         for x in [603.0, 629.0, 655.0] {
-            rectangle(
-                &mut background,
-                scene,
-                dot_key,
-                None,
-                [x, 556.0],
-                Color::rgb(82, 93, 116),
-            )?;
+            builder.shape(dot_key, None, [x, 556.0], Color::rgb(82, 93, 116))?;
         }
         let mut page_indicator = Layer::default();
-        rectangle(
-            &mut page_indicator,
-            scene,
+        LayerBuilder::new(scene, &mut font, &mut page_indicator).shape(
             dot_key,
             None,
             [603.0, 556.0],

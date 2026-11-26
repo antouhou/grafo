@@ -3,7 +3,7 @@ mod assets;
 use self::assets::Assets;
 use crate::animation::Pose;
 use crate::artwork::Artwork;
-use crate::interface::{self, rectangle, Layer, MUTED, TEXT};
+use crate::interface::{self, Layer, LayerBuilder, MUTED, TEXT};
 use crate::{shadow, BenchmarkError};
 use grafo::cosmic_text::FontSystem;
 use grafo::{BorderRadii, Color, DrawMode, Scene, Shape, ShapeDrawOptions, TransformInstance};
@@ -32,15 +32,13 @@ const POWER_HEIGHT: f32 = 308.0;
 const TRAVEL: f32 = 440.0;
 
 fn icon(
-    layer: &mut Layer,
-    scene: &mut Scene,
+    builder: &mut LayerBuilder<'_>,
     key: u64,
     parent: usize,
     position: [f32; 2],
 ) -> Result<(), BenchmarkError> {
     let scale = ICON_SIZE / 40.0;
-    layer.add(
-        scene,
+    builder.add(
         key,
         Some(parent),
         ShapeDrawOptions::new()
@@ -52,6 +50,24 @@ fn icon(
             ),
     )?;
     Ok(())
+}
+
+fn icon_chip(
+    builder: &mut LayerBuilder<'_>,
+    assets: &Assets,
+    icon_key: u64,
+    parent: usize,
+    position: [f32; 2],
+    color: Color,
+) -> Result<(), BenchmarkError> {
+    let chip = builder.shape(assets.chip, Some(parent), position, color)?;
+    let inset = (CHIP_SIZE - ICON_SIZE) * 0.5;
+    icon(
+        builder,
+        icon_key,
+        chip,
+        [position[0] + inset, position[1] + inset],
+    )
 }
 
 struct MainMenu {
@@ -72,69 +88,34 @@ impl MainMenu {
     ) -> Result<Self, BenchmarkError> {
         let root = scene.add_group(Some(parent), Default::default())?;
         let mut controls = Layer::default();
-        controls.label(
-            scene,
-            fonts,
+        let mut builder = LayerBuilder::new(scene, fonts, &mut controls);
+        builder.label(
             "Quick settings",
+            Some(root),
             [CONTENT_LEFT, HEADER_TOP + (44.0 - 23.0 * 1.3) * 0.5],
             (23.0, TEXT),
-            Some(root),
         )?;
-        let power = rectangle(
-            &mut controls,
-            scene,
-            assets.chip,
-            Some(root),
+        icon_chip(
+            &mut builder,
+            assets,
+            assets.icons[0],
+            root,
             [
                 POWER_BUTTON_LEFT + (44.0 - CHIP_SIZE) * 0.5,
                 HEADER_TOP + (44.0 - CHIP_SIZE) * 0.5,
             ],
             Color::rgb(105, 43, 55),
         )?;
-        icon(
-            &mut controls,
-            scene,
-            assets.icons[0],
-            power,
-            [
-                POWER_BUTTON_LEFT + (44.0 - ICON_SIZE) * 0.5,
-                HEADER_TOP + (44.0 - ICON_SIZE) * 0.5,
-            ],
-        )?;
         for (index, label) in ["Volume", "Brightness"].iter().enumerate() {
             let y = HEADER_TOP + 52.0 + index as f32 * 54.0;
-            controls.label(
-                scene,
-                fonts,
-                label,
-                [CONTENT_LEFT, y],
-                (14.0, MUTED),
-                Some(root),
-            )?;
-            rectangle(
-                &mut controls,
-                scene,
-                assets.track,
-                Some(root),
-                [CONTENT_LEFT, y + 24.0],
-                Color::rgb(64, 75, 92),
-            )?;
-            rectangle(
-                &mut controls,
-                scene,
-                assets.fill,
-                Some(root),
-                [CONTENT_LEFT, y + 24.0],
-                Color::rgb(144, 201, 238),
-            )?;
-            rectangle(
-                &mut controls,
-                scene,
-                assets.thumb,
-                Some(root),
-                [CONTENT_LEFT + 188.0, y + 21.0],
-                TEXT,
-            )?;
+            builder.label(label, Some(root), [CONTENT_LEFT, y], (14.0, MUTED))?;
+            for (key, [left, top], color) in [
+                (assets.track, [0.0, 24.0], Color::rgb(64, 75, 92)),
+                (assets.fill, [0.0, 24.0], Color::rgb(144, 201, 238)),
+                (assets.thumb, [188.0, 21.0], TEXT),
+            ] {
+                builder.shape(key, Some(root), [CONTENT_LEFT + left, y + top], color)?;
+            }
         }
         let viewport = scene.add_clipping_rect(
             [(X, SCROLL_TOP), (X + WIDTH, SCROLL_BOTTOM)],
@@ -143,6 +124,7 @@ impl MainMenu {
             true,
         )?;
         let mut tiles = Layer::default();
+        let mut builder = LayerBuilder::new(scene, fonts, &mut tiles);
         for (index, (label, symbol)) in [
             ("Wi-Fi", 4),
             ("Bluetooth", 5),
@@ -158,48 +140,28 @@ impl MainMenu {
         {
             let x = CONTENT_LEFT + (index % 2) as f32 * (TILE_WIDTH + TILE_GAP);
             let y = SCROLL_TOP + (index / 2) as f32 * (TILE_HEIGHT + TILE_GAP);
-            let tile = rectangle(
-                &mut tiles,
-                scene,
-                assets.tile,
-                Some(viewport),
-                [x, y],
-                Color::rgb(55, 64, 79),
-            )?;
-            let chip = rectangle(
-                &mut tiles,
-                scene,
-                assets.chip,
-                Some(tile),
+            let tile =
+                builder.shape(assets.tile, Some(viewport), [x, y], Color::rgb(55, 64, 79))?;
+            icon_chip(
+                &mut builder,
+                assets,
+                assets.icons[*symbol],
+                tile,
                 [x + 12.0, y + (TILE_HEIGHT - CHIP_SIZE) * 0.5],
                 Color::rgb(43, 51, 66),
             )?;
-            icon(
-                &mut tiles,
-                scene,
-                assets.icons[*symbol],
-                chip,
-                [
-                    x + 12.0 + (CHIP_SIZE - ICON_SIZE) * 0.5,
-                    y + (TILE_HEIGHT - ICON_SIZE) * 0.5,
-                ],
-            )?;
-            tiles.label(
-                scene,
-                fonts,
+            builder.label(
                 label,
+                Some(tile),
                 [
                     x + 12.0 + CHIP_SIZE + 8.0,
                     y + (TILE_HEIGHT - 13.0 * 1.3) * 0.5,
                 ],
                 (13.0, TEXT),
-                Some(tile),
             )?;
         }
         let mut scrollbar = Layer::default();
-        rectangle(
-            &mut scrollbar,
-            scene,
+        LayerBuilder::new(scene, fonts, &mut scrollbar).shape(
             assets.scrollbar,
             Some(viewport),
             [X + WIDTH - 12.0, SCROLL_TOP],
@@ -264,30 +226,25 @@ impl PowerMenu {
     ) -> Result<Self, BenchmarkError> {
         let root = scene.add_group(Some(parent), Default::default())?;
         let mut layer = Layer::default();
-        let back = rectangle(
-            &mut layer,
-            scene,
+        let mut builder = LayerBuilder::new(scene, fonts, &mut layer);
+        let back = builder.shape(
             assets.row,
             Some(root),
             [CONTENT_LEFT, HEADER_TOP],
             Color::rgb(66, 77, 94),
         )?;
-        layer.label(
-            scene,
-            fonts,
+        builder.label(
             "<   Back",
+            Some(back),
             [CONTENT_LEFT + 18.0, HEADER_TOP + (44.0 - 18.0 * 1.3) * 0.5],
             (18.0, TEXT),
-            Some(back),
         )?;
         for (index, label) in ["Shut down", "Suspend", "Reboot", "Log out"]
             .iter()
             .enumerate()
         {
             let y = HEADER_TOP + 60.0 + index as f32 * 52.0;
-            let row = rectangle(
-                &mut layer,
-                scene,
+            let row = builder.shape(
                 assets.row,
                 Some(root),
                 [CONTENT_LEFT, y],
@@ -298,8 +255,7 @@ impl PowerMenu {
                 },
             )?;
             icon(
-                &mut layer,
-                scene,
+                &mut builder,
                 assets.icons[index],
                 row,
                 [
@@ -307,16 +263,14 @@ impl PowerMenu {
                     y + (44.0 - ICON_SIZE) * 0.5,
                 ],
             )?;
-            layer.label(
-                scene,
-                fonts,
+            builder.label(
                 label,
+                Some(row),
                 [
                     CONTENT_LEFT + 12.0 + CHIP_SIZE + 8.0,
                     y + (44.0 - 18.0 * 1.3) * 0.5,
                 ],
                 (18.0, TEXT),
-                Some(row),
             )?;
         }
         Ok(Self { root, layer })
