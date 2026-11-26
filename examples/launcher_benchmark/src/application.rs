@@ -1,4 +1,5 @@
 use crate::animation::{Animation, Scenario, Workload};
+use crate::controls::{self, Action};
 use crate::interface::{self, Interface};
 use crate::overlay::{LiveTimings, Overlay};
 use crate::statistics::Statistics;
@@ -19,19 +20,19 @@ fn scale_factor(size: PhysicalSize<u32>) -> f32 {
         .max(0.01)
 }
 
-fn report(statistics: &Statistics, vsync: bool, size: (u32, u32), apps_per_page: usize) {
+fn report(statistics: &Statistics, vsync_requested: bool, size: (u32, u32), apps_per_page: usize) {
     for (workload, sample) in Workload::ALL.into_iter().zip(&statistics.workloads) {
         if sample.samples != 0 {
             tracing::info!(
                 workload = workload.label(),
-                vsync,
+                vsync_requested,
                 width = size.0,
                 height = size.1,
                 apps_per_page,
                 samples = sample.samples,
                 fps = sample.fps(),
                 mean_ms = sample.mean_ms(),
-                p95_ms = sample.p95_ms(),
+                p95_ms = %sample.p95_ms(),
                 max_ms = sample.max_ms(),
                 "launcher_benchmark"
             );
@@ -221,54 +222,47 @@ impl BenchmarkWindow {
         Ok(())
     }
 
-    fn key(&mut self, code: KeyCode, event_loop: &ActiveEventLoop) -> Result<(), BenchmarkError> {
-        match code {
-            KeyCode::KeyA => self.select(Scenario::Mixed),
-            KeyCode::KeyP => self.select(Scenario::Pages),
-            KeyCode::KeyS => self.select(Scenario::Settings),
-            KeyCode::KeyC => self.select(Scenario::Scroll),
-            KeyCode::KeyO => self.select(Scenario::Power),
-            KeyCode::KeyR => self.reset(),
-            KeyCode::KeyV => self.toggle_vsync(),
-            KeyCode::KeyD => self.change_density()?,
-            KeyCode::Space => {
+    fn apply_action(
+        &mut self,
+        action: Action,
+        event_loop: &ActiveEventLoop,
+    ) -> Result<(), BenchmarkError> {
+        match action {
+            Action::Select(scenario) => self.select(scenario),
+            Action::Reset => self.reset(),
+            Action::ToggleVsync => self.toggle_vsync(),
+            Action::ToggleDensity => self.change_density()?,
+            Action::TogglePause => {
                 self.animation.toggle_pause(Instant::now());
                 self.statistics.break_sequence();
             }
-            KeyCode::KeyF => self
-                .window
-                .set_fullscreen(if self.window.fullscreen().is_some() {
-                    None
-                } else {
-                    Some(Fullscreen::Borderless(None))
-                }),
-            KeyCode::Escape | KeyCode::BrowserBack => event_loop.exit(),
-            _ => return Ok(()),
+            Action::ToggleFullscreen => {
+                self.window
+                    .set_fullscreen(if self.window.fullscreen().is_some() {
+                        None
+                    } else {
+                        Some(Fullscreen::Borderless(None))
+                    })
+            }
+            Action::Exit => event_loop.exit(),
         }
         self.window.request_redraw();
         Ok(())
     }
 
-    fn pointer_released(&mut self, position: PhysicalPosition<f32>) -> Result<(), BenchmarkError> {
+    fn pointer_released(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        position: PhysicalPosition<f32>,
+    ) -> Result<(), BenchmarkError> {
         let scale = scale_factor(self.window.inner_size());
         let x = position.x / scale;
         let y = position.y / scale;
-        if (40.0..=76.0).contains(&y) {
-            match x as u32 {
-                408..=487 => self.select(Scenario::Mixed),
-                496..=575 => self.select(Scenario::Pages),
-                584..=663 => self.select(Scenario::Settings),
-                672..=751 => self.select(Scenario::Scroll),
-                760..=839 => self.select(Scenario::Power),
-                848..=927 => {
-                    self.animation.toggle_pause(Instant::now());
-                    self.statistics.break_sequence();
-                }
-                936..=1015 => self.change_density()?,
-                _ => {}
-            }
-        } else if y >= 580.0 && x >= interface::WIDTH * 0.5 {
-            self.toggle_vsync();
+        if let Some(action) = controls::pointer_action([x, y]) {
+            return self.apply_action(action, event_loop);
+        }
+        if y >= 580.0 && x >= interface::WIDTH * 0.5 {
+            return self.apply_action(Action::ToggleVsync, event_loop);
         }
         self.window.request_redraw();
         Ok(())
@@ -302,8 +296,8 @@ impl BenchmarkWindow {
                     (_, Key::Named(NamedKey::BrowserBack)) => Some(KeyCode::BrowserBack),
                     _ => None,
                 };
-                if let Some(code) = code {
-                    self.key(code, event_loop)?;
+                if let Some(action) = code.and_then(controls::key_action) {
+                    self.apply_action(action, event_loop)?;
                 }
             }
             WindowEvent::CursorMoved { position, .. } => self.cursor = position.cast(),
@@ -311,9 +305,9 @@ impl BenchmarkWindow {
                 state: ElementState::Released,
                 button: MouseButton::Left,
                 ..
-            } => self.pointer_released(self.cursor)?,
+            } => self.pointer_released(event_loop, self.cursor)?,
             WindowEvent::Touch(touch) if touch.phase == TouchPhase::Ended => {
-                self.pointer_released(touch.location.cast())?;
+                self.pointer_released(event_loop, touch.location.cast())?;
             }
             _ => {}
         }

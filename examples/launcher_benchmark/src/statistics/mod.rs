@@ -1,8 +1,25 @@
 use crate::animation::Workload;
-use std::time::{Duration, Instant};
+use std::{
+    fmt,
+    time::{Duration, Instant},
+};
 
 const HISTOGRAM_BINS: usize = 512;
 const BIN_MS: f64 = 0.5;
+
+pub enum HistogramPercentile {
+    Estimate(f64),
+    AtLeast(f64),
+}
+
+impl fmt::Display for HistogramPercentile {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Estimate(milliseconds) => write!(formatter, "{milliseconds:.1}"),
+            Self::AtLeast(milliseconds) => write!(formatter, ">={milliseconds:.1}"),
+        }
+    }
+}
 
 pub struct WorkloadStatistics {
     pub samples: u64,
@@ -58,23 +75,19 @@ impl WorkloadStatistics {
         self.maximum_work_ms
     }
 
-    pub fn p95_ms(&self) -> f64 {
+    pub fn p95_ms(&self) -> HistogramPercentile {
         if self.samples == 0 {
-            return 0.0;
+            return HistogramPercentile::Estimate(0.0);
         }
         let threshold = (self.samples as f64 * 0.95).ceil() as u64;
         let mut accumulated = 0;
-        for (index, count) in self.histogram.iter().enumerate() {
+        for (index, count) in self.histogram[..HISTOGRAM_BINS - 1].iter().enumerate() {
             accumulated += count;
             if accumulated >= threshold {
-                return if index == HISTOGRAM_BINS - 1 {
-                    self.maximum_work_ms
-                } else {
-                    (index + 1) as f64 * BIN_MS
-                };
+                return HistogramPercentile::Estimate((index + 1) as f64 * BIN_MS);
             }
         }
-        self.maximum_work_ms
+        HistogramPercentile::AtLeast((HISTOGRAM_BINS - 1) as f64 * BIN_MS)
     }
 }
 

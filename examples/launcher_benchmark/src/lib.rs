@@ -12,6 +12,7 @@ use winit::platform::android::{activity::AndroidApp, EventLoopBuilderExtAndroid}
 mod animation;
 mod application;
 mod artwork;
+mod controls;
 mod font;
 mod interface;
 mod overlay;

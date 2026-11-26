@@ -20,7 +20,7 @@ if [[ ! -f "$CARGO_APK_RELEASE_KEYSTORE" ]]; then
 fi
 
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.."
-printf 'Building release benchmark for %s; vsync is off by default.\n' "$abi"
+printf 'Building release benchmark for %s; requesting vsync off by default.\n' "$abi"
 cargo apk build -p grafo-launcher-benchmark --lib --release --target "$target"
 cargo_metadata=$(cargo metadata --no-deps --format-version 1)
 target_directory=$(jq -er '.target_directory' <<< "$cargo_metadata")

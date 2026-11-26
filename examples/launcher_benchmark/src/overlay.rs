@@ -94,7 +94,7 @@ impl Overlay {
         timings: &LiveTimings,
         sample: &AnimationSample,
         interface: &mut Interface,
-        vsync: bool,
+        vsync_requested: bool,
     ) -> Result<(), BenchmarkError> {
         for text in &mut self.text {
             text.clear();
@@ -108,8 +108,8 @@ impl Overlay {
         let _ = writeln!(self.text[0], "{} / {}", sample.mode_label, phase);
         let _ = writeln!(
             self.text[TABLE_COLUMNS],
-            "VSYNC {}",
-            if vsync { "ON" } else { "OFF" },
+            "VSYNC REQ {}",
+            if vsync_requested { "ON" } else { "OFF" },
         );
         for table in [0, TABLE_COLUMNS] {
             for (column, header) in ["fps", "mean ms", "p95 ms", "max ms", "n"]
@@ -123,17 +123,10 @@ impl Overlay {
             let statistics = &statistics.workloads[workload.index()];
             let table = workload.index() / 3 * TABLE_COLUMNS;
             let _ = writeln!(self.text[table], "{}", workload.label());
-            for (column, value) in [
-                statistics.fps(),
-                statistics.mean_ms(),
-                statistics.p95_ms(),
-                statistics.max_ms(),
-            ]
-            .into_iter()
-            .enumerate()
-            {
-                let _ = writeln!(self.text[table + column + 1], "{value:.1}");
-            }
+            let _ = writeln!(self.text[table + 1], "{:.1}", statistics.fps());
+            let _ = writeln!(self.text[table + 2], "{:.1}", statistics.mean_ms());
+            let _ = writeln!(self.text[table + 3], "{}", statistics.p95_ms());
+            let _ = writeln!(self.text[table + 4], "{:.1}", statistics.max_ms());
             let _ = writeln!(self.text[table + 5], "{}", statistics.samples);
         }
         self.text[TABLE_TEXTS].push_str(

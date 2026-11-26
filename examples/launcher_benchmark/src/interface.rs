@@ -1,5 +1,6 @@
 use crate::animation::Pose;
 use crate::artwork::{Artwork, APP_NAMES};
+use crate::controls::{BUTTONS, BUTTON_SIZE};
 use crate::font;
 use crate::settings::Settings;
 use crate::BenchmarkError;
@@ -242,30 +243,17 @@ fn build_background(
             .clips_children(false),
     )?;
     layer.label(scene, font, "Home", [MARGIN, 38.5], (30.0, TEXT), None)?;
-    let control = artwork.rounded(scene, [80.0, 36.0], 18.0)?;
-    for (index, name) in [
-        "Auto", "Pages", "Settings", "Scroll", "Power", "Pause", "Load +",
-    ]
-    .iter()
-    .enumerate()
-    {
-        let x = 408.0 + index as f32 * 88.0;
+    let control = artwork.rounded(scene, BUTTON_SIZE, 18.0)?;
+    for button in &BUTTONS {
         rectangle(
             layer,
             scene,
             control,
             None,
-            [x, 40.0],
+            [button.bounds[0].0, button.bounds[0].1],
             Color::rgba(220, 235, 255, 22),
         )?;
-        layer.centered_label(
-            scene,
-            font,
-            name,
-            [(x, 40.0), (x + 80.0, 76.0)],
-            (13.0, TEXT),
-            None,
-        )?;
+        layer.centered_label(scene, font, button.label, button.bounds, (13.0, TEXT), None)?;
     }
     let status = artwork.rounded(scene, [160.0, 48.0], 24.0)?;
     rectangle(
@@ -391,23 +379,14 @@ fn build_page(
                 })
                 .transform(TransformInstance::translation(x, y)),
         )?;
-        let buffer = font::shape(font, APP_NAMES[name_index], label_size, label_size * 1.3);
-        let width = buffer
-            .layout_runs()
-            .map(|run| run.line_w)
-            .fold(0.0, f32::max);
-        layer.text(
+        let label_top = y + size + label_gap;
+        layer.centered_label(
             scene,
             font,
-            buffer,
+            APP_NAMES[name_index],
+            [(x, label_top), (x + size, label_top + label_size * 1.3)],
+            (label_size, TEXT),
             Some(parent),
-            ShapeDrawOptions::new()
-                .color(TEXT)
-                .clips_children(false)
-                .transform(TransformInstance::translation(
-                    x + (size - width) * 0.5,
-                    y + size + label_gap,
-                )),
         )?;
     }
     Ok(layer)

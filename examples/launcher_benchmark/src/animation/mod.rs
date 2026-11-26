@@ -252,7 +252,6 @@ fn sequence(scenario: Scenario) -> impl Iterator<Item = &'static Segment> + Clon
 }
 
 fn interpolate(from: Pose, to: Pose, progress: f32, workload: Option<Workload>) -> Pose {
-    let progress = progress.clamp(0.0, 1.0);
     let eased = if matches!(
         workload,
         Some(Workload::PowerOpening | Workload::PowerClosing)
