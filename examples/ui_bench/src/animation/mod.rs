@@ -1,5 +1,7 @@
 use std::time::{Duration, Instant};
 
+pub const RUN_CYCLES: u32 = 10;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Workload {
     Pages,
@@ -44,24 +46,10 @@ impl Workload {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Scenario {
-    Mixed,
-    Pages,
-    Settings,
-    Scroll,
-    Power,
-}
-
-impl Scenario {
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Mixed => "AUTO",
-            Self::Pages => "PAGES",
-            Self::Settings => "SETTINGS",
-            Self::Scroll => "SCROLL",
-            Self::Power => "POWER",
-        }
-    }
+pub enum RunStatus {
+    Running,
+    Stopped,
+    Complete,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -237,21 +225,21 @@ const MIXED_FINISH: [Segment; 2] = [
     Segment::hold(Pose::CLOSED, 0.62),
 ];
 
-fn sequence(scenario: Scenario) -> impl Iterator<Item = &'static Segment> + Clone {
-    let stages: [&[Segment]; 5] = match scenario {
-        Scenario::Mixed => [
-            &PAGE_SEQUENCE,
-            &SETTINGS_SEQUENCE,
-            &SCROLL_SEQUENCE,
-            &POWER_SEQUENCE,
-            &MIXED_FINISH,
-        ],
-        Scenario::Pages => [&PAGE_SEQUENCE, &[], &[], &[], &[]],
-        Scenario::Settings => [&[], &SETTINGS_SEQUENCE, &[], &[], &[]],
-        Scenario::Scroll => [&[], &[], &SCROLL_SEQUENCE, &[], &[]],
-        Scenario::Power => [&[], &[], &[], &POWER_SEQUENCE, &[]],
-    };
+fn sequence() -> impl Iterator<Item = &'static Segment> + Clone {
+    let stages: [&[Segment]; 5] = [
+        &PAGE_SEQUENCE,
+        &SETTINGS_SEQUENCE,
+        &SCROLL_SEQUENCE,
+        &POWER_SEQUENCE,
+        &MIXED_FINISH,
+    ];
     stages.into_iter().flatten()
+}
+
+fn cycle_duration() -> Duration {
+    sequence()
+        .map(|segment| Duration::from_secs_f64(segment.duration))
+        .sum()
 }
 
 fn interpolate(from: Pose, to: Pose, progress: f32, workload: Option<Workload>) -> Pose {
@@ -276,7 +264,8 @@ fn interpolate(from: Pose, to: Pose, progress: f32, workload: Option<Workload>) 
 }
 
 pub struct AnimationSample {
-    pub mode_label: &'static str,
+    pub status: RunStatus,
+    pub completed_cycles: u32,
     pub pose: Pose,
     pub workload: Option<Workload>,
     pub is_warming_up: bool,
@@ -284,76 +273,73 @@ pub struct AnimationSample {
 }
 
 pub struct Animation {
-    scenario: Scenario,
     started: Instant,
-    paused_elapsed: Option<Duration>,
+    stopped_elapsed: Option<Duration>,
 }
 
 impl Animation {
     pub fn new(now: Instant) -> Self {
         Self {
-            scenario: Scenario::Mixed,
             started: now,
-            paused_elapsed: None,
+            stopped_elapsed: None,
         }
     }
 
-    pub fn scenario(&self) -> Scenario {
-        self.scenario
+    pub fn is_running(&self) -> bool {
+        self.stopped_elapsed.is_none()
     }
 
-    pub fn is_paused(&self) -> bool {
-        self.paused_elapsed.is_some()
+    pub fn stop(&mut self, now: Instant) {
+        self.stopped_elapsed
+            .get_or_insert(now.duration_since(self.started));
     }
 
-    pub fn select(&mut self, scenario: Scenario, now: Instant) {
-        *self = Self {
-            scenario,
-            ..Self::new(now)
-        };
-    }
-
-    pub fn toggle_pause(&mut self, now: Instant) {
-        if let Some(elapsed) = self.paused_elapsed.take() {
-            self.started = now - elapsed;
-        } else {
-            self.paused_elapsed = Some(now.duration_since(self.started));
-        }
-    }
-
-    pub fn sample(&self, now: Instant) -> AnimationSample {
+    pub fn sample(&mut self, now: Instant) -> AnimationSample {
         let elapsed = self
-            .paused_elapsed
-            .unwrap_or_else(|| now.duration_since(self.started))
-            .as_secs_f64();
-        let segments = sequence(self.scenario);
-        let total: f64 = segments.clone().map(|segment| segment.duration).sum();
-        let mut position = elapsed % total;
-        for segment in segments {
-            if position < segment.duration {
-                let is_paused = self.is_paused();
+            .stopped_elapsed
+            .unwrap_or_else(|| now.duration_since(self.started));
+        let cycle_duration = cycle_duration();
+        let run_duration = cycle_duration * RUN_CYCLES;
+        if elapsed >= run_duration {
+            self.stopped_elapsed = Some(run_duration);
+            return AnimationSample {
+                status: RunStatus::Complete,
+                completed_cycles: RUN_CYCLES,
+                pose: Pose::CLOSED,
+                workload: None,
+                is_warming_up: false,
+                next_transition: None,
+            };
+        }
+        let completed_cycles = (elapsed.as_nanos() / cycle_duration.as_nanos()) as u32;
+        let mut position = elapsed - cycle_duration * completed_cycles;
+        for segment in sequence() {
+            let duration = Duration::from_secs_f64(segment.duration);
+            if position < duration {
+                let is_running = self.is_running();
                 return AnimationSample {
-                    mode_label: if is_paused {
-                        "PAUSED"
+                    status: if is_running {
+                        RunStatus::Running
                     } else {
-                        self.scenario.name()
+                        RunStatus::Stopped
                     },
+                    completed_cycles,
                     pose: interpolate(
                         segment.from,
                         segment.to,
-                        (position / segment.duration) as f32,
+                        position.as_secs_f32() / duration.as_secs_f32(),
                         segment.workload,
                     ),
-                    workload: segment.workload.filter(|_| !is_paused),
-                    is_warming_up: elapsed < total,
-                    next_transition: if segment.workload.is_none() && !is_paused {
-                        Some(Duration::from_secs_f64(segment.duration - position))
+                    workload: segment.workload.filter(|_| is_running),
+                    is_warming_up: is_running && elapsed < cycle_duration,
+                    next_transition: if segment.workload.is_none() && is_running {
+                        Some(duration - position)
                     } else {
                         None
                     },
                 };
             }
-            position -= segment.duration;
+            position -= duration;
         }
         unreachable!("the cycle position belongs to a segment")
     }

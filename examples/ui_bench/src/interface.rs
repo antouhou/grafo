@@ -12,6 +12,7 @@ use grafo::{
 
 pub const WIDTH: f32 = 1280.0;
 pub const HEIGHT: f32 = 720.0;
+pub const APPS_PER_PAGE: usize = 3;
 pub(super) const MARGIN: f32 = 52.0;
 const PAGE_WIDTH: f32 = WIDTH - MARGIN * 2.0;
 const PAGE_TOP: f32 = 112.0;
@@ -179,7 +180,6 @@ pub struct Interface {
     pages: [Layer; 3],
     settings: Settings,
     page_indicator: Layer,
-    pub apps_per_page: usize,
     pub fonts: FontSystem,
 }
 
@@ -280,8 +280,6 @@ fn build_page(
     artwork: &mut Artwork,
     font: &mut FontSystem,
     page: usize,
-    columns: usize,
-    rows: usize,
     parent: usize,
 ) -> Result<Layer, BenchmarkError> {
     let mut layer = Layer::default();
@@ -289,8 +287,11 @@ fn build_page(
     let tile = artwork.rounded(scene, [size, size], size * 0.24)?;
     let tile_inner = artwork.rounded(scene, [size - 6.0, size - 6.0], size * 0.21)?;
     let card = artwork.rounded(scene, [330.0, 240.0], 24.0)?;
-    let cell_width = 1128.0 / columns as f32;
-    let cell_height = (PAGE_HEIGHT - 48.0) / rows as f32;
+    let cell_width = 1128.0 / APPS_PER_PAGE as f32;
+    let label_size = 22.0;
+    let label_gap = 16.0;
+    let content_height = size + label_gap + label_size * 1.3;
+    let y = PAGE_TOP + (PAGE_HEIGHT - content_height) * 0.5;
     let palette = [
         Color::rgb(224, 80, 101),
         Color::rgb(137, 96, 232),
@@ -299,36 +300,21 @@ fn build_page(
         Color::rgb(63, 162, 130),
         Color::rgb(63, 114, 216),
     ];
-    for index in 0..columns * rows {
-        let name_index = (page * columns * rows + index) % APP_NAMES.len();
+    for index in 0..APPS_PER_PAGE {
+        let name_index = page * APPS_PER_PAGE + index;
         let x = MARGIN
             + 24.0
             + page as f32 * PAGE_WIDTH
-            + (index % columns) as f32 * cell_width
+            + index as f32 * cell_width
             + (cell_width - size) * 0.5;
-        let label_size = if rows == 1 { 22.0 } else { 15.0 };
-        let label_gap = if rows == 1 { 16.0 } else { 12.0 };
-        let content_height = size + label_gap + label_size * 1.3;
-        let y = if rows == 1 {
-            PAGE_TOP + (PAGE_HEIGHT - content_height) * 0.5
-        } else {
-            PAGE_TOP
-                + 24.0
-                + (index / columns) as f32 * cell_height
-                + (cell_height - content_height) * 0.5
-        };
-        let parent = if rows == 1 {
-            rectangle(
-                &mut layer,
-                scene,
-                card,
-                Some(parent),
-                [x - 125.0, PAGE_TOP + (PAGE_HEIGHT - 240.0) * 0.5],
-                Color::rgb(35, 42, 61),
-            )?
-        } else {
-            parent
-        };
+        let parent = rectangle(
+            &mut layer,
+            scene,
+            card,
+            Some(parent),
+            [x - 125.0, PAGE_TOP + (PAGE_HEIGHT - 240.0) * 0.5],
+            Color::rgb(35, 42, 61),
+        )?;
         let color = palette[(index + page * 2) % palette.len()];
         let icon = rectangle(
             &mut layer,
@@ -393,7 +379,7 @@ fn build_page(
 }
 
 impl Interface {
-    pub fn new(scene: &mut Scene, dense: bool) -> Result<(Self, Artwork), BenchmarkError> {
+    pub fn new(scene: &mut Scene) -> Result<(Self, Artwork), BenchmarkError> {
         let mut artwork = Artwork::new(scene)?;
         let mut font = font::load();
         let mut background = Layer::default();
@@ -407,11 +393,10 @@ impl Interface {
             [MARGIN, PAGE_TOP],
             Color::rgba(12, 20, 34, 22),
         )?;
-        let (columns, rows) = if dense { (6, 3) } else { (3, 1) };
         let pages = [
-            build_page(scene, &mut artwork, &mut font, 0, columns, rows, viewport)?,
-            build_page(scene, &mut artwork, &mut font, 1, columns, rows, viewport)?,
-            build_page(scene, &mut artwork, &mut font, 2, columns, rows, viewport)?,
+            build_page(scene, &mut artwork, &mut font, 0, viewport)?,
+            build_page(scene, &mut artwork, &mut font, 1, viewport)?,
+            build_page(scene, &mut artwork, &mut font, 2, viewport)?,
         ];
         let dot_key = artwork.rounded(scene, [22.0, 6.0], 3.0)?;
         for x in [603.0, 629.0, 655.0] {
@@ -439,7 +424,6 @@ impl Interface {
                 pages,
                 settings,
                 page_indicator,
-                apps_per_page: columns * rows,
                 fonts: font,
             },
             artwork,

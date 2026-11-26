@@ -1,61 +1,8 @@
 use crate::BenchmarkError;
 use grafo::{BorderRadii, Scene, Shape, StrokeGeometryOptions};
 
-pub const APP_NAMES: [&str; 54] = [
-    "Cinema",
-    "Music",
-    "Photos",
-    "Explorer",
-    "Messages",
-    "Calendar",
-    "Weather",
-    "Podcasts",
-    "Maps",
-    "Notes",
-    "Camera",
-    "Browser",
-    "Gallery",
-    "Radio",
-    "Books",
-    "Files",
-    "Clock",
-    "Settings",
-    "Studio",
-    "Compose",
-    "Travel",
-    "Reader",
-    "Connect",
-    "Tasks",
-    "Forecast",
-    "Listen",
-    "Navigate",
-    "Journal",
-    "Capture",
-    "Discover",
-    "Library",
-    "Playlists",
-    "Stories",
-    "Documents",
-    "Timer",
-    "System",
-    "Movies",
-    "Albums",
-    "Memories",
-    "Archive",
-    "People",
-    "Agenda",
-    "Outdoors",
-    "Episodes",
-    "Places",
-    "Sketches",
-    "Record",
-    "Search",
-    "Favorites",
-    "Stations",
-    "Comics",
-    "Downloads",
-    "Focus",
-    "Tools",
+pub const APP_NAMES: [&str; 9] = [
+    "Cinema", "Music", "Photos", "Explorer", "Messages", "Calendar", "Weather", "Podcasts", "Maps",
 ];
 
 pub struct Artwork {
@@ -168,7 +115,6 @@ impl Artwork {
     pub fn load(&mut self, scene: &mut Scene, shape: Shape) -> Result<u64, BenchmarkError> {
         let key = self.next_key;
         self.next_key += 1;
-        // Both workload densities load identical geometry at each asset key.
         scene.load_shape(shape, key, Some(key))?;
         Ok(key)
     }

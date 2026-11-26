@@ -1,4 +1,4 @@
-use crate::animation::{Animation, Scenario, Workload};
+use crate::animation::{Animation, RunStatus, Workload};
 use crate::controls::{self, Action};
 use crate::interface::{self, Interface};
 use crate::overlay::{LiveTimings, Overlay};
@@ -12,7 +12,7 @@ use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event::{ElementState, MouseButton, StartCause, TouchPhase, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
 use winit::keyboard::{Key, KeyCode, NamedKey, PhysicalKey};
-use winit::window::{Fullscreen, Window, WindowId};
+use winit::window::{Window, WindowId};
 
 fn scale_factor(size: PhysicalSize<u32>) -> f32 {
     (size.width as f32 / interface::WIDTH)
@@ -20,7 +20,7 @@ fn scale_factor(size: PhysicalSize<u32>) -> f32 {
         .max(0.01)
 }
 
-fn report(statistics: &Statistics, vsync_requested: bool, size: (u32, u32), apps_per_page: usize) {
+fn report(statistics: &Statistics, vsync_requested: bool, size: (u32, u32)) {
     for (workload, sample) in Workload::ALL.into_iter().zip(&statistics.workloads) {
         if sample.samples != 0 {
             tracing::info!(
@@ -28,7 +28,7 @@ fn report(statistics: &Statistics, vsync_requested: bool, size: (u32, u32), apps
                 vsync_requested,
                 width = size.0,
                 height = size.1,
-                apps_per_page,
+                apps_per_page = interface::APPS_PER_PAGE,
                 samples = sample.samples,
                 fps = sample.fps(),
                 mean_ms = sample.mean_ms(),
@@ -51,7 +51,6 @@ struct BenchmarkWindow {
     live: LiveTimings,
     report_started: Instant,
     cursor: PhysicalPosition<f32>,
-    is_dense: bool,
     is_occluded: bool,
 }
 
@@ -75,10 +74,10 @@ impl BenchmarkWindow {
             false,
         ))?;
         let mut scene = Scene::try_new(context, dimensions, scale_factor(size).into(), 1)?;
-        let (mut interface, mut artwork) = Interface::new(&mut scene, false)?;
+        let (mut interface, mut artwork) = Interface::new(&mut scene)?;
         let mut overlay = Overlay::new(&mut scene, &mut interface.fonts, &mut artwork)?;
         let now = Instant::now();
-        let animation = Animation::new(now);
+        let mut animation = Animation::new(now);
         let statistics = Statistics::default();
         let live = LiveTimings::default();
         overlay.refresh(
@@ -101,19 +100,15 @@ impl BenchmarkWindow {
             live,
             report_started: now,
             cursor: PhysicalPosition::new(0.0, 0.0),
-            is_dense: false,
             is_occluded: false,
         })
     }
 
-    fn reset(&mut self) {
-        self.select(self.animation.scenario());
-    }
-
-    fn select(&mut self, scenario: Scenario) {
+    fn start(&mut self) {
         let now = Instant::now();
         self.statistics = Statistics::default();
-        self.animation.select(scenario, now);
+        self.live = LiveTimings::default();
+        self.animation = Animation::new(now);
         self.report_started = now;
     }
 
@@ -124,24 +119,11 @@ impl BenchmarkWindow {
         }
         self.scene.resize((size.width, size.height));
         self.scene.change_scale_factor(scale_factor(size).into())?;
-        self.reset();
+        if self.animation.is_running() {
+            self.start();
+        }
         self.window.request_redraw();
         Ok(())
-    }
-
-    fn change_density(&mut self) -> Result<(), BenchmarkError> {
-        self.is_dense = !self.is_dense;
-        self.scene.clear();
-        let (mut interface, mut artwork) = Interface::new(&mut self.scene, self.is_dense)?;
-        self.overlay = Overlay::new(&mut self.scene, &mut interface.fonts, &mut artwork)?;
-        self.interface = interface;
-        self.reset();
-        Ok(())
-    }
-
-    fn toggle_vsync(&mut self) {
-        self.surface.set_vsync(!self.surface.vsync());
-        self.reset();
     }
 
     fn redraw(&mut self, event_loop: &ActiveEventLoop) -> Result<(), BenchmarkError> {
@@ -150,7 +132,9 @@ impl BenchmarkWindow {
             return Ok(());
         }
         let started = Instant::now();
+        let was_running = self.animation.is_running();
         let sample = self.animation.sample(started);
+        let has_completed = was_running && sample.status == RunStatus::Complete;
         let measurement = self
             .statistics
             .measure_motion(sample.workload, sample.is_warming_up);
@@ -202,13 +186,11 @@ impl BenchmarkWindow {
             });
         self.statistics
             .record(workload, is_warming_up, started, completed, was_rendered);
-        if completed.duration_since(self.report_started) >= Duration::from_secs(2) {
-            report(
-                &self.statistics,
-                self.surface.vsync(),
-                self.scene.size(),
-                self.interface.apps_per_page,
-            );
+        if has_completed
+            || (self.animation.is_running()
+                && completed.duration_since(self.report_started) >= Duration::from_secs(2))
+        {
+            report(&self.statistics, self.surface.vsync(), self.scene.size());
             self.report_started = completed;
         }
         if sample.workload.is_some() || is_settling {
@@ -228,21 +210,14 @@ impl BenchmarkWindow {
         event_loop: &ActiveEventLoop,
     ) -> Result<(), BenchmarkError> {
         match action {
-            Action::Select(scenario) => self.select(scenario),
-            Action::Reset => self.reset(),
-            Action::ToggleVsync => self.toggle_vsync(),
-            Action::ToggleDensity => self.change_density()?,
-            Action::TogglePause => {
-                self.animation.toggle_pause(Instant::now());
+            Action::Start => self.start(),
+            Action::Stop => {
+                let was_running = self.animation.is_running();
+                self.animation.stop(Instant::now());
                 self.statistics.break_sequence();
-            }
-            Action::ToggleFullscreen => {
-                self.window
-                    .set_fullscreen(if self.window.fullscreen().is_some() {
-                        None
-                    } else {
-                        Some(Fullscreen::Borderless(None))
-                    })
+                if was_running {
+                    report(&self.statistics, self.surface.vsync(), self.scene.size());
+                }
             }
             Action::Exit => event_loop.exit(),
         }
@@ -260,9 +235,6 @@ impl BenchmarkWindow {
         let y = position.y / scale;
         if let Some(action) = controls::pointer_action([x, y]) {
             return self.apply_action(action, event_loop);
-        }
-        if y >= 580.0 && x >= interface::WIDTH * 0.5 {
-            return self.apply_action(Action::ToggleVsync, event_loop);
         }
         self.window.request_redraw();
         Ok(())
@@ -284,7 +256,9 @@ impl BenchmarkWindow {
                 if occluded {
                     event_loop.set_control_flow(ControlFlow::Wait);
                 } else {
-                    self.reset();
+                    if self.animation.is_running() {
+                        self.start();
+                    }
                     self.window.request_redraw();
                 }
             }
@@ -328,7 +302,6 @@ impl BenchmarkApplication {
                 &window.statistics,
                 window.surface.vsync(),
                 window.scene.size(),
-                window.interface.apps_per_page,
             );
         }
         match self.error {

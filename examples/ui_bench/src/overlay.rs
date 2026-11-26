@@ -1,7 +1,7 @@
-use crate::animation::{AnimationSample, Workload};
+use crate::animation::{AnimationSample, RunStatus, Workload, RUN_CYCLES};
 use crate::artwork::Artwork;
 use crate::font;
-use crate::interface::{Interface, MARGIN};
+use crate::interface::{Interface, APPS_PER_PAGE, MARGIN};
 use crate::statistics::Statistics;
 use crate::BenchmarkError;
 use grafo::cosmic_text::{Align, Buffer, FontSystem};
@@ -99,13 +99,18 @@ impl Overlay {
         for text in &mut self.text {
             text.clear();
         }
-        let phase = if sample.is_warming_up {
-            "WARMUP"
-        } else {
-            "MEASURING"
+        let phase = match sample.status {
+            RunStatus::Running if sample.is_warming_up => "WARMUP",
+            RunStatus::Running => "MEASURING",
+            RunStatus::Stopped => "STOPPED",
+            RunStatus::Complete => "COMPLETE",
         };
         // Formatting into a String cannot fail.
-        let _ = writeln!(self.text[0], "{} / {}", sample.mode_label, phase);
+        let _ = writeln!(
+            self.text[0],
+            "{phase} {}/{RUN_CYCLES}",
+            sample.completed_cycles
+        );
         let _ = writeln!(
             self.text[TABLE_COLUMNS],
             "VSYNC REQ {}",
@@ -129,15 +134,13 @@ impl Overlay {
             let _ = writeln!(self.text[table + 4], "{:.1}", statistics.max_ms());
             let _ = writeln!(self.text[table + 5], "{}", statistics.samples);
         }
-        self.text[TABLE_TEXTS].push_str(
-            "A/P/S/C/O mode  Space pause  R reset  V vsync  D load  F fullscreen  Esc exit",
-        );
+        self.text[TABLE_TEXTS].push_str("Enter start  Space stop  Esc exit");
         let _ = write!(
             self.text[TABLE_TEXTS + 1],
             "{}x{}  {} apps/page   update {:.2} ms   render call {:.2} ms",
             scene.size().0,
             scene.size().1,
-            interface.apps_per_page,
+            APPS_PER_PAGE,
             timings.update.as_secs_f64() * 1000.0,
             timings.render.as_secs_f64() * 1000.0
         );

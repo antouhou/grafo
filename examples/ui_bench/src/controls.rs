@@ -1,16 +1,11 @@
-use crate::animation::Scenario;
 use winit::keyboard::KeyCode;
 
 pub const BUTTON_SIZE: [f32; 2] = [80.0, 36.0];
 
 #[derive(Clone, Copy)]
 pub enum Action {
-    Select(Scenario),
-    TogglePause,
-    ToggleDensity,
-    Reset,
-    ToggleVsync,
-    ToggleFullscreen,
+    Start,
+    Stop,
     Exit,
 }
 
@@ -33,19 +28,9 @@ impl Button {
     }
 }
 
-pub const BUTTONS: [Button; 7] = [
-    Button::new(0, "Auto", KeyCode::KeyA, Action::Select(Scenario::Mixed)),
-    Button::new(1, "Pages", KeyCode::KeyP, Action::Select(Scenario::Pages)),
-    Button::new(
-        2,
-        "Settings",
-        KeyCode::KeyS,
-        Action::Select(Scenario::Settings),
-    ),
-    Button::new(3, "Scroll", KeyCode::KeyC, Action::Select(Scenario::Scroll)),
-    Button::new(4, "Power", KeyCode::KeyO, Action::Select(Scenario::Power)),
-    Button::new(5, "Pause", KeyCode::Space, Action::TogglePause),
-    Button::new(6, "Load +", KeyCode::KeyD, Action::ToggleDensity),
+pub const BUTTONS: [Button; 2] = [
+    Button::new(0, "Start", KeyCode::Enter, Action::Start),
+    Button::new(1, "Stop", KeyCode::Space, Action::Stop),
 ];
 
 pub fn key_action(code: KeyCode) -> Option<Action> {
@@ -54,9 +39,6 @@ pub fn key_action(code: KeyCode) -> Option<Action> {
         .find(|button| button.shortcut == code)
         .map(|button| button.action)
         .or(match code {
-            KeyCode::KeyR => Some(Action::Reset),
-            KeyCode::KeyV => Some(Action::ToggleVsync),
-            KeyCode::KeyF => Some(Action::ToggleFullscreen),
             KeyCode::Escape | KeyCode::BrowserBack => Some(Action::Exit),
             _ => None,
         })
