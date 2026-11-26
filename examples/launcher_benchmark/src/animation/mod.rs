@@ -126,12 +126,7 @@ impl Segment {
         }
     }
 
-    const fn hold(page: f32, settings: f32, duration: f64) -> Self {
-        let pose = Pose {
-            page,
-            settings,
-            ..Pose::CLOSED
-        };
+    const fn hold(pose: Pose, duration: f64) -> Self {
         Self {
             from: pose,
             to: pose,
@@ -143,24 +138,42 @@ impl Segment {
 
 const PAGE_SEQUENCE: [Segment; 8] = [
     Segment::page(0.0, 1.0),
-    Segment::hold(1.0, 0.0, 0.32),
+    Segment::hold(
+        Pose {
+            page: 1.0,
+            ..Pose::CLOSED
+        },
+        0.32,
+    ),
     Segment::page(1.0, 2.0),
-    Segment::hold(2.0, 0.0, 0.32),
+    Segment::hold(
+        Pose {
+            page: 2.0,
+            ..Pose::CLOSED
+        },
+        0.32,
+    ),
     Segment::page(2.0, 1.0),
-    Segment::hold(1.0, 0.0, 0.32),
+    Segment::hold(
+        Pose {
+            page: 1.0,
+            ..Pose::CLOSED
+        },
+        0.32,
+    ),
     Segment::page(1.0, 0.0),
-    Segment::hold(0.0, 0.0, 0.32),
+    Segment::hold(Pose::CLOSED, 0.32),
 ];
 
 const SETTINGS_SEQUENCE: [Segment; 4] = [
     Segment::settings(0.0, 1.0, Workload::Opening),
-    Segment::hold(0.0, 1.0, 0.62),
+    Segment::hold(Pose::OPEN, 0.62),
     Segment::settings(1.0, 0.0, Workload::Closing),
-    Segment::hold(0.0, 0.0, 0.62),
+    Segment::hold(Pose::CLOSED, 0.62),
 ];
 
 const SCROLL_SEQUENCE: [Segment; 5] = [
-    Segment::hold(0.0, 1.0, 0.5),
+    Segment::hold(Pose::OPEN, 0.5),
     Segment {
         from: Pose::OPEN,
         to: Pose {
@@ -170,18 +183,13 @@ const SCROLL_SEQUENCE: [Segment; 5] = [
         duration: 0.65,
         workload: Some(Workload::Scroll),
     },
-    Segment {
-        from: Pose {
+    Segment::hold(
+        Pose {
             scroll: 1.0,
             ..Pose::OPEN
         },
-        to: Pose {
-            scroll: 1.0,
-            ..Pose::OPEN
-        },
-        duration: 0.45,
-        workload: None,
-    },
+        0.45,
+    ),
     Segment {
         from: Pose {
             scroll: 1.0,
@@ -191,11 +199,11 @@ const SCROLL_SEQUENCE: [Segment; 5] = [
         duration: 0.65,
         workload: Some(Workload::Scroll),
     },
-    Segment::hold(0.0, 1.0, 0.45),
+    Segment::hold(Pose::OPEN, 0.45),
 ];
 
 const POWER_SEQUENCE: [Segment; 5] = [
-    Segment::hold(0.0, 1.0, 0.5),
+    Segment::hold(Pose::OPEN, 0.5),
     Segment {
         from: Pose::OPEN,
         to: Pose {
@@ -205,18 +213,13 @@ const POWER_SEQUENCE: [Segment; 5] = [
         duration: 0.24,
         workload: Some(Workload::PowerOpening),
     },
-    Segment {
-        from: Pose {
+    Segment::hold(
+        Pose {
             power: 1.0,
             ..Pose::OPEN
         },
-        to: Pose {
-            power: 1.0,
-            ..Pose::OPEN
-        },
-        duration: 0.5,
-        workload: None,
-    },
+        0.5,
+    ),
     Segment {
         from: Pose {
             power: 1.0,
@@ -226,12 +229,12 @@ const POWER_SEQUENCE: [Segment; 5] = [
         duration: 0.24,
         workload: Some(Workload::PowerClosing),
     },
-    Segment::hold(0.0, 1.0, 0.5),
+    Segment::hold(Pose::OPEN, 0.5),
 ];
 
 const MIXED_FINISH: [Segment; 2] = [
     Segment::settings(1.0, 0.0, Workload::Closing),
-    Segment::hold(0.0, 0.0, 0.62),
+    Segment::hold(Pose::CLOSED, 0.62),
 ];
 
 fn sequence(scenario: Scenario) -> impl Iterator<Item = &'static Segment> + Clone {
