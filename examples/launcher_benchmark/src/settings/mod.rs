@@ -6,36 +6,30 @@ use crate::artwork::Artwork;
 use crate::interface::{self, rectangle, Layer, MUTED, TEXT};
 use crate::{shadow, BenchmarkError};
 use grafo::cosmic_text::FontSystem;
-use grafo::{Color, DrawMode, Scene, ShapeDrawOptions, TransformInstance};
+use grafo::{BorderRadii, Color, DrawMode, Scene, Shape, ShapeDrawOptions, TransformInstance};
 
-pub const X: f32 = 858.0;
-pub const Y: f32 = 96.0;
-pub const WIDTH: f32 = 370.0;
-pub const HEIGHT: f32 = 452.0;
+const X: f32 = 858.0;
+const Y: f32 = 96.0;
+const WIDTH: f32 = 370.0;
+const HEIGHT: f32 = 452.0;
 const PADDING: f32 = 24.0;
 const CHIP_SIZE: f32 = 36.0;
 const ICON_SIZE: f32 = 28.0;
-pub const CONTENT_LEFT: f32 = X + PADDING;
-pub const CONTENT_WIDTH: f32 = WIDTH - PADDING * 2.0;
-pub const HEADER_TOP: f32 = Y + PADDING;
-pub const POWER_BUTTON_LEFT: f32 = CONTENT_LEFT + CONTENT_WIDTH - 44.0;
-pub const SCROLL_TOP: f32 = Y + 192.0;
-pub const SCROLL_BOTTOM: f32 = Y + HEIGHT - PADDING;
+const CONTENT_LEFT: f32 = X + PADDING;
+const CONTENT_WIDTH: f32 = WIDTH - PADDING * 2.0;
+const HEADER_TOP: f32 = Y + PADDING;
+const POWER_BUTTON_LEFT: f32 = CONTENT_LEFT + CONTENT_WIDTH - 44.0;
+const SCROLL_TOP: f32 = Y + 192.0;
+const SCROLL_BOTTOM: f32 = Y + HEIGHT - PADDING;
 const TILE_HEIGHT: f32 = 80.0;
 const TILE_GAP: f32 = 12.0;
 const TILE_WIDTH: f32 = (CONTENT_WIDTH - TILE_GAP) * 0.5;
 const SCROLL_CONTENT_HEIGHT: f32 = TILE_HEIGHT * 4.0 + TILE_GAP * 3.0;
 const SCROLL_HEIGHT: f32 = SCROLL_BOTTOM - SCROLL_TOP;
-pub const SCROLL_DISTANCE: f32 = SCROLL_CONTENT_HEIGHT - SCROLL_HEIGHT;
+const SCROLL_DISTANCE: f32 = SCROLL_CONTENT_HEIGHT - SCROLL_HEIGHT;
 const SCROLLBAR_HEIGHT: f32 = SCROLL_HEIGHT * SCROLL_HEIGHT / SCROLL_CONTENT_HEIGHT;
 const POWER_HEIGHT: f32 = 308.0;
-const HEIGHT_STEP: f32 = 0.5;
-const HEIGHT_STEPS: usize = ((HEIGHT - POWER_HEIGHT) / HEIGHT_STEP) as usize;
 const TRAVEL: f32 = 440.0;
-
-pub fn is_inside_scroll_view(x: f32, y: f32) -> bool {
-    (X..=X + WIDTH).contains(&x) && (SCROLL_TOP..SCROLL_BOTTOM).contains(&y)
-}
 
 fn icon(
     layer: &mut Layer,
@@ -352,7 +346,7 @@ impl Settings {
             true,
         )?;
         let panel = scene.add_cached_shape(
-            assets.panels[0],
+            assets.panel,
             Some(launcher_clip),
             ShapeDrawOptions::new()
                 .color(Color::rgb(37, 45, 59))
@@ -383,15 +377,24 @@ impl Settings {
         pose: Pose,
     ) -> Result<(), BenchmarkError> {
         let offset = (1.0 - pose.settings) * TRAVEL;
-        let height_step = (pose.power * HEIGHT_STEPS as f32).round() as usize;
-        let height = HEIGHT - height_step as f32 * HEIGHT_STEP;
+        let height = HEIGHT + (POWER_HEIGHT - HEIGHT) * pose.power;
         let is_switching = pose.power > 0.0 && pose.power < 1.0;
+        if self
+            .pose
+            .is_none_or(|previous| previous.power != pose.power)
+        {
+            scene.load_shape(
+                Shape::rounded_rect([(0.0, 0.0), (WIDTH, height)], BorderRadii::new(28.0)),
+                self.assets.panel,
+                None,
+            )?;
+        }
         if self.pose.is_none_or(|previous| {
             previous.settings != pose.settings || previous.power != pose.power
         }) {
             scene.replace_with_cached_shape(
                 self.panel,
-                self.assets.panels[height_step],
+                self.assets.panel,
                 ShapeDrawOptions::new()
                     .color(Color::rgb(37, 45, 59))
                     .transform(TransformInstance::translation(X + offset, Y)),

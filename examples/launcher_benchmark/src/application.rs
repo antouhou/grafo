@@ -1,7 +1,6 @@
 use crate::animation::{Animation, Scenario, Workload};
 use crate::interface::{self, Interface};
 use crate::overlay::{LiveTimings, Overlay};
-use crate::settings;
 use crate::statistics::Statistics;
 use crate::BenchmarkError;
 use grafo::{Scene, SceneContext, Surface, SurfaceError, WgpuBackendError};
@@ -9,9 +8,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
-use winit::event::{
-    ElementState, MouseButton, MouseScrollDelta, StartCause, TouchPhase, WindowEvent,
-};
+use winit::event::{ElementState, MouseButton, StartCause, TouchPhase, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
 use winit::keyboard::{Key, KeyCode, NamedKey, PhysicalKey};
 use winit::window::{Fullscreen, Window, WindowId};
@@ -53,7 +50,6 @@ struct BenchmarkWindow {
     live: LiveTimings,
     report_started: Instant,
     cursor: PhysicalPosition<f32>,
-    pointer_start: Option<PhysicalPosition<f32>>,
     is_dense: bool,
     is_occluded: bool,
 }
@@ -104,7 +100,6 @@ impl BenchmarkWindow {
             live,
             report_started: now,
             cursor: PhysicalPosition::new(0.0, 0.0),
-            pointer_start: None,
             is_dense: false,
             is_occluded: false,
         })
@@ -240,11 +235,6 @@ impl BenchmarkWindow {
                 self.animation.toggle_pause(Instant::now());
                 self.statistics.break_sequence();
             }
-            KeyCode::ArrowDown => self.animation.scroll_by(0.5, Instant::now()),
-            KeyCode::ArrowUp => self.animation.scroll_by(-0.5, Instant::now()),
-            KeyCode::ArrowLeft => self.animation.change_page(-1.0, Instant::now()),
-            KeyCode::ArrowRight => self.animation.change_page(1.0, Instant::now()),
-            KeyCode::Enter => self.animation.toggle_settings(Instant::now()),
             KeyCode::KeyF => self
                 .window
                 .set_fullscreen(if self.window.fullscreen().is_some() {
@@ -252,16 +242,7 @@ impl BenchmarkWindow {
                 } else {
                     Some(Fullscreen::Borderless(None))
                 }),
-            KeyCode::Escape | KeyCode::BrowserBack => {
-                let pose = self.animation.sample(Instant::now()).pose;
-                if pose.power > 0.0 {
-                    self.animation.close_power(Instant::now());
-                } else if pose.settings > 0.0 {
-                    self.animation.close_settings(Instant::now());
-                } else {
-                    event_loop.exit();
-                }
-            }
+            KeyCode::Escape | KeyCode::BrowserBack => event_loop.exit(),
             _ => return Ok(()),
         }
         self.window.request_redraw();
@@ -272,30 +253,7 @@ impl BenchmarkWindow {
         let scale = scale_factor(self.window.inner_size());
         let x = position.x / scale;
         let y = position.y / scale;
-        if let Some(start) = self.pointer_start.take() {
-            let start_x = start.x / scale;
-            let start_y = start.y / scale;
-            let horizontal = x - start_x;
-            let vertical = y - start_y;
-            let pose = self.animation.sample(Instant::now()).pose;
-            if pose.settings == 1.0
-                && pose.power == 0.0
-                && settings::is_inside_scroll_view(start_x, start_y)
-                && vertical.abs() > 25.0
-            {
-                self.animation
-                    .scroll_by(-vertical / settings::SCROLL_DISTANCE, Instant::now());
-                self.window.request_redraw();
-                return Ok(());
-            }
-            if horizontal.abs() > 50.0 {
-                self.animation
-                    .change_page(-horizontal.signum(), Instant::now());
-                self.window.request_redraw();
-                return Ok(());
-            }
-        }
-        if (34.0..=82.0).contains(&y) {
+        if (40.0..=76.0).contains(&y) {
             match x as u32 {
                 408..=487 => self.select(Scenario::Mixed),
                 496..=575 => self.select(Scenario::Pages),
@@ -307,18 +265,7 @@ impl BenchmarkWindow {
                     self.statistics.break_sequence();
                 }
                 936..=1015 => self.change_density()?,
-                1068..=1228 => self.animation.toggle_settings(Instant::now()),
                 _ => {}
-            }
-        } else if (settings::HEADER_TOP..=settings::HEADER_TOP + 44.0).contains(&y)
-            && (settings::CONTENT_LEFT..=settings::CONTENT_LEFT + settings::CONTENT_WIDTH)
-                .contains(&x)
-        {
-            let pose = self.animation.sample(Instant::now()).pose;
-            if pose.settings == 1.0 && pose.power > 0.0 {
-                self.animation.close_power(Instant::now());
-            } else if pose.settings == 1.0 && x >= settings::POWER_BUTTON_LEFT {
-                self.animation.toggle_power(Instant::now());
             }
         } else if y >= 580.0 && x >= interface::WIDTH * 0.5 {
             self.toggle_vsync();
@@ -352,7 +299,6 @@ impl BenchmarkWindow {
             {
                 let code = match (event.physical_key, event.logical_key) {
                     (PhysicalKey::Code(code), _) => Some(code),
-                    (_, Key::Named(NamedKey::Enter)) => Some(KeyCode::Enter),
                     (_, Key::Named(NamedKey::BrowserBack)) => Some(KeyCode::BrowserBack),
                     _ => None,
                 };
@@ -360,41 +306,15 @@ impl BenchmarkWindow {
                     self.key(code, event_loop)?;
                 }
             }
-            WindowEvent::MouseWheel { delta, .. } => {
-                let scale = scale_factor(self.window.inner_size());
-                let pose = self.animation.sample(Instant::now()).pose;
-                if pose.settings == 1.0
-                    && pose.power == 0.0
-                    && settings::is_inside_scroll_view(self.cursor.x / scale, self.cursor.y / scale)
-                {
-                    let distance = match delta {
-                        MouseScrollDelta::LineDelta(_, y) => -y * 0.25,
-                        MouseScrollDelta::PixelDelta(position) => {
-                            -position.y as f32 / scale / settings::SCROLL_DISTANCE
-                        }
-                    };
-                    self.animation.scroll_by(distance, Instant::now());
-                    self.window.request_redraw();
-                }
-            }
             WindowEvent::CursorMoved { position, .. } => self.cursor = position.cast(),
             WindowEvent::MouseInput {
-                state,
+                state: ElementState::Released,
                 button: MouseButton::Left,
                 ..
-            } => {
-                if state == ElementState::Pressed {
-                    self.pointer_start = Some(self.cursor);
-                } else {
-                    self.pointer_released(self.cursor)?;
-                }
+            } => self.pointer_released(self.cursor)?,
+            WindowEvent::Touch(touch) if touch.phase == TouchPhase::Ended => {
+                self.pointer_released(touch.location.cast())?;
             }
-            WindowEvent::Touch(touch) => match touch.phase {
-                TouchPhase::Started => self.pointer_start = Some(touch.location.cast()),
-                TouchPhase::Ended => self.pointer_released(touch.location.cast())?,
-                TouchPhase::Cancelled => self.pointer_start = None,
-                TouchPhase::Moved => {}
-            },
             _ => {}
         }
         Ok(())

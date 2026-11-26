@@ -137,11 +137,11 @@ impl Overlay {
             let _ = writeln!(self.text[table + 5], "{}", statistics.samples);
         }
         self.text[TABLE_TEXTS].push_str(
-            "A/P/S/C/O mode  Up/Down scroll  Space pause  R reset  V vsync  D load  F fullscreen",
+            "A/P/S/C/O mode  Space pause  R reset  V vsync  D load  F fullscreen  Esc exit",
         );
         let _ = write!(
             self.text[TABLE_TEXTS + 1],
-            "{}x{}  {} apps/page   update {:.2} ms   render {:.2} ms",
+            "{}x{}  {} apps/page   update {:.2} ms   render call {:.2} ms",
             scene.size().0,
             scene.size().1,
             interface.apps_per_page,

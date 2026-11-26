@@ -31,15 +31,6 @@ impl Workload {
         }
     }
 
-    pub fn duration(self) -> f32 {
-        match self {
-            Self::Pages => 0.18,
-            Self::Opening | Self::Closing => 0.28,
-            Self::Scroll => 0.65,
-            Self::PowerOpening | Self::PowerClosing => 0.24,
-        }
-    }
-
     pub fn index(self) -> usize {
         match self {
             Self::Pages => 0,
@@ -290,18 +281,10 @@ pub struct AnimationSample {
     pub next_transition: Option<Duration>,
 }
 
-struct ManualTransition {
-    from: Pose,
-    to: Pose,
-    started: Instant,
-    workload: Workload,
-}
-
 pub struct Animation {
     scenario: Scenario,
     started: Instant,
     paused_elapsed: Option<Duration>,
-    manual: Option<ManualTransition>,
 }
 
 impl Animation {
@@ -310,7 +293,6 @@ impl Animation {
             scenario: Scenario::Mixed,
             started: now,
             paused_elapsed: None,
-            manual: None,
         }
     }
 
@@ -330,120 +312,14 @@ impl Animation {
     }
 
     pub fn toggle_pause(&mut self, now: Instant) {
-        if self.manual.is_some() {
-            self.select(self.scenario, now);
-        } else if let Some(elapsed) = self.paused_elapsed.take() {
+        if let Some(elapsed) = self.paused_elapsed.take() {
             self.started = now - elapsed;
         } else {
             self.paused_elapsed = Some(now.duration_since(self.started));
         }
     }
 
-    pub fn change_page(&mut self, direction: f32, now: Instant) {
-        let from = self.sample(now).pose;
-        let to = Pose {
-            page: (from.page.round() + direction).clamp(0.0, 2.0),
-            ..Pose::CLOSED
-        };
-        self.manual = Some(ManualTransition {
-            from,
-            to,
-            started: now,
-            workload: Workload::Pages,
-        });
-        self.paused_elapsed = None;
-    }
-
-    fn set_settings(&mut self, opening: bool, now: Instant) {
-        let from = self.sample(now).pose;
-        self.manual = Some(ManualTransition {
-            from,
-            to: Pose {
-                page: from.page,
-                settings: if opening { 1.0 } else { 0.0 },
-                ..from
-            },
-            started: now,
-            workload: if opening {
-                Workload::Opening
-            } else {
-                Workload::Closing
-            },
-        });
-        self.paused_elapsed = None;
-    }
-
-    pub fn toggle_settings(&mut self, now: Instant) {
-        let opening = self.sample(now).pose.settings < 0.5;
-        self.set_settings(opening, now);
-    }
-
-    pub fn close_settings(&mut self, now: Instant) {
-        self.set_settings(false, now);
-    }
-
-    pub fn scroll_by(&mut self, distance: f32, now: Instant) {
-        let from = self.sample(now).pose;
-        self.manual = Some(ManualTransition {
-            from: Pose {
-                settings: 1.0,
-                power: 0.0,
-                ..from
-            },
-            to: Pose {
-                settings: 1.0,
-                power: 0.0,
-                scroll: (from.scroll + distance).clamp(0.0, 1.0),
-                ..from
-            },
-            started: now,
-            workload: Workload::Scroll,
-        });
-        self.paused_elapsed = None;
-    }
-
-    fn set_power(&mut self, opening: bool, now: Instant) {
-        let from = self.sample(now).pose;
-        self.manual = Some(ManualTransition {
-            from: Pose {
-                settings: 1.0,
-                ..from
-            },
-            to: Pose {
-                settings: 1.0,
-                power: if opening { 1.0 } else { 0.0 },
-                ..from
-            },
-            started: now,
-            workload: if opening {
-                Workload::PowerOpening
-            } else {
-                Workload::PowerClosing
-            },
-        });
-        self.paused_elapsed = None;
-    }
-
-    pub fn toggle_power(&mut self, now: Instant) {
-        self.set_power(self.sample(now).pose.power < 0.5, now);
-    }
-
-    pub fn close_power(&mut self, now: Instant) {
-        self.set_power(false, now);
-    }
-
     pub fn sample(&self, now: Instant) -> AnimationSample {
-        if let Some(manual) = &self.manual {
-            let duration = manual.workload.duration();
-            let progress = now.duration_since(manual.started).as_secs_f32() / duration;
-            return AnimationSample {
-                mode_label: "MANUAL",
-                pose: interpolate(manual.from, manual.to, progress, Some(manual.workload)),
-                workload: (progress < 1.0).then_some(manual.workload),
-                is_warming_up: false,
-                next_transition: None,
-            };
-        }
         let elapsed = self
             .paused_elapsed
             .unwrap_or_else(|| now.duration_since(self.started))

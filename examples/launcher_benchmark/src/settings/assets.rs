@@ -1,13 +1,10 @@
-use super::{
-    CHIP_SIZE, CONTENT_WIDTH, HEIGHT, HEIGHT_STEP, HEIGHT_STEPS, SCROLLBAR_HEIGHT, TILE_HEIGHT,
-    TILE_WIDTH, WIDTH,
-};
+use super::{CHIP_SIZE, CONTENT_WIDTH, HEIGHT, SCROLLBAR_HEIGHT, TILE_HEIGHT, TILE_WIDTH, WIDTH};
 use crate::artwork::Artwork;
 use crate::BenchmarkError;
 use grafo::{Scene, Shape, StrokeGeometryOptions};
 
 pub(super) struct Assets {
-    pub panels: Vec<u64>,
+    pub panel: u64,
     pub tile: u64,
     pub chip: u64,
     pub track: u64,
@@ -89,17 +86,8 @@ impl Assets {
         for (key, shape) in icons.iter_mut().zip(outlines) {
             *key = artwork.load(scene, shape.with_stroke(StrokeGeometryOptions::new(2.4)))?;
         }
-        // Half-pixel height steps preserve the radius and change mask bounds without per-draw tessellation.
-        let mut panels = Vec::with_capacity(HEIGHT_STEPS + 1);
-        for step in 0..=HEIGHT_STEPS {
-            panels.push(artwork.rounded(
-                scene,
-                [WIDTH, HEIGHT - step as f32 * HEIGHT_STEP],
-                28.0,
-            )?);
-        }
         Ok(Self {
-            panels,
+            panel: artwork.rounded(scene, [WIDTH, HEIGHT], 28.0)?,
             tile: artwork.rounded(scene, [TILE_WIDTH, TILE_HEIGHT], 18.0)?,
             chip: artwork.rounded(scene, [CHIP_SIZE, CHIP_SIZE], CHIP_SIZE * 0.5)?,
             track: artwork.rounded(scene, [CONTENT_WIDTH, 22.0], 11.0)?,
