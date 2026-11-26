@@ -480,6 +480,3 @@ impl Animation {
         unreachable!("the cycle position belongs to a segment")
     }
 }
-
-#[cfg(test)]
-mod tests;

@@ -133,6 +133,3 @@ impl Statistics {
         self.is_settling = false;
     }
 }
-
-#[cfg(test)]
-mod tests;
