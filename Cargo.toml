@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "grafo-test-scenes"]
+members = ["grafo-test-scenes", "examples/launcher_benchmark"]
 
 [package]
 name = "grafo"

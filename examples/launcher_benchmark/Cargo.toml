@@ -1,0 +1,41 @@
+[package]
+name = "grafo-launcher-benchmark"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+grafo = { path = "../..", features = ["cosmic-text"] }
+bytemuck = "1.23"
+pollster = "0.4"
+thiserror = "2.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+winit = "0.30"
+
+[target.'cfg(target_os = "android")'.dependencies]
+winit = { version = "0.30", features = ["android-native-activity"] }
+tracing-android = "0.2"
+
+[package.metadata.android]
+package = "org.grafo.launcher_benchmark"
+apk_name = "grafo-launcher-benchmark"
+build_targets = ["armv7-linux-androideabi", "aarch64-linux-android"]
+assets = "assets"
+
+[package.metadata.android.sdk]
+min_sdk_version = 26
+target_sdk_version = 32
+
+[package.metadata.android.application]
+label = "Grafo Launcher Benchmark"
+theme = "@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen"
+
+[package.metadata.android.application.activity]
+config_changes = "orientation|keyboardHidden|screenSize|uiMode"
+screen_orientation = "landscape"
+exported = true
+
