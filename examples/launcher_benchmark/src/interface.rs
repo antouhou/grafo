@@ -11,7 +11,10 @@ use grafo::{
 
 pub const WIDTH: f32 = 1280.0;
 pub const HEIGHT: f32 = 720.0;
-const PAGE_WIDTH: f32 = 1176.0;
+pub(super) const MARGIN: f32 = 52.0;
+const PAGE_WIDTH: f32 = WIDTH - MARGIN * 2.0;
+const PAGE_TOP: f32 = 112.0;
+const PAGE_HEIGHT: f32 = 432.0;
 pub(super) const TEXT: Color = Color::from_srgb_f32(237.0 / 255.0, 242.0 / 255.0, 250.0 / 255.0);
 pub(super) const MUTED: Color = Color::from_srgb_f32(164.0 / 255.0, 178.0 / 255.0, 199.0 / 255.0);
 
@@ -139,6 +142,36 @@ impl Layer {
         )?;
         Ok(())
     }
+
+    pub fn centered_label(
+        &mut self,
+        scene: &mut Scene,
+        fonts: &mut FontSystem,
+        text: &str,
+        bounds: [(f32, f32); 2],
+        (size, color): (f32, Color),
+        parent: Option<usize>,
+    ) -> Result<(), BenchmarkError> {
+        let line_height = size * 1.3;
+        let buffer = font::shape(fonts, text, size, line_height);
+        let width = buffer
+            .layout_runs()
+            .map(|run| run.line_w)
+            .fold(0.0, f32::max);
+        self.text(
+            scene,
+            fonts,
+            buffer,
+            parent,
+            ShapeDrawOptions::new()
+                .color(color)
+                .clips_children(false)
+                .transform(TransformInstance::translation(
+                    (bounds[0].0 + bounds[1].0 - width) * 0.5,
+                    (bounds[0].1 + bounds[1].1 - line_height) * 0.5,
+                )),
+        )
+    }
 }
 
 pub struct Interface {
@@ -208,7 +241,7 @@ fn build_background(
             ))
             .clips_children(false),
     )?;
-    layer.label(scene, font, "Home", [52.0, 28.0], (30.0, TEXT), None)?;
+    layer.label(scene, font, "Home", [MARGIN, 38.5], (30.0, TEXT), None)?;
     let control = artwork.rounded(scene, [80.0, 36.0], 18.0)?;
     for (index, name) in [
         "Auto", "Pages", "Settings", "Scroll", "Power", "Pause", "Load +",
@@ -225,7 +258,14 @@ fn build_background(
             [x, 40.0],
             Color::rgba(220, 235, 255, 22),
         )?;
-        layer.label(scene, font, name, [x + 12.0, 46.0], (13.0, TEXT), None)?;
+        layer.centered_label(
+            scene,
+            font,
+            name,
+            [(x, 40.0), (x + 80.0, 76.0)],
+            (13.0, TEXT),
+            None,
+        )?;
     }
     let status = artwork.rounded(scene, [160.0, 48.0], 24.0)?;
     rectangle(
@@ -236,11 +276,11 @@ fn build_background(
         [1068.0, 34.0],
         Color::rgb(20, 30, 45),
     )?;
-    layer.label(
+    layer.centered_label(
         scene,
         font,
         "12:45   Settings",
-        [1087.0, 48.0],
+        [(1068.0, 34.0), (1228.0, 82.0)],
         (15.0, TEXT),
         None,
     )?;
@@ -262,7 +302,7 @@ fn build_page(
     let tile_inner = artwork.rounded(scene, [size - 6.0, size - 6.0], size * 0.21)?;
     let card = artwork.rounded(scene, [330.0, 240.0], 24.0)?;
     let cell_width = 1128.0 / columns as f32;
-    let cell_height = 408.0 / rows as f32;
+    let cell_height = (PAGE_HEIGHT - 48.0) / rows as f32;
     let palette = [
         Color::rgb(224, 80, 101),
         Color::rgb(137, 96, 232),
@@ -273,14 +313,21 @@ fn build_page(
     ];
     for index in 0..columns * rows {
         let name_index = (page * columns * rows + index) % APP_NAMES.len();
-        let x = 76.0
+        let x = MARGIN
+            + 24.0
             + page as f32 * PAGE_WIDTH
             + (index % columns) as f32 * cell_width
             + (cell_width - size) * 0.5;
+        let label_size = if rows == 1 { 22.0 } else { 15.0 };
+        let label_gap = if rows == 1 { 16.0 } else { 12.0 };
+        let content_height = size + label_gap + label_size * 1.3;
         let y = if rows == 1 {
-            265.0
+            PAGE_TOP + (PAGE_HEIGHT - content_height) * 0.5
         } else {
-            135.0 + (index / columns) as f32 * cell_height
+            PAGE_TOP
+                + 24.0
+                + (index / columns) as f32 * cell_height
+                + (cell_height - content_height) * 0.5
         };
         let parent = if rows == 1 {
             rectangle(
@@ -288,7 +335,7 @@ fn build_page(
                 scene,
                 card,
                 Some(parent),
-                [x - 125.0, 219.0],
+                [x - 125.0, PAGE_TOP + (PAGE_HEIGHT - 240.0) * 0.5],
                 Color::rgb(35, 42, 61),
             )?
         } else {
@@ -311,15 +358,15 @@ fn build_page(
             [x + 3.0, y + 3.0],
             color,
         )?;
-        let scale = size / 80.0;
         layer.add(
             scene,
             artwork.circle,
             Some(interior),
             ShapeDrawOptions::new()
                 .color(Color::rgba(255, 255, 255, 35))
-                .transform(TransformInstance::scale(scale, scale).then(
-                    &TransformInstance::translation(x + size * 0.42, y - size * 0.4),
+                .transform(TransformInstance::translation(
+                    x + size * 0.42,
+                    y - size * 0.4,
                 )),
         )?;
         layer.add(
@@ -328,10 +375,7 @@ fn build_page(
             Some(interior),
             ShapeDrawOptions::new()
                 .color(Color::rgba(255, 255, 255, 22))
-                .transform(
-                    TransformInstance::scale(scale, scale)
-                        .then(&TransformInstance::translation(x, y)),
-                ),
+                .transform(TransformInstance::translation(x, y)),
         )?;
         let symbol = name_index % 6;
         layer.add(
@@ -345,12 +389,8 @@ fn build_page(
                 } else {
                     DrawMode::Fill
                 })
-                .transform(
-                    TransformInstance::scale(scale, scale)
-                        .then(&TransformInstance::translation(x, y)),
-                ),
+                .transform(TransformInstance::translation(x, y)),
         )?;
-        let label_size = if rows == 1 { 22.0 } else { 15.0 };
         let buffer = font::shape(font, APP_NAMES[name_index], label_size, label_size * 1.3);
         let width = buffer
             .layout_runs()
@@ -366,7 +406,7 @@ fn build_page(
                 .clips_children(false)
                 .transform(TransformInstance::translation(
                     x + (size - width) * 0.5,
-                    y + size + 18.0,
+                    y + size + label_gap,
                 )),
         )?;
     }
@@ -379,13 +419,13 @@ impl Interface {
         let mut font = font::load();
         let mut background = Layer::default();
         build_background(scene, &mut artwork, &mut font, &mut background)?;
-        let viewport_key = artwork.rounded(scene, [1176.0, 440.0], 28.0)?;
+        let viewport_key = artwork.rounded(scene, [PAGE_WIDTH, PAGE_HEIGHT], 28.0)?;
         let viewport = rectangle(
             &mut background,
             scene,
             viewport_key,
             None,
-            [52.0, 119.5],
+            [MARGIN, PAGE_TOP],
             Color::rgba(12, 20, 34, 22),
         )?;
         let (columns, rows) = if dense { (6, 3) } else { (3, 1) };
@@ -395,13 +435,13 @@ impl Interface {
             build_page(scene, &mut artwork, &mut font, 2, columns, rows, viewport)?,
         ];
         let dot_key = artwork.rounded(scene, [22.0, 6.0], 3.0)?;
-        for x in [604.0, 630.0, 656.0] {
+        for x in [603.0, 629.0, 655.0] {
             rectangle(
                 &mut background,
                 scene,
                 dot_key,
                 None,
-                [x, 560.0],
+                [x, 556.0],
                 Color::rgb(82, 93, 116),
             )?;
         }
@@ -411,7 +451,7 @@ impl Interface {
             scene,
             dot_key,
             None,
-            [604.0, 560.0],
+            [603.0, 556.0],
             TEXT,
         )?;
         let settings = Settings::new(scene, &mut artwork, &mut font)?;

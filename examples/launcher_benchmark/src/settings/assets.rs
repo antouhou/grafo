@@ -1,4 +1,7 @@
-use super::{HEIGHT, HEIGHT_STEP, HEIGHT_STEPS, WIDTH};
+use super::{
+    CHIP_SIZE, CONTENT_WIDTH, HEIGHT, HEIGHT_STEP, HEIGHT_STEPS, SCROLLBAR_HEIGHT, TILE_HEIGHT,
+    TILE_WIDTH, WIDTH,
+};
 use crate::artwork::Artwork;
 use crate::BenchmarkError;
 use grafo::{Scene, Shape, StrokeGeometryOptions};
@@ -97,13 +100,13 @@ impl Assets {
         }
         Ok(Self {
             panels,
-            tile: artwork.rounded(scene, [153.0, 80.0], 18.0)?,
-            chip: artwork.rounded(scene, [44.0, 44.0], 22.0)?,
-            track: artwork.rounded(scene, [318.0, 22.0], 11.0)?,
+            tile: artwork.rounded(scene, [TILE_WIDTH, TILE_HEIGHT], 18.0)?,
+            chip: artwork.rounded(scene, [CHIP_SIZE, CHIP_SIZE], CHIP_SIZE * 0.5)?,
+            track: artwork.rounded(scene, [CONTENT_WIDTH, 22.0], 11.0)?,
             fill: artwork.rounded(scene, [202.0, 22.0], 11.0)?,
             thumb: artwork.rounded(scene, [28.0, 28.0], 14.0)?,
-            row: artwork.rounded(scene, [318.0, 44.0], 22.0)?,
-            scrollbar: artwork.rounded(scene, [6.0, 160.0], 3.0)?,
+            row: artwork.rounded(scene, [CONTENT_WIDTH, 44.0], 22.0)?,
+            scrollbar: artwork.rounded(scene, [6.0, SCROLLBAR_HEIGHT], 3.0)?,
             icons,
         })
     }

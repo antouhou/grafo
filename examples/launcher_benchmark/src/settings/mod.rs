@@ -12,12 +12,30 @@ pub const X: f32 = 858.0;
 pub const Y: f32 = 96.0;
 pub const WIDTH: f32 = 370.0;
 pub const HEIGHT: f32 = 452.0;
-pub const SCROLL_TOP: f32 = 268.0;
-pub const SCROLL_DISTANCE: f32 = 100.0;
-const POWER_HEIGHT: f32 = 294.0;
+const PADDING: f32 = 24.0;
+const CHIP_SIZE: f32 = 36.0;
+const ICON_SIZE: f32 = 28.0;
+pub const CONTENT_LEFT: f32 = X + PADDING;
+pub const CONTENT_WIDTH: f32 = WIDTH - PADDING * 2.0;
+pub const HEADER_TOP: f32 = Y + PADDING;
+pub const POWER_BUTTON_LEFT: f32 = CONTENT_LEFT + CONTENT_WIDTH - 44.0;
+pub const SCROLL_TOP: f32 = Y + 192.0;
+pub const SCROLL_BOTTOM: f32 = Y + HEIGHT - PADDING;
+const TILE_HEIGHT: f32 = 80.0;
+const TILE_GAP: f32 = 12.0;
+const TILE_WIDTH: f32 = (CONTENT_WIDTH - TILE_GAP) * 0.5;
+const SCROLL_CONTENT_HEIGHT: f32 = TILE_HEIGHT * 4.0 + TILE_GAP * 3.0;
+const SCROLL_HEIGHT: f32 = SCROLL_BOTTOM - SCROLL_TOP;
+pub const SCROLL_DISTANCE: f32 = SCROLL_CONTENT_HEIGHT - SCROLL_HEIGHT;
+const SCROLLBAR_HEIGHT: f32 = SCROLL_HEIGHT * SCROLL_HEIGHT / SCROLL_CONTENT_HEIGHT;
+const POWER_HEIGHT: f32 = 308.0;
 const HEIGHT_STEP: f32 = 0.5;
 const HEIGHT_STEPS: usize = ((HEIGHT - POWER_HEIGHT) / HEIGHT_STEP) as usize;
 const TRAVEL: f32 = 440.0;
+
+pub fn is_inside_scroll_view(x: f32, y: f32) -> bool {
+    (X..=X + WIDTH).contains(&x) && (SCROLL_TOP..SCROLL_BOTTOM).contains(&y)
+}
 
 fn icon(
     layer: &mut Layer,
@@ -26,6 +44,7 @@ fn icon(
     parent: usize,
     position: [f32; 2],
 ) -> Result<(), BenchmarkError> {
+    let scale = ICON_SIZE / 40.0;
     layer.add(
         scene,
         key,
@@ -33,7 +52,10 @@ fn icon(
         ShapeDrawOptions::new()
             .color(TEXT)
             .draw_mode(DrawMode::Stroke)
-            .transform(TransformInstance::translation(position[0], position[1])),
+            .transform(
+                TransformInstance::scale(scale, scale)
+                    .then(&TransformInstance::translation(position[0], position[1])),
+            ),
     )?;
     Ok(())
 }
@@ -60,7 +82,7 @@ impl MainMenu {
             scene,
             fonts,
             "Quick settings",
-            [882.0, 115.0],
+            [CONTENT_LEFT, HEADER_TOP + (44.0 - 23.0 * 1.3) * 0.5],
             (23.0, TEXT),
             Some(root),
         )?;
@@ -69,7 +91,10 @@ impl MainMenu {
             scene,
             assets.chip,
             Some(root),
-            [1160.0, 114.0],
+            [
+                POWER_BUTTON_LEFT + (44.0 - CHIP_SIZE) * 0.5,
+                HEADER_TOP + (44.0 - CHIP_SIZE) * 0.5,
+            ],
             Color::rgb(105, 43, 55),
         )?;
         icon(
@@ -77,15 +102,18 @@ impl MainMenu {
             scene,
             assets.icons[0],
             power,
-            [1162.0, 116.0],
+            [
+                POWER_BUTTON_LEFT + (44.0 - ICON_SIZE) * 0.5,
+                HEADER_TOP + (44.0 - ICON_SIZE) * 0.5,
+            ],
         )?;
         for (index, label) in ["Volume", "Brightness"].iter().enumerate() {
-            let y = 165.0 + index as f32 * 53.0;
+            let y = HEADER_TOP + 52.0 + index as f32 * 54.0;
             controls.label(
                 scene,
                 fonts,
                 label,
-                [882.0, y - 14.0],
+                [CONTENT_LEFT, y],
                 (14.0, MUTED),
                 Some(root),
             )?;
@@ -94,7 +122,7 @@ impl MainMenu {
                 scene,
                 assets.track,
                 Some(root),
-                [882.0, y + 12.0],
+                [CONTENT_LEFT, y + 24.0],
                 Color::rgb(64, 75, 92),
             )?;
             rectangle(
@@ -102,7 +130,7 @@ impl MainMenu {
                 scene,
                 assets.fill,
                 Some(root),
-                [882.0, y + 12.0],
+                [CONTENT_LEFT, y + 24.0],
                 Color::rgb(144, 201, 238),
             )?;
             rectangle(
@@ -110,12 +138,12 @@ impl MainMenu {
                 scene,
                 assets.thumb,
                 Some(root),
-                [1070.0, y + 9.0],
+                [CONTENT_LEFT + 188.0, y + 21.0],
                 TEXT,
             )?;
         }
         let viewport = scene.add_clipping_rect(
-            [(X, SCROLL_TOP), (X + WIDTH, Y + HEIGHT)],
+            [(X, SCROLL_TOP), (X + WIDTH, SCROLL_BOTTOM)],
             Some(root),
             None::<TransformInstance>,
             true,
@@ -134,8 +162,8 @@ impl MainMenu {
         .iter()
         .enumerate()
         {
-            let x = 882.0 + (index % 2) as f32 * 165.0;
-            let y = SCROLL_TOP + 12.0 + (index / 2) as f32 * 92.0;
+            let x = CONTENT_LEFT + (index % 2) as f32 * (TILE_WIDTH + TILE_GAP);
+            let y = SCROLL_TOP + (index / 2) as f32 * (TILE_HEIGHT + TILE_GAP);
             let tile = rectangle(
                 &mut tiles,
                 scene,
@@ -149,7 +177,7 @@ impl MainMenu {
                 scene,
                 assets.chip,
                 Some(tile),
-                [x + 10.0, y + 18.0],
+                [x + 12.0, y + (TILE_HEIGHT - CHIP_SIZE) * 0.5],
                 Color::rgb(43, 51, 66),
             )?;
             icon(
@@ -157,13 +185,19 @@ impl MainMenu {
                 scene,
                 assets.icons[*symbol],
                 chip,
-                [x + 12.0, y + 20.0],
+                [
+                    x + 12.0 + (CHIP_SIZE - ICON_SIZE) * 0.5,
+                    y + (TILE_HEIGHT - ICON_SIZE) * 0.5,
+                ],
             )?;
             tiles.label(
                 scene,
                 fonts,
                 label,
-                [x + 62.0, y + 29.0],
+                [
+                    x + 12.0 + CHIP_SIZE + 8.0,
+                    y + (TILE_HEIGHT - 13.0 * 1.3) * 0.5,
+                ],
                 (13.0, TEXT),
                 Some(tile),
             )?;
@@ -174,7 +208,7 @@ impl MainMenu {
             scene,
             assets.scrollbar,
             Some(viewport),
-            [1216.0, SCROLL_TOP + 6.0],
+            [X + WIDTH - 12.0, SCROLL_TOP],
             Color::rgb(116, 126, 144),
         )?;
         Ok(Self {
@@ -198,7 +232,10 @@ impl MainMenu {
         if self.offset != Some(offset) {
             scene.replace_with_clipping_rect(
                 self.viewport,
-                [(X + offset, SCROLL_TOP), (X + WIDTH + offset, Y + HEIGHT)],
+                [
+                    (X + offset, SCROLL_TOP),
+                    (X + WIDTH + offset, SCROLL_BOTTOM),
+                ],
                 None::<TransformInstance>,
                 true,
             )?;
@@ -212,7 +249,7 @@ impl MainMenu {
             fonts,
             [
                 offset + if is_switching { WIDTH } else { 0.0 },
-                scroll * 108.0,
+                scroll * (SCROLL_HEIGHT - SCROLLBAR_HEIGHT),
             ],
         )?;
         Ok(())
@@ -238,14 +275,14 @@ impl PowerMenu {
             scene,
             assets.row,
             Some(root),
-            [882.0, 114.0],
+            [CONTENT_LEFT, HEADER_TOP],
             Color::rgb(66, 77, 94),
         )?;
         layer.label(
             scene,
             fonts,
             "<   Back",
-            [900.0, 122.0],
+            [CONTENT_LEFT + 18.0, HEADER_TOP + (44.0 - 18.0 * 1.3) * 0.5],
             (18.0, TEXT),
             Some(back),
         )?;
@@ -253,13 +290,13 @@ impl PowerMenu {
             .iter()
             .enumerate()
         {
-            let y = 172.0 + index as f32 * 52.0;
+            let y = HEADER_TOP + 60.0 + index as f32 * 52.0;
             let row = rectangle(
                 &mut layer,
                 scene,
                 assets.row,
                 Some(root),
-                [882.0, y],
+                [CONTENT_LEFT, y],
                 if index == 0 {
                     Color::rgb(105, 43, 55)
                 } else {
@@ -271,13 +308,19 @@ impl PowerMenu {
                 scene,
                 assets.icons[index],
                 row,
-                [890.0, y + 2.0],
+                [
+                    CONTENT_LEFT + 12.0 + (CHIP_SIZE - ICON_SIZE) * 0.5,
+                    y + (44.0 - ICON_SIZE) * 0.5,
+                ],
             )?;
             layer.label(
                 scene,
                 fonts,
                 label,
-                [946.0, y + 9.0],
+                [
+                    CONTENT_LEFT + 12.0 + CHIP_SIZE + 8.0,
+                    y + (44.0 - 18.0 * 1.3) * 0.5,
+                ],
                 (18.0, TEXT),
                 Some(row),
             )?;
