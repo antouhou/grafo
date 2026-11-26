@@ -20,12 +20,12 @@ if [[ ! -f "$CARGO_APK_RELEASE_KEYSTORE" ]]; then
 fi
 
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.."
-printf 'Building release benchmark for %s; requesting vsync off by default.\n' "$abi"
-cargo apk build -p grafo-launcher-benchmark --lib --release --target "$target"
+printf 'Building release UI bench for %s; requesting vsync off by default.\n' "$abi"
+cargo apk build -p ui-bench --lib --release --target "$target"
 cargo_metadata=$(cargo metadata --no-deps --format-version 1)
 target_directory=$(jq -er '.target_directory' <<< "$cargo_metadata")
-apk="$target_directory/release/apk/grafo-launcher-benchmark.apk"
+apk="$target_directory/release/apk/ui-bench.apk"
 adb install -r "$apk"
-package=org.grafo.launcher_benchmark
+package=org.grafo.ui_bench
 adb shell am force-stop "$package"
 adb shell am start -W -n "$package/android.app.NativeActivity"

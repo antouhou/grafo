@@ -1,4 +1,4 @@
-# Launcher benchmark
+# UI bench
 
 Automatic Grafo UI benchmark. Vsync off by default.
 
@@ -6,11 +6,11 @@ Run from the repository root:
 
 ```sh
 # Desktop
-cargo run --release -p grafo-launcher-benchmark
+cargo run --release -p ui-bench
 
 # Android
-bash examples/launcher_benchmark/run_android.sh
-adb logcat -s grafo-benchmark
+bash examples/ui_bench/run_android.sh
+adb logcat -s ui-bench
 ```
 
 Android needs Bash, jq, an authorized device, and

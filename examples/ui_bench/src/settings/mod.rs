@@ -339,7 +339,7 @@ impl Settings {
         fonts: &mut FontSystem,
     ) -> Result<Self, BenchmarkError> {
         let assets = Assets::new(scene, artwork)?;
-        let launcher_clip = scene.add_clipping_rect(
+        let interface_clip = scene.add_clipping_rect(
             [(0.0, 0.0), (interface::WIDTH, interface::HEIGHT)],
             None,
             None::<TransformInstance>,
@@ -347,7 +347,7 @@ impl Settings {
         )?;
         let panel = scene.add_cached_shape(
             assets.panel,
-            Some(launcher_clip),
+            Some(interface_clip),
             ShapeDrawOptions::new()
                 .color(Color::rgb(37, 45, 59))
                 .transform(TransformInstance::translation(X + TRAVEL, Y)),
@@ -406,7 +406,7 @@ impl Settings {
                 is_switching,
             )?;
         }
-        // Views enter once per transition and leave once it completes, as in Momo.
+        // Keep both menus during a slide; remove the outgoing menu at the endpoint.
         if pose.power < 1.0 && self.main.is_none() {
             self.main = Some(MainMenu::new(scene, fonts, &self.assets, self.viewport)?);
         }

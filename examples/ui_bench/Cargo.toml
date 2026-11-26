@@ -1,5 +1,5 @@
 [package]
-name = "grafo-launcher-benchmark"
+name = "ui-bench"
 version = "0.1.0"
 edition = "2021"
 publish = false
@@ -21,8 +21,8 @@ winit = { version = "0.30", features = ["android-native-activity"] }
 tracing-android = "0.2"
 
 [package.metadata.android]
-package = "org.grafo.launcher_benchmark"
-apk_name = "grafo-launcher-benchmark"
+package = "org.grafo.ui_bench"
+apk_name = "ui-bench"
 build_targets = ["armv7-linux-androideabi", "aarch64-linux-android"]
 assets = "assets"
 
@@ -31,7 +31,7 @@ min_sdk_version = 26
 target_sdk_version = 32
 
 [package.metadata.android.application]
-label = "Grafo Launcher Benchmark"
+label = "Grafo UI bench"
 theme = "@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen"
 
 [package.metadata.android.application.activity]

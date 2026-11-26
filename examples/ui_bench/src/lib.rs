@@ -48,7 +48,7 @@ pub fn run() -> Result<(), BenchmarkError> {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new("warn,grafo_launcher_benchmark=info")),
+                .unwrap_or_else(|_| EnvFilter::new("warn,ui_bench=info")),
         )
         .try_init();
     run_event_loop(EventLoop::new()?)
@@ -57,9 +57,9 @@ pub fn run() -> Result<(), BenchmarkError> {
 #[cfg(target_os = "android")]
 #[no_mangle]
 pub fn android_main(android_app: AndroidApp) {
-    if let Ok(layer) = tracing_android::layer("grafo-benchmark") {
+    if let Ok(layer) = tracing_android::layer("ui-bench") {
         let _ = tracing_subscriber::registry()
-            .with(EnvFilter::new("warn,grafo_launcher_benchmark=info"))
+            .with(EnvFilter::new("warn,ui_bench=info"))
             .with(layer)
             .try_init();
     }
@@ -69,6 +69,6 @@ pub fn android_main(android_app: AndroidApp) {
         .map_err(BenchmarkError::from)
         .and_then(run_event_loop);
     if let Err(error) = result {
-        tracing::error!("Launcher benchmark failed: {error}");
+        tracing::error!("UI bench failed: {error}");
     }
 }

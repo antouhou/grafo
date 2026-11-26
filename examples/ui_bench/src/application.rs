@@ -34,7 +34,7 @@ fn report(statistics: &Statistics, vsync_requested: bool, size: (u32, u32), apps
                 mean_ms = sample.mean_ms(),
                 p95_ms = %sample.p95_ms(),
                 max_ms = sample.max_ms(),
-                "launcher_benchmark"
+                "ui_bench"
             );
         }
     }
@@ -60,7 +60,7 @@ impl BenchmarkWindow {
         let window = Arc::new(
             event_loop.create_window(
                 Window::default_attributes()
-                    .with_title("Grafo - Launcher benchmark")
+                    .with_title("Grafo - UI bench")
                     .with_inner_size(PhysicalSize::new(1280, 720))
                     .with_min_inner_size(PhysicalSize::new(640, 360)),
             )?,
@@ -338,7 +338,7 @@ impl BenchmarkApplication {
     }
 
     fn fail(&mut self, event_loop: &ActiveEventLoop, error: BenchmarkError) {
-        tracing::error!("Launcher benchmark failed: {error}");
+        tracing::error!("UI bench failed: {error}");
         self.error = Some(error);
         event_loop.exit();
     }
