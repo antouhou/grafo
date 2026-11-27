@@ -1,5 +1,7 @@
 use super::{DrawCommandError, RenderBackend, Scene};
-use crate::commands::{RenderCommand, RenderOperation, ShapeDrawId, Target};
+use crate::commands::{
+    ClipDraw, ClipGeometry, RenderCommand, RenderOperation, ShapeDrawId, Target,
+};
 use crate::core::{
     Color, ContentEffectConfig, Shape, ShapeDrawOptions, ShapeInstance, ShapeMaskEffectConfig,
     UnsignedPhysicalRect, Viewport,
@@ -336,8 +338,14 @@ impl RenderBackend for TestBackend {
                     assert!(!targets.is_empty());
                     let shape = match operation {
                         RenderOperation::DrawShape(draw)
-                        | RenderOperation::DrawShapeAndIncrementStencil(draw)
-                        | RenderOperation::DecrementStencil(draw) => draw.id,
+                        | RenderOperation::DrawShapeAndIncrementStencil(ClipDraw {
+                            geometry: ClipGeometry::Shape(draw),
+                            ..
+                        })
+                        | RenderOperation::DecrementStencil(ClipDraw {
+                            geometry: ClipGeometry::Shape(draw),
+                            ..
+                        }) => draw.id,
                         RenderOperation::CompositeTexture(_) | RenderOperation::Capture(_) => {
                             continue
                         }

@@ -1,6 +1,7 @@
 use super::Planner;
 use crate::commands::{
-    DrawClip, IntermediateTextureId, RenderCommand, RenderOperation, ShapeDrawId,
+    ClipDraw, ClipGeometry, DrawClip, IntermediateTextureId, RenderCommand, RenderOperation,
+    ShapeDrawId,
 };
 use crate::core::{
     BackdropEffectConfig, Color, ContentEffectConfig, Shape, ShapeDrawOptions,
@@ -275,7 +276,10 @@ fn damage_filters_draws_without_skipping_overflowing_children() {
         .plan(&scene, 4096, damage)
         .filter_map(|command| match command.operation {
             RenderOperation::DrawShape(draw)
-            | RenderOperation::DrawShapeAndIncrementStencil(draw) => Some(draw.id),
+            | RenderOperation::DrawShapeAndIncrementStencil(ClipDraw {
+                geometry: ClipGeometry::Shape(draw),
+                ..
+            }) => Some(draw.id),
             _ => None,
         })
         .collect();

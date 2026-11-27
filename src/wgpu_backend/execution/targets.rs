@@ -1,6 +1,9 @@
+use super::clipping::{ClipScope, ClipStencilMask};
 use super::effects::PooledTexture;
+use super::shapes::coverage::clipping::ClipCoverage;
 use crate::commands::Target;
-use crate::UnsignedPhysicalRect;
+use crate::{PhysicalRect, UnsignedPhysicalRect};
+use std::{cell::Cell, sync::Arc};
 use wgpu::{
     Color, CommandEncoder, LoadOp, Operations, RenderPass, RenderPassColorAttachment,
     RenderPassDepthStencilAttachment, RenderPassDescriptor, RenderPipeline, StoreOp, Texture,
@@ -35,6 +38,14 @@ pub(in crate::wgpu_backend) struct RenderTarget<'a> {
 }
 
 impl<'a> RenderTarget<'a> {
+    pub(super) fn color_view(&self) -> &'a TextureView {
+        self.color_view
+    }
+
+    pub(super) fn depth_stencil_view(&self) -> &'a TextureView {
+        self.depth_stencil_view
+    }
+
     pub(in crate::wgpu_backend) fn resolved_view(&self) -> &'a TextureView {
         self.resolve_target.unwrap_or(self.color_view)
     }
@@ -132,6 +143,14 @@ impl<'a> RenderTarget<'a> {
 
 /// A suspended target owns its attachments until its matching EndTarget.
 pub(super) struct ActiveTarget {
+    pub(super) uses_physical_effect_input: bool,
+    pub(super) stencil_mask: Option<ClipStencilMask>,
+    pub(super) inherited_coverage: Option<Arc<ClipCoverage>>,
+    pub(super) clip_backdrop: Option<PooledTexture>,
+    pub(super) backdrop_needs_base: Cell<bool>,
+    pub(super) clips: Vec<ClipScope>,
+    pub(super) active_layer: Option<usize>,
+    pub(super) stencil_reference: u32,
     pub(super) target: Target,
     pub(super) texture: Option<PooledTexture>,
     pub(super) needs_clear: bool,
@@ -145,7 +164,55 @@ pub(in crate::wgpu_backend) struct SurfaceTarget<'a> {
 }
 
 impl ActiveTarget {
+    pub(super) fn mark_initialized(&mut self) {
+        if let Some(index) = self.active_layer {
+            self.clips[index]
+                .layer
+                .as_mut()
+                .expect("active clip owns a layer")
+                .needs_clear = false;
+        } else {
+            self.needs_clear = false;
+        }
+    }
+
+    pub(super) fn stencil_mask_mut(&mut self) -> &mut Option<ClipStencilMask> {
+        if let Some(index) = self.active_layer {
+            &mut self.clips[index]
+                .layer
+                .as_mut()
+                .expect("active clip owns a layer")
+                .stencil_mask
+        } else {
+            &mut self.stencil_mask
+        }
+    }
+
+    pub(super) fn current_coverage(&self) -> Option<&Arc<ClipCoverage>> {
+        if let Some(scope) = self.clips.last() {
+            if let Some(coverage) = &scope.coverage {
+                return Some(coverage);
+            }
+        }
+        self.inherited_coverage.as_ref()
+    }
     pub(super) fn attachments<'a>(&'a self, surface: &'a SurfaceTarget<'_>) -> RenderTarget<'a> {
+        if let Some(layer) = self.active_layer {
+            let layer = self.clips[layer]
+                .layer
+                .as_ref()
+                .expect("active clip owns a layer");
+            let mut target = RenderTarget::for_texture(&layer.working);
+            target.needs_clear = layer.needs_clear;
+            return target;
+        }
+        self.base_attachments(surface)
+    }
+
+    pub(super) fn base_attachments<'a>(
+        &'a self,
+        surface: &'a SurfaceTarget<'_>,
+    ) -> RenderTarget<'a> {
         let mut target = match self.target {
             Target::Surface => RenderTarget {
                 color_view: surface.output.color_view,
@@ -161,5 +228,82 @@ impl ActiveTarget {
         };
         target.needs_clear = self.needs_clear;
         target
+    }
+
+    pub(super) fn bounds(&self, surface: &SurfaceTarget<'_>) -> PhysicalRect {
+        if let Some(layer) = self.active_layer {
+            return self.clips[layer]
+                .layer
+                .as_ref()
+                .expect("active clip owns a layer")
+                .bounds;
+        }
+        self.base_bounds(surface)
+    }
+
+    pub(super) fn base_bounds(&self, surface: &SurfaceTarget<'_>) -> PhysicalRect {
+        match self.target {
+            Target::Texture { bounds, .. } => bounds,
+            _ => {
+                let texture = surface
+                    .capture_texture
+                    .expect("scene target has a resolved texture");
+                PhysicalRect::from_size((texture.width() as i32, texture.height() as i32).into())
+            }
+        }
+    }
+
+    pub(super) fn invalidate_clip_capture(&self) {
+        if let Some(index) = self.active_layer {
+            if let Some(backdrop) = &self.clips[index]
+                .layer
+                .as_ref()
+                .expect("active clip owns a layer")
+                .backdrop
+            {
+                backdrop.is_capture_dirty.set(true);
+            }
+        } else {
+            self.backdrop_needs_base.set(true);
+        }
+    }
+
+    pub(super) fn current_uniform_index(&self) -> Option<usize> {
+        if let Some(index) = self.active_layer {
+            Some(
+                self.clips[index]
+                    .layer
+                    .as_ref()
+                    .expect("active clip owns a layer")
+                    .uniform_index,
+            )
+        } else {
+            self.uniform_index
+        }
+    }
+
+    pub(super) fn resolved_texture(&self, surface: &SurfaceTarget<'_>) -> Texture {
+        let texture = if let Some(index) = self.active_layer {
+            Some(
+                &self.clips[index]
+                    .layer
+                    .as_ref()
+                    .expect("active clip owns a layer")
+                    .working,
+            )
+        } else {
+            self.texture.as_ref()
+        };
+        match texture {
+            Some(texture) => texture
+                .resolve_texture
+                .as_ref()
+                .unwrap_or(&texture.color_texture)
+                .clone(),
+            None => surface
+                .capture_texture
+                .expect("scene target has a resolved texture")
+                .clone(),
+        }
     }
 }

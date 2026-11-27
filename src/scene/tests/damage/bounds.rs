@@ -1,5 +1,6 @@
 use super::super::{scene, surface};
 use crate::commands::RenderOperation;
+use crate::commands::{ClipDraw, ClipGeometry};
 use crate::core::vertex::InstanceTransform;
 use crate::core::{
     BackdropEffectConfig, Color, MathRect, PhysicalRect, Shape, ShapeDrawOptions,
@@ -294,11 +295,10 @@ fn retained_node_bounds_follow_viewport_changes_and_removal() {
         for (node_id, expected_clip) in [(path, expected_clip), (cached, expected_cached_clip)] {
             let clip = commands.iter().find_map(|command| match command.operation {
                 RenderOperation::DrawShape(draw)
-                | RenderOperation::DrawShapeAndIncrementStencil(draw)
-                    if draw.id.0 == node_id =>
-                {
-                    Some(command.clip.scissor)
-                }
+                | RenderOperation::DrawShapeAndIncrementStencil(ClipDraw {
+                    geometry: ClipGeometry::Shape(draw),
+                    ..
+                }) if draw.id.0 == node_id => Some(command.clip.scissor),
                 _ => None,
             });
             assert_eq!(clip, Some(expected_clip));

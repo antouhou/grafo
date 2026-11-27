@@ -1,6 +1,6 @@
 use crate::commands::{
-    CaptureSource, DrawClip, RenderCommand, RenderOperation, ShapeDraw, ShapeDrawId,
-    ShapeDrawMaterial, ShapeTextureBinding, TextureComposite,
+    CaptureSource, ClipDraw, ClipGeometry, DrawClip, RenderCommand, RenderOperation, ShapeDraw,
+    ShapeDrawId, ShapeDrawMaterial, ShapeTextureBinding, TextureComposite,
 };
 use crate::core::shape::ShapeInstance;
 use crate::core::{BlendMode, MathRect};
@@ -12,7 +12,7 @@ use crate::scene_state::effects::parameters::EffectParameterStorage;
 use crate::scene_state::effects::BackdropEffectInstance;
 use crate::scene_state::types::DrawTreeNode;
 use crate::{Size, UnsignedPhysicalRect};
-use ahash::HashMap;
+use ahash::{HashMap, HashSet};
 use easy_tree::Tree;
 
 mod backdrops;
@@ -90,12 +90,28 @@ pub(crate) struct DrawPlanningInput<'scene, 'planning> {
 pub(crate) struct DrawPlanner {
     pub(super) subtree_backdrop_regions: HashMap<usize, UnsignedPhysicalRect>,
     pub(super) node_order: Vec<usize>,
+    subtree_bounds: HashMap<usize, Option<MathRect>>,
+    destination_dependent_subtrees: HashSet<usize>,
+    layered_subtrees: HashSet<usize>,
     parents: Vec<ParentDrawState>,
     current: DrawTargetState,
     next_node: Option<usize>,
 }
 
 impl DrawPlanner {
+    fn prepare_node_order(&mut self, tree: &Tree<DrawTreeNode>) {
+        self.node_order.clear();
+        if tree.get(0).is_none() {
+            return;
+        }
+        self.node_order.push(0);
+        let mut next_node_index = 0;
+        while let Some(&node_id) = self.node_order.get(next_node_index) {
+            self.node_order.extend_from_slice(tree.children(node_id));
+            next_node_index += 1;
+        }
+    }
+
     pub(crate) fn clear_caches(&mut self) {
         *self = Self::default();
     }
@@ -106,7 +122,9 @@ impl DrawPlanner {
         self.current.damaged_region = input.damaged_region;
         self.next_node = input.damaged_region.is_some().then_some(0);
         if self.next_node.is_some() {
+            self.prepare_node_order(input.tree);
             self.resolve_backdrop_regions(input);
+            self.resolve_subtree_bounds(input);
         }
     }
 
@@ -216,13 +234,23 @@ impl DrawPlanner {
         if let Some(parent) = self.parents.last() {
             let node_id = parent.node_id;
             if self.current.decrements_stencil {
-                let Some(DrawTreeNode::CachedShape(description)) = input.tree.get(node_id) else {
-                    unreachable!("stencil clips have shape geometry");
+                let clip_draw = match input.tree.get(node_id) {
+                    Some(DrawTreeNode::CachedShape(description)) => {
+                        ClipGeometry::Shape(ShapeDraw {
+                            id: ShapeDrawId(node_id),
+                            material: shape_material(&description.instance),
+                        })
+                    }
+                    Some(DrawTreeNode::ClipRect(rectangle)) => {
+                        ClipGeometry::Rectangle(rectangle.logical_screen_bounds)
+                    }
+                    _ => unreachable!("clip scope requires a clipping node"),
                 };
                 output.push_command(RenderCommand {
-                    operation: RenderOperation::DecrementStencil(ShapeDraw {
-                        id: ShapeDrawId(node_id),
-                        material: shape_material(&description.instance),
+                    operation: RenderOperation::DecrementStencil(ClipDraw {
+                        geometry: clip_draw,
+                        requires_destination: false,
+                        requires_layer: false,
                     }),
                     clip: self.current.clip,
                 });
@@ -262,7 +290,7 @@ impl DrawPlanner {
         draw: Option<ShapeDraw>,
         input: &DrawPlanningInput<'scene, '_>,
     ) -> Option<RenderCommand<'scene>> {
-        let should_draw = !rectangles::should_skip_visible_rect_draw(
+        let should_draw = !rectangles::should_skip_visible_draw(
             node_id,
             node,
             draw.map(|draw| draw.material),
@@ -275,9 +303,12 @@ impl DrawPlanner {
         if !node.clips_children() {
             return visible_draw.map(|draw| self.draw_shape(draw));
         }
-        if let Some(scissor) =
-            rectangles::try_scissor_for_rect(node, input.scale_factor, input.physical_size)
-        {
+        if let Some(scissor) = rectangles::try_scissor_for_rect(
+            node,
+            self.child_bounds(node_id, input),
+            input.scale_factor,
+            input.physical_size,
+        ) {
             self.current.clip.scissor = self
                 .current
                 .clip
@@ -286,12 +317,33 @@ impl DrawPlanner {
                 .unwrap_or_else(UnsignedPhysicalRect::zero);
             return visible_draw.map(|draw| self.draw_shape(draw));
         }
-        let draw = draw?;
+        if self.children_fit_inside_clip(node_id, node, input) {
+            return visible_draw.map(|draw| self.draw_shape(draw));
+        }
+        let draw = match (draw, node) {
+            (Some(draw), _) => ClipGeometry::Shape(draw),
+            (None, DrawTreeNode::ClipRect(rectangle)) => {
+                ClipGeometry::Rectangle(rectangle.logical_screen_bounds)
+            }
+            _ => return None,
+        };
         let clip = self.current.clip;
         self.current.decrements_stencil = true;
         self.current.clip.stencil_reference += 1;
         Some(RenderCommand {
-            operation: RenderOperation::DrawShapeAndIncrementStencil(draw),
+            operation: RenderOperation::DrawShapeAndIncrementStencil(ClipDraw {
+                geometry: draw,
+                requires_destination: input
+                    .tree
+                    .children(node_id)
+                    .iter()
+                    .any(|child| self.destination_dependent_subtrees.contains(child)),
+                requires_layer: input
+                    .tree
+                    .children(node_id)
+                    .iter()
+                    .any(|child| self.layered_subtrees.contains(child)),
+            }),
             clip,
         })
     }

@@ -54,7 +54,7 @@ pub(in crate::wgpu_backend) struct CoverageDrawMetadata {
     pub bounds: UnsignedPhysicalRect,
 }
 
-#[derive(Default)]
+#[derive(Clone, Debug, Default)]
 pub(crate) struct CoverageGeometry {
     pub tiles: Vec<CoverageTile>,
     pub projections: Vec<CoverageProjection>,

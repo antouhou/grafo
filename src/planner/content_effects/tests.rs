@@ -1,6 +1,6 @@
 use crate::commands::{
-    BlendDestination, CaptureSource, IntermediateTextureId, RenderOperation, ShapeTextureBinding,
-    Target, TextureComposite,
+    BlendDestination, CaptureSource, ClipDraw, ClipGeometry, IntermediateTextureId,
+    RenderOperation, ShapeTextureBinding, Target, TextureComposite,
 };
 use crate::core::effect::{BackdropEffectConfig, ContentEffectConfig};
 use crate::core::shape::{CachedShapeHandle, ShapeResources};
@@ -90,7 +90,10 @@ fn validate_dependencies(plan: &RecordedCommands) {
                         Some(composite.source)
                     }
                     RenderOperation::DrawShape(draw)
-                    | RenderOperation::DrawShapeAndIncrementStencil(draw) => draw
+                    | RenderOperation::DrawShapeAndIncrementStencil(ClipDraw {
+                        geometry: ClipGeometry::Shape(draw),
+                        ..
+                    }) => draw
                         .material
                         .under_fill_texture
                         .and_then(|layer| match layer.texture {

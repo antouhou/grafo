@@ -1,3 +1,4 @@
+use super::clipping::{self, ClipScope};
 use super::draws::DrawPass;
 use super::effects::instructions::{execute_effect, EffectContext};
 use super::effects::EffectExecutionResources;
@@ -9,16 +10,19 @@ use super::target_uniforms;
 use super::targets::{ActiveTarget, SurfaceTarget};
 use super::textures::{IntermediateTextureResources, PlannedTexture};
 use crate::commands::{
-    IntermediateTextureId, RenderCommand, RenderOperation, Target, TexturePlacement,
+    ClipDraw, ClipGeometry, DrawClip, IntermediateTextureId, RenderCommand, RenderOperation,
+    Target, TexturePlacement,
 };
-use crate::core::BlendMode;
+use crate::core::{BlendMode, Viewport};
 #[cfg(feature = "render_metrics")]
 use crate::wgpu_backend::metrics::{PipelineSwitchCounts, ShapeMaskEffectCacheMetrics};
 use crate::wgpu_backend::resources::{Buffers, RendererPipelineResources};
 use crate::wgpu_backend::types::BackdropContext;
+use std::{cell::Cell, mem};
 use wgpu::{CommandEncoder, Device, Queue, TextureFormat};
 
 pub(in crate::wgpu_backend) struct ExecutionContext<'a> {
+    pub viewport: Viewport,
     pub device: &'a Device,
     pub queue: &'a Queue,
     pub pipelines: &'a RendererPipelineResources,
@@ -79,6 +83,7 @@ impl ExecutionResources<'_> {
         target: Target,
         surface: &SurfaceTarget<'_>,
     ) {
+        let inherited_coverage = self.inherited_clip_coverage(target);
         let texture = match target {
             Target::Surface => {
                 assert!(
@@ -133,7 +138,22 @@ impl ExecutionResources<'_> {
             }
             Some(index)
         };
+        let clips = self.textures.clip_scopes.pop().unwrap_or_default();
         self.textures.active_targets.push(ActiveTarget {
+            uses_physical_effect_input: matches!(
+                target,
+                Target::Texture {
+                    is_content_effect_input: true,
+                    ..
+                }
+            ),
+            stencil_mask: None,
+            inherited_coverage,
+            clip_backdrop: None,
+            backdrop_needs_base: Cell::new(true),
+            clips,
+            active_layer: None,
+            stencil_reference: 0,
             target,
             texture,
             uniform_index,
@@ -153,21 +173,30 @@ impl ExecutionResources<'_> {
             .expect("EndTarget requires an open target");
         if matches!(target.target, Target::Mask(_)) {
             assert!(!target.needs_clear, "mask target must produce its coverage");
+            self.textures.clip_scopes.push(target.clips);
             return;
         }
         target.attachments(surface).clear_if_needed(encoder);
+        assert!(target.clips.is_empty(), "target must close its clip scopes");
+        self.textures.clip_scopes.push(target.clips);
+        if let Some(preview) = target.clip_backdrop {
+            self.textures.work_textures.push(preview);
+        }
         if let Target::Texture { texture, .. } = target.target {
             let mut output = target.texture.expect("target owns its texture");
             let context = &self.context.effects;
             output.composite_bind_group(context.device, context.composite_layout, context.sampler);
             self.textures.insert_planned(texture, output);
         }
-        if let Some(index) = self
-            .textures
-            .active_targets
-            .last()
-            .and_then(|target| target.uniform_index)
-        {
+        let uniform_index = match self.textures.active_targets.last() {
+            Some(target) if target.active_layer.is_some() => target.current_uniform_index(),
+            _ => self
+                .textures
+                .active_targets
+                .last()
+                .and_then(|target| target.uniform_index),
+        };
+        if let Some(index) = uniform_index {
             target_uniforms::activate(
                 encoder,
                 self.textures.target_uniforms.buffer(index),
@@ -179,10 +208,8 @@ impl ExecutionResources<'_> {
 
 fn should_end_draw_pass(command: &RenderCommand) -> bool {
     match command.operation {
-        RenderOperation::DrawShape(draw) | RenderOperation::DrawShapeAndIncrementStencil(draw) => {
-            draw.material.under_fill_texture.is_some()
-        }
-        RenderOperation::DecrementStencil(_) | RenderOperation::CompositeTexture(_) => false,
+        RenderOperation::DrawShape(draw) => draw.material.under_fill_texture.is_some(),
+        RenderOperation::CompositeTexture(_) => false,
         _ => true,
     }
 }
@@ -194,24 +221,77 @@ fn execute_draw_command(
     context: &ExecutionContext<'_>,
     pending_batch: &mut Option<LeafBatch>,
 ) {
+    pass.prepared_coverage = None;
+    if pass.paints_isolated_clip {
+        if let RenderOperation::DrawShapeAndIncrementStencil(ClipDraw {
+            geometry: ClipGeometry::Shape(draw),
+            ..
+        }) = command.operation
+        {
+            let resources = shapes.draw_resources(draw.id);
+            if resources.path_coverage.is_some() {
+                pass.flush_leaf_batch(pending_batch);
+                pass.set_scissor(command.clip.scissor);
+                pass.draw_isolated_clip_paint(pass.stencil_reference, draw.material, resources);
+                return;
+            }
+        }
+    }
+    if let Some(parent) = &pass.clip_coverage {
+        if let RenderOperation::DrawShape(draw)
+        | RenderOperation::DrawShapeAndIncrementStencil(ClipDraw {
+            geometry: ClipGeometry::Shape(draw),
+            ..
+        }) = command.operation
+        {
+            pass.prepared_coverage = clipping::prepare_draw(
+                shapes,
+                context,
+                draw.id,
+                parent,
+                command.clip.scissor,
+                pass.clips_draws_directly,
+            );
+        }
+    }
+    let effective_clip = DrawClip {
+        scissor: command.clip.scissor,
+        stencil_reference: pass.stencil_reference,
+    };
     if let RenderOperation::DrawShape(draw) = command.operation {
-        pass.queue_leaf_draw(draw, command.clip, shapes, pending_batch);
+        pass.queue_leaf_draw(draw, effective_clip, shapes, pending_batch);
         return;
+    }
+    if let RenderOperation::DrawShapeAndIncrementStencil(ClipDraw {
+        geometry: ClipGeometry::Shape(draw),
+        ..
+    }) = command.operation
+    {
+        if shapes.draw_resources(draw.id).path_coverage.is_some() {
+            pass.queue_leaf_draw(draw, effective_clip, shapes, pending_batch);
+            return;
+        }
     }
     pass.flush_leaf_batch(pending_batch);
     match command.operation {
-        RenderOperation::DrawShapeAndIncrementStencil(draw) => {
-            pass.set_scissor(command.clip.scissor);
+        RenderOperation::DrawShapeAndIncrementStencil(ClipDraw {
+            geometry: ClipGeometry::Shape(draw),
+            ..
+        }) => {
+            pass.set_scissor(effective_clip.scissor);
             pass.draw_shape_and_increment_stencil(
-                command.clip.stencil_reference,
+                effective_clip.stencil_reference - 1,
                 draw.material,
                 shapes.draw_resources(draw.id),
             );
         }
-        RenderOperation::DecrementStencil(draw) => {
-            pass.set_scissor(command.clip.scissor);
+        RenderOperation::DecrementStencil(ClipDraw {
+            geometry: ClipGeometry::Shape(draw),
+            ..
+        }) => {
+            pass.set_scissor(effective_clip.scissor);
             pass.decrement_stencil(
-                command.clip.stencil_reference,
+                effective_clip.stencil_reference + 1,
                 shapes.draw_resources(draw.id),
             );
         }
@@ -220,7 +300,7 @@ fn execute_draw_command(
         {
             pass.composite_blended_texture(
                 composite,
-                command.clip,
+                effective_clip,
                 &mut shapes.composites,
                 context.device,
                 context.queue,
@@ -228,13 +308,13 @@ fn execute_draw_command(
         }
         RenderOperation::CompositeTexture(composite) => match composite.placement {
             TexturePlacement::Target => {
-                pass.set_scissor(command.clip.scissor);
-                pass.composite_texture(command.clip.stencil_reference, composite.source);
+                pass.set_scissor(effective_clip.scissor);
+                pass.composite_texture(effective_clip.stencil_reference, composite.source);
             }
             TexturePlacement::Local { .. } => {
                 pass.composite_local_texture(
                     composite,
-                    command.clip,
+                    effective_clip,
                     &mut shapes.composites,
                     context.device,
                     context.queue,
@@ -243,6 +323,94 @@ fn execute_draw_command(
         },
         _ => unreachable!("draw passes execute only draw commands"),
     }
+}
+
+fn update_direct_clip(
+    command: &RenderCommand<'_>,
+    pass: &mut DrawPass<'_, '_>,
+    shapes: &mut ShapeExecutionResources,
+    context: &ExecutionContext<'_>,
+    scopes: &mut Vec<ClipScope>,
+) -> bool {
+    match command.operation {
+        RenderOperation::DrawShapeAndIncrementStencil(draw)
+            if !draw.requires_destination && !draw.requires_layer =>
+        {
+            if matches!(draw.geometry, ClipGeometry::Shape(shape) if shape.material.under_fill_texture.is_some())
+            {
+                return false;
+            }
+            let Some(coverage) = clipping::prepare_clip(
+                shapes,
+                context,
+                draw.geometry,
+                command.clip.scissor,
+                pass.clip_coverage.as_ref(),
+            ) else {
+                return false;
+            };
+            scopes.push(ClipScope {
+                uses_coverage: true,
+                coverage: Some(coverage.clone()),
+                layer: None,
+                previous_stencil: pass.stencil_reference,
+                previous_layer: None,
+            });
+            pass.clip_coverage = Some(coverage);
+            true
+        }
+        RenderOperation::DecrementStencil(_)
+            if scopes.last().is_some_and(|scope| scope.uses_coverage) =>
+        {
+            scopes.pop();
+            pass.clip_coverage = scopes.last().and_then(|scope| scope.coverage.clone());
+            true
+        }
+        _ => false,
+    }
+}
+
+fn execute_pass_commands<'scene>(
+    pending_command: RenderCommand<'scene>,
+    commands: &mut impl Iterator<Item = RenderCommand<'scene>>,
+    pass: &mut DrawPass<'_, '_>,
+    shapes: &mut ShapeExecutionResources,
+    context: &ExecutionContext<'_>,
+    direct_scopes: &mut Vec<ClipScope>,
+) -> Option<RenderCommand<'scene>> {
+    let mut pending_batch = None;
+    execute_draw_command(pass, pending_command, shapes, context, &mut pending_batch);
+    let mut next_command = None;
+    for command in commands {
+        if pass.clips_draws_directly
+            && matches!(
+                command.operation,
+                RenderOperation::DrawShapeAndIncrementStencil(_)
+                    | RenderOperation::DecrementStencil(_)
+            )
+        {
+            pass.flush_leaf_batch(&mut pending_batch);
+            if update_direct_clip(&command, pass, shapes, context, direct_scopes) {
+                if matches!(
+                    command.operation,
+                    RenderOperation::DrawShapeAndIncrementStencil(ClipDraw {
+                        geometry: ClipGeometry::Shape(draw),
+                        ..
+                    }) if !clipping::is_empty_clip_paint(shapes, draw)
+                ) {
+                    execute_draw_command(pass, command, shapes, context, &mut pending_batch);
+                }
+                continue;
+            }
+        }
+        if should_end_draw_pass(&command) {
+            next_command = Some(command);
+            break;
+        }
+        execute_draw_command(pass, command, shapes, context, &mut pending_batch);
+    }
+    pass.flush_leaf_batch(&mut pending_batch);
+    next_command
 }
 
 /// Returns a consumed command that still needs execution after this pass closes.
@@ -254,8 +422,11 @@ fn execute_draw_pass<'scene>(
     resources: &mut ExecutionResources<'_>,
     metrics: &mut ExecutionMetrics,
 ) -> Option<RenderCommand<'scene>> {
-    if let RenderOperation::DrawShape(draw) | RenderOperation::DrawShapeAndIncrementStencil(draw) =
-        &pending_command.operation
+    if let RenderOperation::DrawShape(draw)
+    | RenderOperation::DrawShapeAndIncrementStencil(ClipDraw {
+        geometry: ClipGeometry::Shape(draw),
+        ..
+    }) = &pending_command.operation
     {
         resources.shapes.prepare_texture_material(
             encoder,
@@ -271,19 +442,52 @@ fn execute_draw_pass<'scene>(
         .active_targets
         .last_mut()
         .expect("draw requires an open target");
+    let clip_coverage = target.current_coverage().cloned();
+    let clips_draws_directly = target.active_layer.is_none() && target.inherited_coverage.is_none();
+    let mut direct_scopes = if clips_draws_directly {
+        mem::take(&mut target.clips)
+    } else {
+        Vec::new()
+    };
+    let paints_isolated_clip = matches!(
+        pending_command.operation,
+        RenderOperation::DrawShapeAndIncrementStencil(_)
+    ) && target
+        .clips
+        .last()
+        .and_then(|scope| scope.layer.as_ref())
+        .is_some_and(|layer| layer.backdrop.is_none());
+    let stencil_reference = target.stencil_reference;
+    if target.active_layer.is_some() || target.clip_backdrop.is_some() {
+        target.invalidate_clip_capture();
+    }
     let mut attachments = target.attachments(surface);
-    let root_scissor = matches!(target.target, Target::Surface).then_some(surface.root_scissor);
-    let target_clip = match target.target {
-        Target::Texture {
-            bounds,
-            draw_scissor,
-            ..
-        } => Some((bounds, draw_scissor)),
-        _ => None,
+    let root_scissor = (matches!(target.target, Target::Surface) && target.active_layer.is_none())
+        .then_some(surface.root_scissor);
+    let target_clip = if target.active_layer.is_some() {
+        let draw_scissor = match target.target {
+            Target::Texture { draw_scissor, .. } => draw_scissor,
+            _ => surface.root_scissor,
+        };
+        Some((target.bounds(surface), draw_scissor))
+    } else {
+        match target.target {
+            Target::Texture {
+                bounds,
+                draw_scissor,
+                ..
+            } => Some((bounds, draw_scissor)),
+            _ => None,
+        }
     };
     let mut render_pass = RenderPass::new(attachments.begin_pass(encoder, "command_draws"));
-    target.needs_clear = false;
+    target.mark_initialized();
     let mut pass = DrawPass {
+        paints_isolated_clip,
+        clips_draws_directly,
+        clip_coverage,
+        prepared_coverage: None,
+        stencil_reference,
         root_scissor,
         target_clip,
         render_pass: &mut render_pass,
@@ -291,31 +495,25 @@ fn execute_draw_pass<'scene>(
         buffers: resources.buffers,
         textures: resources.textures,
     };
-    let mut pending_batch = None;
-    execute_draw_command(
-        &mut pass,
+    let next = execute_pass_commands(
         pending_command,
+        commands,
+        &mut pass,
         resources.shapes,
         resources.context,
-        &mut pending_batch,
+        &mut direct_scopes,
     );
-    let mut next_command = None;
-    for command in commands {
-        if should_end_draw_pass(&command) {
-            next_command = Some(command);
-            break;
-        }
-        execute_draw_command(
-            &mut pass,
-            command,
-            resources.shapes,
-            resources.context,
-            &mut pending_batch,
-        );
-    }
-    pass.flush_leaf_batch(&mut pending_batch);
     metrics.accumulate(pass.render_pass);
-    next_command
+    drop(render_pass);
+    if clips_draws_directly {
+        resources
+            .textures
+            .active_targets
+            .last_mut()
+            .expect("draw requires an open target")
+            .clips = direct_scopes;
+    }
+    next
 }
 
 pub(in crate::wgpu_backend) fn execute_commands<'scene>(
@@ -327,8 +525,17 @@ pub(in crate::wgpu_backend) fn execute_commands<'scene>(
     let mut metrics = ExecutionMetrics::default();
     resources.shapes.composites.begin_render();
     resources.textures.target_uniforms.begin_render();
+    resources.textures.clip_bindings.begin_render();
     let mut pending_command = commands.next();
     while let Some(command) = pending_command {
+        if matches!(
+            &command.operation,
+            RenderOperation::DrawShapeAndIncrementStencil(_) | RenderOperation::DecrementStencil(_)
+        ) && resources.execute_clip_operation(encoder, &command, &surface)
+        {
+            pending_command = commands.next();
+            continue;
+        }
         match &command.operation {
             RenderOperation::BeginTarget(target) => {
                 resources.begin_target(encoder, *target, &surface)
@@ -347,7 +554,7 @@ pub(in crate::wgpu_backend) fn execute_commands<'scene>(
                     target.needs_clear,
                     "a mask command produces the whole coverage texture"
                 );
-                target.needs_clear = false;
+                target.mark_initialized();
                 let mask = resources.mask_resources().draw_mask(encoder, mask, *draw);
                 resources.textures.insert_mask(mask);
             }
@@ -375,9 +582,15 @@ pub(in crate::wgpu_backend) fn execute_commands<'scene>(
                         resources.effects,
                         resources.textures,
                     );
+                    resources.finish_clip_backdrop_filter(encoder, effect);
                 }
             }
-            RenderOperation::Capture(capture) => resources.capture(encoder, *capture, &surface),
+            RenderOperation::Capture(capture) => {
+                let next_command = commands.next();
+                resources.capture_before(encoder, *capture, &surface, next_command.as_ref());
+                pending_command = next_command;
+                continue;
+            }
             RenderOperation::DrawShape(_)
             | RenderOperation::DrawShapeAndIncrementStencil(_)
             | RenderOperation::DecrementStencil(_)

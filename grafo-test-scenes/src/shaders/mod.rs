@@ -73,6 +73,58 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 }
 "#;
 
+/// Reads pixels to the right of the filtered shape.
+pub const RIGHT_CAPTURE_MARGIN_WGSL: &str = r#"
+@fragment
+fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+    return textureSample(t_input, s_input, uv + vec2<f32>(0.5, 0.0));
+}
+"#;
+
+/// Copies the first captured pixel across the filtered shape.
+pub const FIRST_CAPTURE_PIXEL_WGSL: &str = r#"
+@fragment
+fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+    return textureLoad(t_input, vec2<i32>(0), 0);
+}
+"#;
+
+pub const SOLID_BLUE_WGSL: &str = r#"
+@fragment
+fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+    return vec4<f32>(0.0, 0.0, 1.0, 1.0);
+}
+"#;
+
+pub const SOLID_BLACK_WGSL: &str = r#"
+@fragment
+fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+    return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+}
+"#;
+
+pub const TRANSPARENT_BLACK_WGSL: &str = r#"
+@fragment
+fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+    return vec4<f32>(0.0);
+}
+"#;
+
+pub const SOLID_GRAY_WGSL: &str = r#"
+@fragment
+fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+    return vec4<f32>(0.75, 0.75, 0.75, 1.0);
+}
+"#;
+
+pub const SHIFT_RIGHT_WGSL: &str = r#"
+@fragment
+fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+    let offset = vec2<f32>(1.0 / f32(textureDimensions(t_input).x), 0.0);
+    return textureSample(t_input, s_input, uv - offset);
+}
+"#;
+
 /// Warps the backdrop with sharp waves that a later capture can blur.
 pub const WAVE_DISTORTION_WGSL: &str = r#"
 @fragment

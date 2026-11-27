@@ -73,6 +73,7 @@ impl ContentCapture {
             texture: self.texture,
             bounds: self.render_bounds,
             draw_scissor: self.draw_scissor,
+            is_content_effect_input: self.effect.is_some(),
         }));
     }
 

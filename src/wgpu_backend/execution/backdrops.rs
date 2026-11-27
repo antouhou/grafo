@@ -1,8 +1,11 @@
+use super::clipping::{ClipBackdropSources, ClipCapture};
 use super::effects::{self, EffectExecutionResources, OffscreenTexturePool, PooledTexture};
 use super::instructions::ExecutionResources;
 use super::targets::SurfaceTarget;
 use super::textures::IntermediateTextureResources;
-use crate::commands::{CaptureConfig, CaptureSource, Target};
+use crate::commands::{
+    BlendDestination, CaptureConfig, CaptureSource, RenderCommand, RenderOperation, Target,
+};
 use crate::core::{geometry, PhysicalRect, Size, UnsignedPhysicalRect};
 use crate::wgpu_backend::types::{BackdropContext, BackdropSource};
 use wgpu::{
@@ -10,6 +13,14 @@ use wgpu::{
     RenderPassColorAttachment, RenderPassDescriptor, StoreOp, TexelCopyTextureInfo, TextureAspect,
     TextureView,
 };
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum CapturePurpose {
+    BackdropFilter,
+    BackdropBase,
+    BlendDestination,
+    Other,
+}
 
 fn clear_capture(encoder: &mut CommandEncoder, output_view: &TextureView) {
     encoder.begin_render_pass(&RenderPassDescriptor {
@@ -58,7 +69,7 @@ fn composite_foreground_layer(
 }
 
 /// Copies resolved source pixels and leaves offscreen padding transparent.
-fn capture_backdrop(
+pub(super) fn capture_backdrop(
     encoder: &mut CommandEncoder,
     context: &BackdropContext<'_>,
     source: BackdropSource<'_>,
@@ -177,16 +188,20 @@ fn execute_capture(
     command: CaptureConfig,
     resources: &mut EffectExecutionResources,
     textures: &mut IntermediateTextureResources,
+    prepared: Option<PooledTexture>,
 ) {
-    let mut texture = capture_backdrop(
-        encoder,
-        context,
-        source,
-        command.source_rect,
-        command.destination_bounds,
-        resources,
-        &mut textures.pool,
-    );
+    let mut texture = match prepared {
+        Some(texture) => texture,
+        None => capture_backdrop(
+            encoder,
+            context,
+            source,
+            command.source_rect,
+            command.destination_bounds,
+            resources,
+            &mut textures.pool,
+        ),
+    };
     if command.sampling_size != command.destination_bounds.size().to_u32() {
         let downsampled = downsample_capture(
             encoder,
@@ -207,19 +222,59 @@ fn execute_capture(
 }
 
 impl ExecutionResources<'_> {
-    pub(super) fn capture(
+    pub(super) fn capture_before(
         &mut self,
         encoder: &mut CommandEncoder,
         capture: CaptureConfig,
         surface: &SurfaceTarget<'_>,
+        next: Option<&RenderCommand<'_>>,
     ) {
+        let purpose = match next {
+            Some(RenderCommand {
+                operation: RenderOperation::CompositeTexture(composite),
+                ..
+            }) if composite.destination == BlendDestination::Texture(capture.output) => {
+                CapturePurpose::BlendDestination
+            }
+            Some(RenderCommand {
+                operation: RenderOperation::ApplyEffect(_),
+                ..
+            }) => CapturePurpose::BackdropFilter,
+            Some(RenderCommand {
+                operation: RenderOperation::BeginTarget(Target::Texture { .. }),
+                ..
+            }) => CapturePurpose::BackdropBase,
+            _ => CapturePurpose::Other,
+        };
+        self.capture(encoder, capture, surface, purpose);
+    }
+
+    fn capture(
+        &mut self,
+        encoder: &mut CommandEncoder,
+        capture: CaptureConfig,
+        surface: &SurfaceTarget<'_>,
+        purpose: CapturePurpose,
+    ) {
+        let inherited = match capture.source {
+            CaptureSource::Layered { base, .. } => {
+                self.textures.clip_backdrop_bases.get(&base).cloned()
+            }
+            _ => None,
+        };
+        let preview = if purpose == CapturePurpose::BlendDestination {
+            None
+        } else {
+            self.capture_clips(encoder, surface)
+        };
+        self.textures.clip_filter = None;
         let target = self
             .textures
             .active_targets
             .last_mut()
             .expect("capture requires an open target");
         target.attachments(surface).clear_if_needed(encoder);
-        target.needs_clear = false;
+        target.mark_initialized();
         let is_target_capture = matches!(capture.source, CaptureSource::Target);
         let can_downsample_target_directly = match target.target {
             Target::Texture {
@@ -231,7 +286,11 @@ impl ExecutionResources<'_> {
                 let target_source_rect = (!draw_scissor.is_empty()).then_some(draw_scissor);
                 let capture_source_rect = capture.source_rect.filter(|rect| !rect.is_empty());
                 let has_matching_source_rect = target_source_rect == capture_source_rect;
-                is_target_capture && has_matching_bounds && has_matching_source_rect
+                is_target_capture
+                    && preview.is_none()
+                    && target.active_layer.is_none()
+                    && has_matching_bounds
+                    && has_matching_source_rect
             }
             _ => false,
         };
@@ -251,29 +310,65 @@ impl ExecutionResources<'_> {
             self.textures.insert_planned(capture.output, output);
             return;
         }
-        let foreground = target.attachments(surface).resolved_view().clone();
-        let target_bounds = match target.target {
-            Target::Texture { bounds, .. } => bounds,
-            _ => {
-                let texture = surface
-                    .capture_texture
-                    .expect("surface has a capture texture");
-                PhysicalRect::from_size((texture.width() as i32, texture.height() as i32).into())
-            }
+        let saves_clip_context = matches!(
+            purpose,
+            CapturePurpose::BackdropFilter | CapturePurpose::BackdropBase
+        );
+        let working =
+            if saves_clip_context && (target.current_coverage().is_some() || inherited.is_some()) {
+                Some(ClipCapture {
+                    texture: target.resolved_texture(surface),
+                    view: target.attachments(surface).resolved_view().clone(),
+                    samples: target.attachments(surface).color_view().clone(),
+                    bounds: target.bounds(surface),
+                })
+            } else {
+                None
+            };
+        let coverage = if working.is_some() {
+            target.current_coverage().cloned()
+        } else {
+            None
+        };
+        let uses_physical_input = target.uses_physical_effect_input;
+        let foreground = match &preview {
+            Some(capture) => capture.view.clone(),
+            None => target.attachments(surface).resolved_view().clone(),
+        };
+        let target_bounds = match &preview {
+            Some(capture) => capture.bounds,
+            None => target.bounds(surface),
         };
         let base = match capture.source {
-            CaptureSource::Target => match &target.texture {
-                Some(texture) => texture
-                    .resolve_texture
-                    .as_ref()
-                    .unwrap_or(&texture.color_texture)
-                    .clone(),
-                None => surface
-                    .capture_texture
-                    .expect("surface has a capture texture")
-                    .clone(),
+            CaptureSource::Target => match &preview {
+                Some(capture) => capture.texture.clone(),
+                None => target.resolved_texture(surface),
             },
             CaptureSource::Layered { base, .. } => self.textures.texture(base).clone(),
+        };
+        let base_view = match capture.source {
+            CaptureSource::Target => foreground.clone(),
+            CaptureSource::Layered { base, .. } => self.textures.view(base).clone(),
+        };
+        let prepared = if let Some(working) = working {
+            self.prepare_clip_capture(
+                encoder,
+                capture,
+                purpose,
+                ClipBackdropSources {
+                    uses_physical_input,
+                    working,
+                    coverage,
+                    inherited,
+                    foreground: foreground.clone(),
+                    foreground_bounds: target_bounds,
+                    physical_base: base.clone(),
+                    physical_base_view: base_view,
+                    has_local_layer: preview.is_some(),
+                },
+            )
+        } else {
+            None
         };
         let source = match capture.source {
             CaptureSource::Target => BackdropSource::Flattened {
@@ -294,6 +389,7 @@ impl ExecutionResources<'_> {
             capture,
             self.effects,
             self.textures,
+            prepared,
         );
     }
 }

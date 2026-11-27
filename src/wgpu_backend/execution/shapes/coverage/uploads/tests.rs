@@ -48,16 +48,16 @@ fn retained_small_path_does_not_keep_oversized_upload_alive() {
         let mut uploads = CoverageUploads::default();
         let retained = uploads.prepare(&mut builder, &small.fill_tessellation, transform, viewport);
         let temporary = uploads.prepare(&mut builder, &large.fill_tessellation, None, viewport);
-        assert!(!Arc::ptr_eq(&retained.buffers, &temporary.buffers));
+        assert!(!Arc::ptr_eq(&retained.storage, &temporary.storage));
         assert!(uploads.pending[0].geometry.byte_len() < SHARED_BUFFER_BYTES);
         assert!(uploads.pending[1].geometry.byte_len() > 4 * 1024 * 1024);
         let following = uploads.prepare(&mut builder, &small.fill_tessellation, None, viewport);
-        assert!(!Arc::ptr_eq(&following.buffers, &temporary.buffers));
-        let temporary_buffers = Arc::downgrade(&temporary.buffers);
+        assert!(!Arc::ptr_eq(&following.storage, &temporary.storage));
+        let temporary_storage = Arc::downgrade(&temporary.storage);
         uploads.clear();
         drop(temporary);
-        assert!(temporary_buffers.upgrade().is_none());
-        assert_eq!(Arc::strong_count(&retained.buffers), 1);
+        assert!(temporary_storage.upgrade().is_none());
+        assert_eq!(Arc::strong_count(&retained.storage), 1);
     }
 }
 
@@ -94,9 +94,9 @@ fn incoming_path_size_limits_groups_and_preserves_coverage_offsets() {
     let first_medium = uploads.prepare(&mut builder, &medium.fill_tessellation, None, viewport);
     let second_medium = uploads.prepare(&mut builder, &medium.fill_tessellation, None, viewport);
     let second_small = uploads.prepare(&mut builder, &small.fill_tessellation, None, viewport);
-    assert!(Arc::ptr_eq(&first_small.buffers, &first_medium.buffers));
-    assert!(!Arc::ptr_eq(&first_medium.buffers, &second_medium.buffers));
-    assert!(Arc::ptr_eq(&second_medium.buffers, &second_small.buffers));
+    assert!(Arc::ptr_eq(&first_small.storage, &first_medium.storage));
+    assert!(!Arc::ptr_eq(&first_medium.storage, &second_medium.storage));
+    assert!(Arc::ptr_eq(&second_medium.storage, &second_small.storage));
     assert!(uploads
         .pending
         .iter()

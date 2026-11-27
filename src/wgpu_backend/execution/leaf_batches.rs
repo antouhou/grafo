@@ -162,7 +162,11 @@ impl DrawPass<'_, '_> {
             let bounds = coverage.allocation.bounds;
             let [x, y] = coverage.translation.map(|value| value as u32);
             batch.coverage = Some(CoverageBatch {
-                allocation: Arc::clone(&coverage.allocation),
+                allocation: Arc::clone(
+                    self.prepared_coverage
+                        .as_ref()
+                        .unwrap_or(&coverage.allocation),
+                ),
                 bounds: UnsignedPhysicalRect::new(
                     (bounds.min.x + x, bounds.min.y + y).into(),
                     (bounds.max.x + x, bounds.max.y + y).into(),
