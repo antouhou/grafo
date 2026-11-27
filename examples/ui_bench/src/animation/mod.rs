@@ -94,7 +94,7 @@ struct Segment {
     from: Pose,
     to: Pose,
     duration: f64,
-    workload: Option<Workload>,
+    workload: Workload,
 }
 
 impl Segment {
@@ -103,59 +103,26 @@ impl Segment {
             from,
             to,
             duration,
-            workload: Some(workload),
-        }
-    }
-
-    const fn hold(pose: Pose, duration: f64) -> Self {
-        Self {
-            from: pose,
-            to: pose,
-            duration,
-            workload: None,
+            workload,
         }
     }
 }
 
-const SEQUENCE: [Segment; 24] = [
+const SEQUENCE: [Segment; 10] = [
     Segment::motion(Pose::CLOSED, Pose::SECOND_PAGE, 0.18, Workload::Pages),
-    Segment::hold(Pose::SECOND_PAGE, 0.32),
     Segment::motion(Pose::SECOND_PAGE, Pose::THIRD_PAGE, 0.18, Workload::Pages),
-    Segment::hold(Pose::THIRD_PAGE, 0.32),
     Segment::motion(Pose::THIRD_PAGE, Pose::SECOND_PAGE, 0.18, Workload::Pages),
-    Segment::hold(Pose::SECOND_PAGE, 0.32),
     Segment::motion(Pose::SECOND_PAGE, Pose::CLOSED, 0.18, Workload::Pages),
-    Segment::hold(Pose::CLOSED, 0.32),
     Segment::motion(Pose::CLOSED, Pose::OPEN, 0.28, Workload::Opening),
-    Segment::hold(Pose::OPEN, 0.62),
-    Segment::motion(Pose::OPEN, Pose::CLOSED, 0.28, Workload::Closing),
-    Segment::hold(Pose::CLOSED, 0.62),
-    Segment::hold(Pose::OPEN, 0.5),
     Segment::motion(Pose::OPEN, Pose::SCROLLED, 0.65, Workload::Scroll),
-    Segment::hold(Pose::SCROLLED, 0.45),
     Segment::motion(Pose::SCROLLED, Pose::OPEN, 0.65, Workload::Scroll),
-    Segment::hold(Pose::OPEN, 0.45),
-    Segment::hold(Pose::OPEN, 0.5),
     Segment::motion(Pose::OPEN, Pose::POWER_MENU, 0.24, Workload::PowerOpening),
-    Segment::hold(Pose::POWER_MENU, 0.5),
     Segment::motion(Pose::POWER_MENU, Pose::OPEN, 0.24, Workload::PowerClosing),
-    Segment::hold(Pose::OPEN, 0.5),
     Segment::motion(Pose::OPEN, Pose::CLOSED, 0.28, Workload::Closing),
-    Segment::hold(Pose::CLOSED, 0.62),
 ];
 
-fn cycle_duration() -> Duration {
-    SEQUENCE
-        .iter()
-        .map(|segment| Duration::from_secs_f64(segment.duration))
-        .sum()
-}
-
-fn interpolate(from: Pose, to: Pose, progress: f32, workload: Option<Workload>) -> Pose {
-    let eased = if matches!(
-        workload,
-        Some(Workload::PowerOpening | Workload::PowerClosing)
-    ) {
+fn interpolate(from: Pose, to: Pose, progress: f32, workload: Workload) -> Pose {
+    let eased = if matches!(workload, Workload::PowerOpening | Workload::PowerClosing) {
         if progress < 0.5 {
             4.0 * progress.powi(3)
         } else {
@@ -178,78 +145,87 @@ pub struct AnimationSample {
     pub pose: Pose,
     pub workload: Option<Workload>,
     pub is_warming_up: bool,
-    pub next_transition: Option<Duration>,
 }
 
 pub struct Animation {
-    started: Instant,
+    motion_started: Instant,
+    motion_index: usize,
+    completed_cycles: u32,
     stopped_elapsed: Option<Duration>,
 }
 
 impl Animation {
     pub fn new(now: Instant) -> Self {
         Self {
-            started: now,
+            motion_started: now,
+            motion_index: 0,
+            completed_cycles: 0,
             stopped_elapsed: None,
         }
     }
 
     pub fn is_running(&self) -> bool {
-        self.stopped_elapsed.is_none()
+        self.stopped_elapsed.is_none() && self.completed_cycles < RUN_CYCLES
     }
 
     pub fn stop(&mut self, now: Instant) {
         self.stopped_elapsed
-            .get_or_insert(now.duration_since(self.started));
+            .get_or_insert(now.duration_since(self.motion_started));
     }
 
-    pub fn sample(&mut self, now: Instant) -> AnimationSample {
-        let elapsed = self
-            .stopped_elapsed
-            .unwrap_or_else(|| now.duration_since(self.started));
-        let cycle_duration = cycle_duration();
-        let run_duration = cycle_duration * RUN_CYCLES;
-        if elapsed >= run_duration {
-            self.stopped_elapsed = Some(run_duration);
+    /// Advance after a successful endpoint render and report whether a cycle completed.
+    pub fn rendered(&mut self, sampled_at: Instant) -> bool {
+        if !self.is_running()
+            || sampled_at.duration_since(self.motion_started)
+                < Duration::from_secs_f64(SEQUENCE[self.motion_index].duration)
+        {
+            return false;
+        }
+        self.motion_started = sampled_at;
+        self.motion_index += 1;
+        if self.motion_index == SEQUENCE.len() {
+            self.motion_index = 0;
+            self.completed_cycles += 1;
+            return true;
+        }
+        false
+    }
+
+    pub fn sample(&self, now: Instant) -> AnimationSample {
+        if self.completed_cycles == RUN_CYCLES {
             return AnimationSample {
                 status: RunStatus::Complete,
                 completed_cycles: RUN_CYCLES,
                 pose: Pose::CLOSED,
                 workload: None,
                 is_warming_up: false,
-                next_transition: None,
             };
         }
-        let completed_cycles = (elapsed.as_nanos() / cycle_duration.as_nanos()) as u32;
-        let mut position = elapsed - cycle_duration * completed_cycles;
-        for segment in &SEQUENCE {
-            let duration = Duration::from_secs_f64(segment.duration);
-            if position < duration {
-                let is_running = self.is_running();
-                return AnimationSample {
-                    status: if is_running {
-                        RunStatus::Running
-                    } else {
-                        RunStatus::Stopped
-                    },
-                    completed_cycles,
-                    pose: interpolate(
-                        segment.from,
-                        segment.to,
-                        position.as_secs_f32() / duration.as_secs_f32(),
-                        segment.workload,
-                    ),
-                    workload: segment.workload.filter(|_| is_running),
-                    is_warming_up: is_running && elapsed < cycle_duration,
-                    next_transition: if segment.workload.is_none() && is_running {
-                        Some(duration - position)
-                    } else {
-                        None
-                    },
-                };
-            }
-            position -= duration;
+        let segment = &SEQUENCE[self.motion_index];
+        let elapsed = self
+            .stopped_elapsed
+            .unwrap_or_else(|| now.duration_since(self.motion_started));
+        let is_running = self.is_running();
+        let has_completed = elapsed >= Duration::from_secs_f64(segment.duration);
+        AnimationSample {
+            status: if is_running {
+                RunStatus::Running
+            } else {
+                RunStatus::Stopped
+            },
+            completed_cycles: self.completed_cycles,
+            pose: if has_completed {
+                segment.to
+            } else {
+                interpolate(
+                    segment.from,
+                    segment.to,
+                    elapsed.as_secs_f32() / segment.duration as f32,
+                    segment.workload,
+                )
+            },
+            workload: is_running.then_some(segment.workload),
+            is_warming_up: is_running && self.completed_cycles == 0,
         }
-        unreachable!("the cycle position belongs to a segment")
     }
 }

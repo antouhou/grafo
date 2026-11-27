@@ -94,26 +94,10 @@ impl WorkloadStatistics {
 #[derive(Default)]
 pub struct Statistics {
     pub workloads: [WorkloadStatistics; Workload::ALL.len()],
-    previous_completion: Option<(Workload, Instant)>,
-    last_motion: Option<(Workload, bool)>,
-    is_settling: bool,
+    previous_completion: Option<Instant>,
 }
 
 impl Statistics {
-    /// Include the first stationary draw that applies the final pose and removes the outgoing view.
-    pub fn measure_motion(
-        &mut self,
-        workload: Option<Workload>,
-        is_warming_up: bool,
-    ) -> Option<(Workload, bool)> {
-        let current = workload.map(|workload| (workload, is_warming_up));
-        self.is_settling = current.is_none() && self.last_motion.is_some();
-        if current.is_some() {
-            self.last_motion = current;
-        }
-        self.last_motion
-    }
-
     pub fn record(
         &mut self,
         workload: Option<Workload>,
@@ -122,27 +106,19 @@ impl Statistics {
         completed: Instant,
         was_rendered: bool,
     ) {
-        if self.is_settling && was_rendered {
-            self.last_motion = None;
-        }
         let Some(workload) = workload.filter(|_| !is_warming_up) else {
             self.previous_completion = None;
             return;
         };
-        let active_start = self
-            .previous_completion
-            .filter(|(previous, _)| *previous == workload)
-            .map_or(started, |(_, completion)| completion);
+        let active_start = self.previous_completion.unwrap_or(started);
         self.workloads[workload.index()].record(
             was_rendered.then(|| completed.duration_since(started)),
             completed.duration_since(active_start),
         );
-        self.previous_completion = Some((workload, completed));
+        self.previous_completion = Some(completed);
     }
 
     pub fn break_sequence(&mut self) {
         self.previous_completion = None;
-        self.last_motion = None;
-        self.is_settling = false;
     }
 }

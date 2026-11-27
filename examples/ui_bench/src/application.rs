@@ -1,4 +1,4 @@
-use crate::animation::{Animation, RunStatus, Workload};
+use crate::animation::{Animation, Workload};
 use crate::controls::{self, Action};
 use crate::interface::{self, Interface};
 use crate::overlay::{LiveTimings, Overlay};
@@ -6,11 +6,11 @@ use crate::statistics::Statistics;
 use crate::BenchmarkError;
 use grafo::{Scene, SceneContext, Surface, SurfaceError, WgpuBackendError};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use winit::application::ApplicationHandler;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
-use winit::event::{ElementState, MouseButton, StartCause, TouchPhase, WindowEvent};
-use winit::event_loop::{ActiveEventLoop, ControlFlow};
+use winit::event::{ElementState, MouseButton, TouchPhase, WindowEvent};
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoopProxy};
 use winit::keyboard::{Key, KeyCode, NamedKey, PhysicalKey};
 use winit::window::{Window, WindowId};
 
@@ -49,7 +49,7 @@ struct BenchmarkWindow {
     animation: Animation,
     statistics: Statistics,
     live: LiveTimings,
-    report_started: Instant,
+    should_refresh_overlay: bool,
     cursor: PhysicalPosition<f32>,
     is_occluded: bool,
 }
@@ -77,7 +77,7 @@ impl BenchmarkWindow {
         let (mut interface, mut artwork) = Interface::new(&mut scene)?;
         let mut overlay = Overlay::new(&mut scene, &mut interface.fonts, &mut artwork)?;
         let now = Instant::now();
-        let mut animation = Animation::new(now);
+        let animation = Animation::new(now);
         let statistics = Statistics::default();
         let live = LiveTimings::default();
         overlay.refresh(
@@ -98,18 +98,26 @@ impl BenchmarkWindow {
             animation,
             statistics,
             live,
-            report_started: now,
+            should_refresh_overlay: false,
             cursor: PhysicalPosition::new(0.0, 0.0),
             is_occluded: false,
         })
     }
 
-    fn start(&mut self) {
+    fn start(&mut self) -> Result<(), BenchmarkError> {
         let now = Instant::now();
         self.statistics = Statistics::default();
         self.live = LiveTimings::default();
         self.animation = Animation::new(now);
-        self.report_started = now;
+        self.should_refresh_overlay = false;
+        self.overlay.refresh(
+            &mut self.scene,
+            &self.statistics,
+            &self.live,
+            &self.animation.sample(now),
+            &mut self.interface.fonts,
+            self.surface.vsync(),
+        )
     }
 
     fn resize(&mut self, size: PhysicalSize<u32>) -> Result<(), BenchmarkError> {
@@ -120,7 +128,7 @@ impl BenchmarkWindow {
         self.scene.resize((size.width, size.height));
         self.scene.change_scale_factor(scale_factor(size).into())?;
         if self.animation.is_running() {
-            self.start();
+            self.start()?;
         }
         self.window.request_redraw();
         Ok(())
@@ -134,13 +142,8 @@ impl BenchmarkWindow {
         let started = Instant::now();
         let was_running = self.animation.is_running();
         let sample = self.animation.sample(started);
-        let has_completed = was_running && sample.status == RunStatus::Complete;
-        let measurement = self
-            .statistics
-            .measure_motion(sample.workload, sample.is_warming_up);
-        let is_settling = sample.workload.is_none() && measurement.is_some();
         self.interface.update(&mut self.scene, sample.pose)?;
-        if measurement.is_none() {
+        if self.should_refresh_overlay || sample.workload.is_none() {
             self.overlay.refresh(
                 &mut self.scene,
                 &self.statistics,
@@ -149,9 +152,12 @@ impl BenchmarkWindow {
                 &mut self.interface.fonts,
                 self.surface.vsync(),
             )?;
+            self.should_refresh_overlay = false;
         }
         let render_started = Instant::now();
-        self.window.pre_present_notify();
+        if self.surface.vsync() {
+            self.window.pre_present_notify();
+        }
         let result = match self.scene.render(&mut self.surface) {
             Err(WgpuBackendError::Surface(SurfaceError::Outdated)) => {
                 self.scene.render(&mut self.surface)
@@ -165,7 +171,8 @@ impl BenchmarkWindow {
         let completed = Instant::now();
         let was_rendered = match result {
             Ok(()) => {
-                if measurement.is_some() {
+                self.should_refresh_overlay = self.animation.rendered(started);
+                if sample.workload.is_some() {
                     self.live.update = render_started.duration_since(started);
                     self.live.render = completed.duration_since(render_started);
                 }
@@ -180,33 +187,31 @@ impl BenchmarkWindow {
             }
             Err(error) => return Err(error.into()),
         };
-        let (workload, is_warming_up) = measurement
-            .map_or((None, sample.is_warming_up), |(workload, warming)| {
-                (Some(workload), warming)
-            });
-        self.statistics
-            .record(workload, is_warming_up, started, completed, was_rendered);
-        if has_completed
-            || (self.animation.is_running()
-                && completed.duration_since(self.report_started) >= Duration::from_secs(2))
-        {
+        self.statistics.record(
+            sample.workload,
+            sample.is_warming_up,
+            started,
+            completed,
+            was_rendered,
+        );
+        let has_completed = was_running && !self.animation.is_running();
+        if has_completed {
             report(&self.statistics, self.surface.vsync(), self.scene.size());
-            self.report_started = completed;
         }
-        if sample.workload.is_some() || is_settling {
-            event_loop.set_control_flow(ControlFlow::Wait);
+        event_loop.set_control_flow(ControlFlow::Wait);
+        if self.animation.is_running() || has_completed {
             self.window.request_redraw();
-        } else if let Some(duration) = sample.next_transition {
-            event_loop.set_control_flow(ControlFlow::WaitUntil(started + duration));
-        } else {
-            event_loop.set_control_flow(ControlFlow::Wait);
         }
         Ok(())
     }
 
-    fn apply_action(&mut self, action: Action, event_loop: &ActiveEventLoop) {
+    fn apply_action(
+        &mut self,
+        action: Action,
+        event_loop: &ActiveEventLoop,
+    ) -> Result<(), BenchmarkError> {
         match action {
-            Action::Start => self.start(),
+            Action::Start => self.start()?,
             Action::Stop => {
                 let was_running = self.animation.is_running();
                 self.animation.stop(Instant::now());
@@ -218,9 +223,14 @@ impl BenchmarkWindow {
             Action::Exit => event_loop.exit(),
         }
         self.window.request_redraw();
+        Ok(())
     }
 
-    fn pointer_released(&mut self, event_loop: &ActiveEventLoop, position: PhysicalPosition<f32>) {
+    fn pointer_released(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        position: PhysicalPosition<f32>,
+    ) -> Result<(), BenchmarkError> {
         let scale = scale_factor(self.window.inner_size());
         let x = position.x / scale;
         let y = position.y / scale;
@@ -228,6 +238,7 @@ impl BenchmarkWindow {
             return self.apply_action(action, event_loop);
         }
         self.window.request_redraw();
+        Ok(())
     }
 
     fn event(
@@ -247,7 +258,7 @@ impl BenchmarkWindow {
                     event_loop.set_control_flow(ControlFlow::Wait);
                 } else {
                     if self.animation.is_running() {
-                        self.start();
+                        self.start()?;
                     }
                     self.window.request_redraw();
                 }
@@ -261,7 +272,7 @@ impl BenchmarkWindow {
                     _ => None,
                 };
                 if let Some(action) = code.and_then(controls::key_action) {
-                    self.apply_action(action, event_loop);
+                    self.apply_action(action, event_loop)?;
                 }
             }
             WindowEvent::CursorMoved { position, .. } => self.cursor = position.cast(),
@@ -269,9 +280,9 @@ impl BenchmarkWindow {
                 state: ElementState::Released,
                 button: MouseButton::Left,
                 ..
-            } => self.pointer_released(event_loop, self.cursor),
+            } => self.pointer_released(event_loop, self.cursor)?,
             WindowEvent::Touch(touch) if touch.phase == TouchPhase::Ended => {
-                self.pointer_released(event_loop, touch.location.cast());
+                self.pointer_released(event_loop, touch.location.cast())?;
             }
             _ => {}
         }
@@ -279,13 +290,21 @@ impl BenchmarkWindow {
     }
 }
 
-#[derive(Default)]
 pub struct BenchmarkApplication {
     window: Option<BenchmarkWindow>,
     error: Option<BenchmarkError>,
+    redraw_wakeup: EventLoopProxy<()>,
 }
 
 impl BenchmarkApplication {
+    pub fn new(redraw_wakeup: EventLoopProxy<()>) -> Self {
+        Self {
+            window: None,
+            error: None,
+            redraw_wakeup,
+        }
+    }
+
     pub fn finish(self) -> Result<(), BenchmarkError> {
         if let Some(window) = self.window {
             report(
@@ -323,16 +342,8 @@ impl ApplicationHandler for BenchmarkApplication {
         self.window = None;
     }
 
-    fn new_events(&mut self, event_loop: &ActiveEventLoop, cause: StartCause) {
-        if matches!(cause, StartCause::ResumeTimeReached { .. }) {
-            event_loop.set_control_flow(ControlFlow::Wait);
-            if let Some(window) = &self.window {
-                window.window.request_redraw();
-            }
-        }
-    }
-
     fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
+        let is_redraw = matches!(event, WindowEvent::RedrawRequested);
         let Some(window) = &mut self.window else {
             return;
         };
@@ -341,6 +352,11 @@ impl ApplicationHandler for BenchmarkApplication {
         }
         if let Err(error) = window.event(event_loop, event) {
             self.fail(event_loop, error);
+            return;
+        }
+        if is_redraw && !window.is_occluded {
+            // Signal queued redraw work before the native event loop goes back to sleep.
+            let _ = self.redraw_wakeup.send_event(());
         }
     }
 }

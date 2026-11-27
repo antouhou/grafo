@@ -39,7 +39,7 @@ pub enum BenchmarkError {
 }
 
 fn run_event_loop(event_loop: EventLoop<()>) -> Result<(), BenchmarkError> {
-    let mut application = BenchmarkApplication::default();
+    let mut application = BenchmarkApplication::new(event_loop.create_proxy());
     event_loop.run_app(&mut application)?;
     application.finish()
 }

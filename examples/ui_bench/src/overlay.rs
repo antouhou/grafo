@@ -122,10 +122,16 @@ impl Overlay {
             let statistics = &statistics.workloads[workload.index()];
             let table = workload.index() / 3 * TABLE_COLUMNS;
             let _ = writeln!(self.labels[table].text, "{}", workload.label());
-            let _ = writeln!(self.labels[table + 1].text, "{:.1}", statistics.fps());
-            let _ = writeln!(self.labels[table + 2].text, "{:.1}", statistics.mean_ms());
-            let _ = writeln!(self.labels[table + 3].text, "{}", statistics.p95_ms());
-            let _ = writeln!(self.labels[table + 4].text, "{:.1}", statistics.max_ms());
+            if statistics.samples == 0 {
+                for column in 1..=4 {
+                    let _ = writeln!(self.labels[table + column].text, "-");
+                }
+            } else {
+                let _ = writeln!(self.labels[table + 1].text, "{:.1}", statistics.fps());
+                let _ = writeln!(self.labels[table + 2].text, "{:.1}", statistics.mean_ms());
+                let _ = writeln!(self.labels[table + 3].text, "{}", statistics.p95_ms());
+                let _ = writeln!(self.labels[table + 4].text, "{:.1}", statistics.max_ms());
+            }
             let _ = writeln!(self.labels[table + 5].text, "{}", statistics.samples);
         }
         self.labels[TABLE_TEXTS]
