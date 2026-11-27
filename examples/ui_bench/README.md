@@ -13,8 +13,9 @@ cargo run --release -p ui-bench
 
 # Android
 bash examples/ui_bench/run_android.sh
-adb logcat -s ui-bench
 ```
+
+The results are going to be saved as a JSON file in the [`../../ui-bench-results`]
 
 Android needs Bash, jq, an authorized device, and
 [cargo-apk setup](https://github.com/rust-mobile/cargo-apk), including SDK/NDK and the device's Rust target.

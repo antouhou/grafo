@@ -4,6 +4,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+pub mod report;
+
 const HISTOGRAM_BINS: usize = 512;
 const BIN_MS: f64 = 0.5;
 
@@ -94,6 +96,7 @@ impl WorkloadStatistics {
 #[derive(Default)]
 pub struct Statistics {
     pub workloads: [WorkloadStatistics; Workload::ALL.len()],
+    pub redraw_overlay_used: bool,
     previous_completion: Option<Instant>,
 }
 
@@ -105,12 +108,14 @@ impl Statistics {
         started: Instant,
         completed: Instant,
         was_rendered: bool,
+        is_overlay_enabled: bool,
     ) {
         let Some(workload) = workload.filter(|_| !is_warming_up) else {
             self.previous_completion = None;
             return;
         };
         let active_start = self.previous_completion.unwrap_or(started);
+        self.redraw_overlay_used |= was_rendered && is_overlay_enabled;
         self.workloads[workload.index()].record(
             was_rendered.then(|| completed.duration_since(started)),
             completed.duration_since(active_start),

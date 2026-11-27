@@ -1,5 +1,8 @@
 use application::BenchmarkApplication;
 use grafo::{DrawCommandError, EffectError, SceneCreationError, SceneError, WgpuBackendError};
+use serde_json::Error as JsonError;
+use std::path::PathBuf;
+use std::{env, fs, io};
 use thiserror::Error;
 use tracing_subscriber::EnvFilter;
 #[cfg(target_os = "android")]
@@ -36,10 +39,21 @@ pub enum BenchmarkError {
     Effect(#[from] EffectError<WgpuBackendError>),
     #[error(transparent)]
     Render(#[from] WgpuBackendError),
+    #[error("Benchmark results I/O failed: {0}")]
+    ResultsIo(#[from] io::Error),
+    #[error("Could not serialize benchmark results: {0}")]
+    ResultsJson(#[from] JsonError),
+    #[cfg(target_os = "android")]
+    #[error("Android did not provide an external data directory for benchmark results")]
+    ResultsDirectoryUnavailable,
 }
 
-fn run_event_loop(event_loop: EventLoop<()>) -> Result<(), BenchmarkError> {
-    let mut application = BenchmarkApplication::new(event_loop.create_proxy());
+fn run_event_loop(
+    event_loop: EventLoop<()>,
+    results_directory: PathBuf,
+) -> Result<(), BenchmarkError> {
+    fs::create_dir_all(&results_directory)?;
+    let mut application = BenchmarkApplication::new(event_loop.create_proxy(), results_directory);
     event_loop.run_app(&mut application)?;
     application.finish()
 }
@@ -51,7 +65,10 @@ pub fn run() -> Result<(), BenchmarkError> {
                 .unwrap_or_else(|_| EnvFilter::new("warn,ui_bench=info")),
         )
         .try_init();
-    run_event_loop(EventLoop::new()?)
+    run_event_loop(
+        EventLoop::new()?,
+        env::current_dir()?.join("ui-bench-results"),
+    )
 }
 
 #[cfg(target_os = "android")]
@@ -63,12 +80,15 @@ pub fn android_main(android_app: AndroidApp) {
             .with(layer)
             .try_init();
     }
-    let result = EventLoop::builder()
-        .with_android_app(android_app)
-        .build()
-        .map_err(BenchmarkError::from)
-        .and_then(run_event_loop);
-    if let Err(error) = result {
-        tracing::error!("UI bench failed: {error}");
+    let result = android_app
+        .external_data_path()
+        .ok_or(BenchmarkError::ResultsDirectoryUnavailable)
+        .and_then(|directory| {
+            let event_loop = EventLoop::builder().with_android_app(android_app).build()?;
+            run_event_loop(event_loop, directory.join("ui-bench-results"))
+        });
+    match result {
+        Ok(()) => tracing::info!("UI_BENCH_EXITED"),
+        Err(error) => tracing::error!("UI_BENCH_FAILED {error}"),
     }
 }

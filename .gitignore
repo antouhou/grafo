@@ -1,4 +1,5 @@
 /target
+/ui-bench-results/
 /flamegraph.svg
 .DS_Store
 .idea

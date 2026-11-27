@@ -2,9 +2,11 @@ use crate::animation::{Animation, Workload};
 use crate::controls::{self, Action};
 use crate::interface::{self, Interface};
 use crate::overlay::{LiveTimings, Overlay};
+use crate::statistics::report::RunReportWriter;
 use crate::statistics::Statistics;
 use crate::BenchmarkError;
 use grafo::{Scene, SceneContext, Surface, SurfaceError, WgpuBackendError};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 use winit::application::ApplicationHandler;
@@ -48,6 +50,7 @@ struct BenchmarkWindow {
     overlay: Overlay,
     animation: Animation,
     statistics: Statistics,
+    result_writer: RunReportWriter,
     live: LiveTimings,
     should_refresh_overlay: bool,
     cursor: PhysicalPosition<f32>,
@@ -55,7 +58,7 @@ struct BenchmarkWindow {
 }
 
 impl BenchmarkWindow {
-    fn new(event_loop: &ActiveEventLoop) -> Result<Self, BenchmarkError> {
+    fn new(event_loop: &ActiveEventLoop, results_directory: &Path) -> Result<Self, BenchmarkError> {
         let window = Arc::new(
             event_loop.create_window(
                 Window::default_attributes()
@@ -97,6 +100,7 @@ impl BenchmarkWindow {
             overlay,
             animation,
             statistics,
+            result_writer: RunReportWriter::new(results_directory.to_path_buf(), now),
             live,
             should_refresh_overlay: false,
             cursor: PhysicalPosition::new(0.0, 0.0),
@@ -109,6 +113,7 @@ impl BenchmarkWindow {
         self.statistics = Statistics::default();
         self.live = LiveTimings::default();
         self.animation = Animation::new(now);
+        self.result_writer.restart(now);
         self.should_refresh_overlay = false;
         self.overlay.refresh(
             &mut self.scene,
@@ -193,9 +198,12 @@ impl BenchmarkWindow {
             started,
             completed,
             was_rendered,
+            self.scene.is_dirty_region_overlay_enabled(),
         );
         let has_completed = was_running && !self.animation.is_running();
         if has_completed {
+            self.result_writer
+                .save(&self.statistics, self.surface.vsync(), self.scene.size())?;
             report(&self.statistics, self.surface.vsync(), self.scene.size());
         }
         event_loop.set_control_flow(ControlFlow::Wait);
@@ -299,14 +307,16 @@ pub struct BenchmarkApplication {
     window: Option<BenchmarkWindow>,
     error: Option<BenchmarkError>,
     redraw_wakeup: EventLoopProxy<()>,
+    results_directory: PathBuf,
 }
 
 impl BenchmarkApplication {
-    pub fn new(redraw_wakeup: EventLoopProxy<()>) -> Self {
+    pub fn new(redraw_wakeup: EventLoopProxy<()>, results_directory: PathBuf) -> Self {
         Self {
             window: None,
             error: None,
             redraw_wakeup,
+            results_directory,
         }
     }
 
@@ -334,7 +344,7 @@ impl BenchmarkApplication {
 impl ApplicationHandler for BenchmarkApplication {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_none() {
-            match BenchmarkWindow::new(event_loop) {
+            match BenchmarkWindow::new(event_loop, &self.results_directory) {
                 Ok(window) => self.window = Some(window),
                 Err(error) => self.fail(event_loop, error),
             }
