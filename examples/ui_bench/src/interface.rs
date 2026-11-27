@@ -6,8 +6,8 @@ use crate::settings::Settings;
 use crate::BenchmarkError;
 use grafo::cosmic_text::{Buffer, FontSystem};
 use grafo::{
-    Color, CosmicText, DrawMode, Fill, Gradient, GradientCommonDesc, GradientStop,
-    LinearGradientDesc, LinearGradientLine, Scene, Shape, ShapeDrawOptions, TransformInstance,
+    Color, CosmicText, Fill, Gradient, GradientCommonDesc, GradientStop, LinearGradientDesc,
+    LinearGradientLine, Scene, Shape, ShapeDrawOptions, TransformInstance,
 };
 
 pub const WIDTH: f32 = 1280.0;
@@ -31,6 +31,19 @@ fn gradient(start: Color, end: Color, size: [f32; 2]) -> Fill {
         })
         .expect("finite two-stop gradient"),
     )
+}
+
+fn translated_options(options: &ShapeDrawOptions, offset: &TransformInstance) -> ShapeDrawOptions {
+    let base = options
+        .transform
+        .unwrap_or_else(TransformInstance::identity);
+    options.clone().transform(base.then(offset))
+}
+
+pub fn shape_options([x, y]: [f32; 2], color: Color) -> ShapeDrawOptions {
+    ShapeDrawOptions::new()
+        .color(color)
+        .transform(TransformInstance::translation(x, y))
 }
 
 struct MovingShape {
@@ -64,25 +77,17 @@ impl Layer {
         }
         let offset = TransformInstance::translation(translation[0], translation[1]);
         for shape in &self.shapes {
-            let base = shape
-                .options
-                .transform
-                .unwrap_or_else(TransformInstance::identity);
             scene.replace_with_cached_shape(
                 shape.id,
                 shape.key,
-                shape.options.clone().transform(base.then(&offset)),
+                translated_options(&shape.options, &offset),
             )?;
         }
         for label in &self.labels {
-            let base = label
-                .options
-                .transform
-                .unwrap_or_else(TransformInstance::identity);
             scene.replace_with_text(
                 label.id,
                 CosmicText::new(&label.buffer, fonts, None),
-                label.options.clone().transform(base.then(&offset)),
+                translated_options(&label.options, &offset),
             )?;
         }
         self.translation = translation;
@@ -123,13 +128,7 @@ impl<'a> LayerBuilder<'a> {
         position: [f32; 2],
         color: Color,
     ) -> Result<usize, BenchmarkError> {
-        self.add(
-            key,
-            parent,
-            ShapeDrawOptions::new()
-                .color(color)
-                .transform(TransformInstance::translation(position[0], position[1])),
-        )
+        self.add(key, parent, shape_options(position, color))
     }
 
     fn text(
@@ -139,10 +138,7 @@ impl<'a> LayerBuilder<'a> {
         position: [f32; 2],
         color: Color,
     ) -> Result<(), BenchmarkError> {
-        let options = ShapeDrawOptions::new()
-            .color(color)
-            .clips_children(false)
-            .transform(TransformInstance::translation(position[0], position[1]));
+        let options = shape_options(position, color).clips_children(false);
         let id = self.scene.add_text(
             CosmicText::new(&buffer, self.fonts, None),
             parent,
@@ -315,18 +311,11 @@ fn build_page(
             [x, y],
             Color::rgba(255, 255, 255, 22),
         )?;
-        let symbol = name_index % 6;
+        let symbol = artwork.symbols[name_index % artwork.symbols.len()];
         builder.add(
-            artwork.symbols[symbol],
+            symbol.key,
             Some(interior),
-            ShapeDrawOptions::new()
-                .color(Color::rgba(255, 255, 255, 240))
-                .draw_mode(if [1, 4, 5].contains(&symbol) {
-                    DrawMode::Stroke
-                } else {
-                    DrawMode::Fill
-                })
-                .transform(TransformInstance::translation(x, y)),
+            shape_options([x, y], Color::rgba(255, 255, 255, 240)).draw_mode(symbol.draw_mode),
         )?;
         let label_top = y + size + label_gap;
         builder.centered_label(

@@ -24,3 +24,7 @@ pub fn shape(fonts: &mut FontSystem, text: &str, size: f32, line_height: f32) ->
     set_text(fonts, &mut buffer, text, None);
     buffer
 }
+
+pub fn centered_y(top: f32, height: f32, size: f32) -> f32 {
+    top + (height - size * 1.3) * 0.5
+}

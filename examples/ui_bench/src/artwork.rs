@@ -1,22 +1,45 @@
 use crate::BenchmarkError;
-use grafo::{BorderRadii, Scene, Shape, StrokeGeometryOptions};
+use grafo::{BorderRadii, DrawMode, Scene, Shape, StrokeGeometryOptions};
 
 pub const APP_NAMES: [&str; 9] = [
     "Cinema", "Music", "Photos", "Explorer", "Messages", "Calendar", "Weather", "Podcasts", "Maps",
 ];
 
+#[derive(Clone, Copy, Default)]
+pub struct Icon {
+    pub key: u64,
+    pub draw_mode: DrawMode,
+}
+
 pub struct Artwork {
     next_key: u64,
-    pub symbols: [u64; 6],
+    pub symbols: [Icon; 6],
     pub circle: u64,
     pub ribbon: u64,
 }
 
 impl Artwork {
+    pub fn load_icons<const N: usize>(
+        &mut self,
+        scene: &mut Scene,
+        shapes: [Shape; N],
+    ) -> Result<[Icon; N], BenchmarkError> {
+        let mut icons = [Icon::default(); N];
+        for (icon, shape) in icons.iter_mut().zip(shapes) {
+            icon.draw_mode = if shape.stroke().is_some() {
+                DrawMode::Stroke
+            } else {
+                DrawMode::Fill
+            };
+            icon.key = self.load(scene, shape)?;
+        }
+        Ok(icons)
+    }
+
     pub fn new(scene: &mut Scene) -> Result<Self, BenchmarkError> {
         let mut artwork = Self {
             next_key: 1,
-            symbols: [0; 6],
+            symbols: [Icon::default(); 6],
             circle: 0,
             ribbon: 0,
         };
@@ -31,17 +54,13 @@ impl Artwork {
                 .close()
                 .build(),
         )?;
-        artwork.symbols[0] = artwork.load(
-            scene,
+        let symbols = [
             Shape::builder()
                 .begin((27.0, 20.0))
                 .line_to((60.0, 40.0))
                 .line_to((27.0, 60.0))
                 .close()
                 .build(),
-        )?;
-        artwork.symbols[1] = artwork.load(
-            scene,
             Shape::builder()
                 .begin((33.0, 56.0))
                 .line_to((33.0, 25.0))
@@ -50,9 +69,6 @@ impl Artwork {
                 .end()
                 .build()
                 .with_stroke(StrokeGeometryOptions::new(5.0)),
-        )?;
-        artwork.symbols[2] = artwork.load(
-            scene,
             Shape::builder()
                 .begin((18.0, 58.0))
                 .line_to((35.0, 34.0))
@@ -61,9 +77,6 @@ impl Artwork {
                 .line_to((68.0, 58.0))
                 .close()
                 .build(),
-        )?;
-        artwork.symbols[3] = artwork.load(
-            scene,
             Shape::builder()
                 .begin((15.0, 30.0))
                 .line_to((34.0, 30.0))
@@ -73,9 +86,6 @@ impl Artwork {
                 .line_to((15.0, 59.0))
                 .close()
                 .build(),
-        )?;
-        artwork.symbols[4] = artwork.load(
-            scene,
             Shape::builder()
                 .begin((18.0, 27.0))
                 .line_to((62.0, 27.0))
@@ -88,9 +98,6 @@ impl Artwork {
                 .end()
                 .build()
                 .with_stroke(StrokeGeometryOptions::new(3.0)),
-        )?;
-        artwork.symbols[5] = artwork.load(
-            scene,
             Shape::builder()
                 .begin((20.0, 25.0))
                 .line_to((60.0, 25.0))
@@ -108,7 +115,8 @@ impl Artwork {
                 .end()
                 .build()
                 .with_stroke(StrokeGeometryOptions::new(3.0)),
-        )?;
+        ];
+        artwork.symbols = artwork.load_icons(scene, symbols)?;
         Ok(artwork)
     }
 

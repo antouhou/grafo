@@ -2,11 +2,11 @@ mod assets;
 
 use self::assets::Assets;
 use crate::animation::Pose;
-use crate::artwork::Artwork;
+use crate::artwork::{Artwork, Icon};
 use crate::interface::{self, Layer, LayerBuilder, MUTED, TEXT};
-use crate::{shadow, BenchmarkError};
+use crate::{font, shadow, BenchmarkError};
 use grafo::cosmic_text::FontSystem;
-use grafo::{BorderRadii, Color, DrawMode, Scene, Shape, ShapeDrawOptions, TransformInstance};
+use grafo::{BorderRadii, Color, Scene, Shape, ShapeDrawOptions, TransformInstance};
 
 const X: f32 = 858.0;
 const Y: f32 = 96.0;
@@ -33,17 +33,17 @@ const TRAVEL: f32 = 440.0;
 
 fn icon(
     builder: &mut LayerBuilder<'_>,
-    key: u64,
+    icon: Icon,
     parent: usize,
     position: [f32; 2],
 ) -> Result<(), BenchmarkError> {
     let scale = ICON_SIZE / 40.0;
     builder.add(
-        key,
+        icon.key,
         Some(parent),
         ShapeDrawOptions::new()
             .color(TEXT)
-            .draw_mode(DrawMode::Stroke)
+            .draw_mode(icon.draw_mode)
             .transform(
                 TransformInstance::scale(scale, scale)
                     .then(&TransformInstance::translation(position[0], position[1])),
@@ -55,7 +55,7 @@ fn icon(
 fn icon_chip(
     builder: &mut LayerBuilder<'_>,
     assets: &Assets,
-    icon_key: u64,
+    symbol: Icon,
     parent: usize,
     position: [f32; 2],
     color: Color,
@@ -64,7 +64,7 @@ fn icon_chip(
     let inset = (CHIP_SIZE - ICON_SIZE) * 0.5;
     icon(
         builder,
-        icon_key,
+        symbol,
         chip,
         [position[0] + inset, position[1] + inset],
     )
@@ -92,7 +92,7 @@ impl MainMenu {
         builder.label(
             "Quick settings",
             Some(root),
-            [CONTENT_LEFT, HEADER_TOP + (44.0 - 23.0 * 1.3) * 0.5],
+            [CONTENT_LEFT, font::centered_y(HEADER_TOP, 44.0, 23.0)],
             (23.0, TEXT),
         )?;
         icon_chip(
@@ -155,7 +155,7 @@ impl MainMenu {
                 Some(tile),
                 [
                     x + 12.0 + CHIP_SIZE + 8.0,
-                    y + (TILE_HEIGHT - 13.0 * 1.3) * 0.5,
+                    font::centered_y(y, TILE_HEIGHT, 13.0),
                 ],
                 (13.0, TEXT),
             )?;
@@ -236,7 +236,10 @@ impl PowerMenu {
         builder.label(
             "<   Back",
             Some(back),
-            [CONTENT_LEFT + 18.0, HEADER_TOP + (44.0 - 18.0 * 1.3) * 0.5],
+            [
+                CONTENT_LEFT + 18.0,
+                font::centered_y(HEADER_TOP, 44.0, 18.0),
+            ],
             (18.0, TEXT),
         )?;
         for (index, label) in ["Shut down", "Suspend", "Reboot", "Log out"]
@@ -268,7 +271,7 @@ impl PowerMenu {
                 Some(row),
                 [
                     CONTENT_LEFT + 12.0 + CHIP_SIZE + 8.0,
-                    y + (44.0 - 18.0 * 1.3) * 0.5,
+                    font::centered_y(y, 44.0, 18.0),
                 ],
                 (18.0, TEXT),
             )?;
@@ -302,9 +305,7 @@ impl Settings {
         let panel = scene.add_cached_shape(
             assets.panel,
             Some(interface_clip),
-            ShapeDrawOptions::new()
-                .color(Color::rgb(37, 45, 59))
-                .transform(TransformInstance::translation(X + TRAVEL, Y)),
+            interface::shape_options([X + TRAVEL, Y], Color::rgb(37, 45, 59)),
         )?;
         shadow::attach(scene, panel, WIDTH)?;
         let viewport = scene.add_clipping_rect(
@@ -349,9 +350,7 @@ impl Settings {
             scene.replace_with_cached_shape(
                 self.panel,
                 self.assets.panel,
-                ShapeDrawOptions::new()
-                    .color(Color::rgb(37, 45, 59))
-                    .transform(TransformInstance::translation(X + offset, Y)),
+                interface::shape_options([X + offset, Y], Color::rgb(37, 45, 59)),
             )?;
             scene.replace_with_clipping_rect(
                 self.viewport,

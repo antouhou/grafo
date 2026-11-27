@@ -85,7 +85,7 @@ impl BenchmarkWindow {
             &statistics,
             &live,
             &animation.sample(now),
-            &mut interface,
+            &mut interface.fonts,
             false,
         )?;
         window.request_redraw();
@@ -146,7 +146,7 @@ impl BenchmarkWindow {
                 &self.statistics,
                 &self.live,
                 &sample,
-                &mut self.interface,
+                &mut self.interface.fonts,
                 self.surface.vsync(),
             )?;
         }
@@ -204,11 +204,7 @@ impl BenchmarkWindow {
         Ok(())
     }
 
-    fn apply_action(
-        &mut self,
-        action: Action,
-        event_loop: &ActiveEventLoop,
-    ) -> Result<(), BenchmarkError> {
+    fn apply_action(&mut self, action: Action, event_loop: &ActiveEventLoop) {
         match action {
             Action::Start => self.start(),
             Action::Stop => {
@@ -222,14 +218,9 @@ impl BenchmarkWindow {
             Action::Exit => event_loop.exit(),
         }
         self.window.request_redraw();
-        Ok(())
     }
 
-    fn pointer_released(
-        &mut self,
-        event_loop: &ActiveEventLoop,
-        position: PhysicalPosition<f32>,
-    ) -> Result<(), BenchmarkError> {
+    fn pointer_released(&mut self, event_loop: &ActiveEventLoop, position: PhysicalPosition<f32>) {
         let scale = scale_factor(self.window.inner_size());
         let x = position.x / scale;
         let y = position.y / scale;
@@ -237,7 +228,6 @@ impl BenchmarkWindow {
             return self.apply_action(action, event_loop);
         }
         self.window.request_redraw();
-        Ok(())
     }
 
     fn event(
@@ -271,7 +261,7 @@ impl BenchmarkWindow {
                     _ => None,
                 };
                 if let Some(action) = code.and_then(controls::key_action) {
-                    self.apply_action(action, event_loop)?;
+                    self.apply_action(action, event_loop);
                 }
             }
             WindowEvent::CursorMoved { position, .. } => self.cursor = position.cast(),
@@ -279,9 +269,9 @@ impl BenchmarkWindow {
                 state: ElementState::Released,
                 button: MouseButton::Left,
                 ..
-            } => self.pointer_released(event_loop, self.cursor)?,
+            } => self.pointer_released(event_loop, self.cursor),
             WindowEvent::Touch(touch) if touch.phase == TouchPhase::Ended => {
-                self.pointer_released(event_loop, touch.location.cast())?;
+                self.pointer_released(event_loop, touch.location.cast());
             }
             _ => {}
         }

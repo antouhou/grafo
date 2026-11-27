@@ -1,5 +1,5 @@
 use super::{CHIP_SIZE, CONTENT_WIDTH, HEIGHT, SCROLLBAR_HEIGHT, TILE_HEIGHT, TILE_WIDTH, WIDTH};
-use crate::artwork::Artwork;
+use crate::artwork::{Artwork, Icon};
 use crate::BenchmarkError;
 use grafo::{Scene, Shape, StrokeGeometryOptions};
 
@@ -12,7 +12,7 @@ pub(super) struct Assets {
     pub thumb: u64,
     pub row: u64,
     pub scrollbar: u64,
-    pub icons: [u64; 6],
+    pub icons: [Icon; 6],
 }
 
 impl Assets {
@@ -82,10 +82,10 @@ impl Assets {
                 .end()
                 .build(),
         ];
-        let mut icons = [0; 6];
-        for (key, shape) in icons.iter_mut().zip(outlines) {
-            *key = artwork.load(scene, shape.with_stroke(StrokeGeometryOptions::new(2.4)))?;
-        }
+        let icons = artwork.load_icons(
+            scene,
+            outlines.map(|shape| shape.with_stroke(StrokeGeometryOptions::new(2.4))),
+        )?;
         Ok(Self {
             panel: artwork.rounded(scene, [WIDTH, HEIGHT], 28.0)?,
             tile: artwork.rounded(scene, [TILE_WIDTH, TILE_HEIGHT], 18.0)?,
