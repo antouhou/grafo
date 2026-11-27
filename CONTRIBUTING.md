@@ -55,3 +55,7 @@ rule: visual regression test scene. I run it manually to check that everything i
 into those tests.
 - Do not add a new visual grid tile or a case for every little tiny fix and regression. This is a big regression
 test, and is meant for visual examination that nothing has regressed.
+
+## Performance
+- After making changes that can affect performance, run [`./examples/ui_bench`]. You can read more about it in its 
+[`./examples/ui_bench/README.md`].
