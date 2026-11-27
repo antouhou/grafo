@@ -134,9 +134,15 @@ impl Overlay {
             }
             let _ = writeln!(self.labels[table + 5].text, "{}", statistics.samples);
         }
-        self.labels[TABLE_TEXTS]
-            .text
-            .push_str("Enter start  Space stop  Esc exit");
+        let _ = write!(
+            self.labels[TABLE_TEXTS].text,
+            "Enter start  Space stop  D highlight updates {}  Esc exit",
+            if scene.is_dirty_region_overlay_enabled() {
+                "ON"
+            } else {
+                "OFF"
+            },
+        );
         let _ = write!(
             self.labels[TABLE_TEXTS + 1].text,
             "{}x{}  {} apps/page   update {:.2} ms   render call {:.2} ms",

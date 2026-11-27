@@ -1,11 +1,10 @@
 use winit::keyboard::KeyCode;
 
-pub const BUTTON_SIZE: [f32; 2] = [80.0, 36.0];
-
 #[derive(Clone, Copy)]
 pub enum Action {
     Start,
     Stop,
+    ToggleRedrawOverlay,
     Exit,
 }
 
@@ -17,20 +16,32 @@ pub struct Button {
 }
 
 impl Button {
-    const fn new(index: usize, label: &'static str, shortcut: KeyCode, action: Action) -> Self {
-        let x = 408.0 + index as f32 * 88.0;
+    const fn new(
+        x: f32,
+        width: f32,
+        label: &'static str,
+        shortcut: KeyCode,
+        action: Action,
+    ) -> Self {
         Self {
             label,
-            bounds: [(x, 40.0), (x + BUTTON_SIZE[0], 40.0 + BUTTON_SIZE[1])],
+            bounds: [(x, 40.0), (x + width, 76.0)],
             action,
             shortcut,
         }
     }
 }
 
-pub const BUTTONS: [Button; 2] = [
-    Button::new(0, "Start", KeyCode::Enter, Action::Start),
-    Button::new(1, "Stop", KeyCode::Space, Action::Stop),
+pub const BUTTONS: [Button; 3] = [
+    Button::new(408.0, 80.0, "Start", KeyCode::Enter, Action::Start),
+    Button::new(496.0, 80.0, "Stop", KeyCode::Space, Action::Stop),
+    Button::new(
+        584.0,
+        192.0,
+        "Highlight screen updates",
+        KeyCode::KeyD,
+        Action::ToggleRedrawOverlay,
+    ),
 ];
 
 pub fn key_action(code: KeyCode) -> Option<Action> {

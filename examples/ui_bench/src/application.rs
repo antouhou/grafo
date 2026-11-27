@@ -220,6 +220,11 @@ impl BenchmarkWindow {
                     report(&self.statistics, self.surface.vsync(), self.scene.size());
                 }
             }
+            Action::ToggleRedrawOverlay => {
+                let enabled = !self.scene.is_dirty_region_overlay_enabled();
+                self.scene.set_dirty_region_overlay_enabled(enabled);
+                self.should_refresh_overlay = true;
+            }
             Action::Exit => event_loop.exit(),
         }
         self.window.request_redraw();

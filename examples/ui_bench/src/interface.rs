@@ -1,6 +1,6 @@
 use crate::animation::Pose;
 use crate::artwork::{Artwork, APP_NAMES};
-use crate::controls::{BUTTONS, BUTTON_SIZE};
+use crate::controls::BUTTONS;
 use crate::font;
 use crate::settings::Settings;
 use crate::BenchmarkError;
@@ -236,14 +236,10 @@ fn build_background(
             .clips_children(false),
     )?;
     builder.label("Home", None, [MARGIN, 38.5], (30.0, TEXT))?;
-    let control = artwork.rounded(builder.scene, BUTTON_SIZE, 18.0)?;
     for button in &BUTTONS {
-        builder.shape(
-            control,
-            None,
-            [button.bounds[0].0, button.bounds[0].1],
-            Color::rgba(220, 235, 255, 22),
-        )?;
+        let [(left, top), (right, bottom)] = button.bounds;
+        let control = artwork.rounded(builder.scene, [right - left, bottom - top], 18.0)?;
+        builder.shape(control, None, [left, top], Color::rgba(220, 235, 255, 22))?;
         builder.centered_label(button.label, None, button.bounds, (13.0, TEXT))?;
     }
     let status = artwork.rounded(builder.scene, [160.0, 48.0], 24.0)?;
